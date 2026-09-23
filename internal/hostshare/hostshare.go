@@ -40,6 +40,13 @@ func validateProtectedPaths(root string, share spec.Share) error {
 	return nil
 }
 
+// missingShare is a vanished source directory; it matches os.ErrNotExist
+// without repeating "file does not exist" after a message that says so.
+type missingShare string
+
+func (e missingShare) Error() string      { return string(e) }
+func (missingShare) Is(target error) bool { return target == os.ErrNotExist }
+
 func openDirectory(share spec.Share) (*os.File, error) {
 	if !filepath.IsAbs(share.Host) || filepath.Clean(share.Host) != share.Host || share.Host == "/" || strings.ContainsAny(share.Host, "\x00\r\n") {
 		return nil, fmt.Errorf("host share path must be a clean non-root absolute path: %q", share.Host)
@@ -61,8 +68,14 @@ func openDirectory(share spec.Share) (*os.File, error) {
 			return nil, fmt.Errorf("host share has an unsafe path component: %q", share.Host)
 		}
 		next, openErr := unix.Openat(descriptor, component, flags, 0)
-		if openErr != nil {
-			return nil, fmt.Errorf("secure-open host share %q at %q: %w", share.Host, component, openErr)
+		switch {
+		case openErr == nil:
+		case errors.Is(openErr, unix.ENOENT):
+			return nil, missingShare(fmt.Sprintf("host share %s does not exist", share.Host))
+		case errors.Is(openErr, unix.ELOOP):
+			return nil, fmt.Errorf("host share %s has a symlink at %q; use the real path", share.Host, component)
+		default:
+			return nil, fmt.Errorf("open host share %s at %q: %w", share.Host, component, openErr)
 		}
 		_ = unix.Close(descriptor)
 		descriptor = next
@@ -107,7 +120,7 @@ func Open(root string, shares []spec.Share) (*Bundle, error) {
 		if err != nil {
 			_ = bundle.Close()
 			if errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("host share %q -> %q is unavailable: %w; restore the original host directory or its mount, then retry; Farrow will not create an empty replacement", share.Host, share.Guest, err)
+				return nil, missingShare(fmt.Sprintf("host share %s (for %s) does not exist; restore the directory or its mount, then retry (Farrow never creates an empty one)", share.Host, share.Guest))
 			}
 			return nil, fmt.Errorf("host share %q -> %q: %w", share.Host, share.Guest, err)
 		}

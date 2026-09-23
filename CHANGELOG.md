@@ -31,7 +31,7 @@ and messages that say what went wrong and what to do.
   and `resource_conflict` is now `resource`. JSON output no longer escapes
   `<`, `>`, and `&`.
 - A second farrow command waits up to 10 minutes behind a running one and says
-  which (`farrow up (pid 4821, running 2m10s)`); on timeout it exits 4 with
+  which (`farrow up (pid 4821, since 14:02:31)`); on timeout it exits 4 with
   reason `deployment_busy`. `status`, `ssh`, `exec`, `ssh-config`, and `hosts`
   do not wait: they show the recorded state with a `note:`.
 - `network` and `hosts` install/uninstall ask for confirmation on a terminal

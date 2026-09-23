@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/pgsty/farrow/internal/config"
 	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/hostshare"
 	privatevm "github.com/pgsty/farrow/internal/private"
@@ -208,7 +211,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 
 func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFailure, options ...lifecycleRetryOptions) {
 	groups := make(map[string][]string)
-	var retry, bootstrap, repair []string
+	var retry, bootstrap, repair, booted []string
 	for _, failure := range failures {
 		message := strings.Join(strings.Fields(failure.Error), " ")
 		groups[message] = append(groups[message], failure.Node)
@@ -224,6 +227,9 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 			repair = append(repair, failure.Node)
 		} else {
 			retry = append(retry, failure.Node)
+			if failure.Stage != "prepare" {
+				booted = append(booted, failure.Node)
+			}
 		}
 	}
 	messages := make([]string, 0, len(groups))
@@ -249,7 +255,11 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	}
 	if len(retry) > 0 {
 		textField(out, 10, "retry", lifecycleRetryCommand(source, retry, options...))
-		textField(out, 10, "logs", "farrow logs "+retry[0])
+	}
+	if len(booted) > 0 {
+		// A node that failed before its VM existed has no console log.
+		sort.Strings(booted)
+		textField(out, 10, "logs", "farrow logs "+booted[0])
 	}
 	if len(bootstrap) > 0 {
 		sort.Strings(bootstrap)
@@ -268,11 +278,28 @@ func lifecycleRetryCommand(source string, nodes []string, options ...lifecycleRe
 	return lifecycleNodeCommand(action, source, nodes, options...)
 }
 
+// inventoryFlag is the -f a follow-up command needs to read the same
+// inventory: none when discovery in the working directory finds it anyway.
+func inventoryFlag(source string) string {
+	if source == "" || source == "applied deployment state" {
+		return ""
+	}
+	if _, discovered, err := config.Discover("", ""); err == nil && discovered == source {
+		return ""
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if relative, err := filepath.Rel(cwd, source); err == nil && !strings.HasPrefix(relative, "..") {
+			source = relative
+		}
+	}
+	return " -f " + shellQuote(source)
+}
+
 func lifecycleNodeCommand(action, source string, nodes []string, options ...lifecycleRetryOptions) string {
 	command := "farrow " + action
 	readsConfig := lifecycleReadsConfig(action)
-	if readsConfig && source != "" && source != "applied deployment state" {
-		command += " -f " + shellQuote(source)
+	if readsConfig {
+		command += inventoryFlag(source)
 	}
 	if len(options) != 0 {
 		option := options[0]

@@ -147,7 +147,7 @@ func (s Store) stageWithRetry(ctx context.Context, source, directory string, ent
 		if delay > 30*time.Second {
 			return path, received, err
 		}
-		s.Progress.Report(activity.Event{Phase: "image-retry", Message: fmt.Sprintf("Retrying image %s in %s (%d/3)", entry.Alias, delay, attempt+2), Source: displayActivitySource(source)})
+		s.Progress.Report(activity.Event{Phase: "image-retry", Message: fmt.Sprintf("Retrying image %s, attempt %d of 3", entry.Alias, attempt+2), Source: displayActivitySource(source)})
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():

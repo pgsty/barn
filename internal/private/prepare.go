@@ -229,7 +229,7 @@ func PrepareNode(ctx context.Context, config PrepareConfig, name string) (NodeAr
 		return NodeArtifacts{}, fmt.Errorf("resolved spec has no node %s", name)
 	}
 	if err := hostshare.Validate(config.DeploymentRoot, definition.Shares); err != nil {
-		return NodeArtifacts{}, fmt.Errorf("validate host shares for node %s: %w", name, err)
+		return NodeArtifacts{}, err
 	}
 	baseAlias := definition.Image
 	if baseAlias == "" {

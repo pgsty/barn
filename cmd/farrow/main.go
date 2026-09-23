@@ -171,7 +171,7 @@ func confirmDestructive(force, interactive bool, action string, input io.Reader,
 		return nil
 	}
 	if !interactive {
-		return fmt.Errorf("%s requires --force when stdin is not a TTY", action)
+		return fmt.Errorf("%s requires --force when stdin is not a terminal", action)
 	}
 	if _, err := fmt.Fprintf(output, "Type %q to confirm: ", action); err != nil {
 		return fmt.Errorf("write %s confirmation prompt: %w", action, err)
@@ -1139,6 +1139,9 @@ type lifecycleResult struct {
 
 func runPrivateCommand(parent context.Context, command string, resolved spec.Resolved, nodes []string, repository, source string, force, deletePersistent, purge, noWait, rollback bool, stderr io.Writer) (commandOutcome, error) {
 	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback}
+	if repository == image.DefaultRepositoryURL {
+		retryOptions.Repository = "" // a retry finds the default by itself
+	}
 	if command == "start" || command == "restart" {
 		// Resume an interrupted start without changing its guest-convergence
 		// semantics, or stopping successful peers for a second time.
@@ -1163,12 +1166,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			return commandOutcome{}, classifyPrivateLifecycleError(err, operationID)
 		}
 		plan.Source = source
-		applyCommand := func(command string) string {
-			if source != "" && source != "applied deployment state" {
-				command += " -f " + shellQuote(source)
-			}
-			return command
-		}
+		applyCommand := func(command string) string { return command + inventoryFlag(source) }
 		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
 			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %s RAM, %s virtual disk capacity", plan.CPUs, planSize(plan.Memory), planSize(plan.Storage)))
@@ -1179,13 +1177,12 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			if plan.Blocked != "" {
 				textField(stdout, 12, "blocked", plan.Blocked)
 			}
-			textField(stdout, 12, "checks", "host capabilities and free addresses are checked by farrow up")
 			switch plan.Action {
 			case "none":
 				bestEffortf(stdout, "no changes: %d node(s) (%s) match the applied inventory\n", len(plan.Nodes), strings.Join(plan.Nodes, ", "))
 				return nil
 			case "repair":
-				textField(stdout, 12, "repair", strings.Join(plan.Nodes, ", ")+"  (state was left mid-transition; run: farrow status)")
+				textField(stdout, 12, "repair", strings.Join(plan.Nodes, ", ")+"  (left mid-transition; apply: "+applyCommand("farrow up")+")")
 			}
 			if len(plan.Start) != 0 {
 				textField(stdout, 12, "start", strings.Join(plan.Start, ", ")+"  (apply: "+applyCommand("farrow up")+")")
@@ -1227,7 +1224,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		timeout = 0
 		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Reload(ctx, resolved) }
 	case "recreate":
-		if !force {
+		if !force && term.IsTerminal(int(os.Stdin.Fd())) {
 			names := nodes
 			if len(names) == 0 {
 				for _, node := range resolved.Nodes {
@@ -1256,7 +1253,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			if len(nodes) != 0 && (deletePersistent || purge) {
 				return commandOutcome{}, newUsageError(errors.New("--delete-persistent and --purge apply to whole-deployment destroy only"))
 			}
-			if !force {
+			if !force && term.IsTerminal(int(os.Stdin.Fd())) {
 				// State the exact scope before the typed confirmation.
 				bestEffortln(stderr, destroyScope(resolved, nodes, deletePersistent, purge))
 			}
