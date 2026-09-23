@@ -18,3 +18,13 @@ func TestValidNodeNameContract(t *testing.T) {
 		}
 	}
 }
+
+func TestClosestSuggestsWithinTwoEdits(t *testing.T) {
+	t.Parallel()
+	candidates := []string{"vm_cpu", "vm_mem", "vm_disk", "vm_disks"}
+	for name, want := range map[string]string{"vm_cpus": "vm_cpu", "vm_dsk": "vm_disk", "vm_cpu": "", "vm_network": ""} {
+		if got := Closest(name, candidates); got != want {
+			t.Errorf("Closest(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

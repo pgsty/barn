@@ -13,8 +13,25 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/farrow/internal/spec"
 	"go.yaml.in/yaml/v3"
 )
+
+func TestPlanNamesImpliedDataDisks(t *testing.T) {
+	t.Parallel()
+	data := spec.Disk{Size: 128 * spec.GiB, Mount: "/data"}
+	resolved := spec.Resolved{Nodes: []spec.Node{{Name: "a", Disks: []spec.Disk{data}}, {Name: "b", Disks: []spec.Disk{data}}}}
+	if got := planDataDisks(resolved, nil); got != "/data 128 GiB (auto fs) on each node" {
+		t.Fatalf("shared disks = %q", got)
+	}
+	resolved.Nodes[1].Disks = nil
+	if got := planDataDisks(resolved, nil); got != "a: /data 128 GiB (auto fs); b: none" {
+		t.Fatalf("mixed disks = %q", got)
+	}
+	if got := planSize(2048 * spec.GiB); got != "2 TiB" {
+		t.Fatalf("large size = %q", got)
+	}
+}
 
 type failingWriter struct{}
 

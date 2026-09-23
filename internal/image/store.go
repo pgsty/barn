@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -343,6 +344,9 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	if err != nil {
 		return "", Metadata{}, err
 	}
+	if _, err := os.Lstat(absSource); errors.Is(err, os.ErrNotExist) {
+		return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("no such file: %s", absSource))
+	}
 	digest, sourceSize, err := digestFile(absSource)
 	if err != nil {
 		return "", Metadata{}, err
@@ -350,9 +354,12 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	if expectedDigest != "" && digest != expectedDigest {
 		return "", Metadata{}, fmt.Errorf("%w: local image digest %s does not match expected %s", ErrIntegrity, digest, expectedDigest)
 	}
+	if !qcow2File(absSource) {
+		return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("%s is not a qcow2 image", absSource))
+	}
 	basename := filepath.Base(absSource)
 	if !localImageFilename.MatchString(basename) {
-		return "", Metadata{}, errors.New("local image basename must be a safe .qcow2 or .img filename")
+		return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("%s: image file names may use letters, digits and ._+- and must end in .qcow2 or .img", basename))
 	}
 	entry := Entry{Alias: "local", Release: "local-" + digest[:12], CacheFile: "local/" + basename, SHA256: digest, Format: "qcow2", ArtifactSize: sourceSize}
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -370,7 +377,12 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	}
 	target, _ := s.Path(entry)
 	if _, err := os.Lstat(target); err == nil {
-		return s.ValidateCached(ctx, entry)
+		pathname, metadata, err := s.ValidateCached(ctx, entry)
+		if errors.Is(err, ErrIntegrity) {
+			// The cache is keyed by basename: a different file with the same name.
+			return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("the image cache already holds a different %s", entry.CacheFile)).Because("image_name_taken").Then("rename the file to import it alongside, or remove the old one with farrow image prune --yes")
+		}
+		return pathname, metadata, err
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", Metadata{}, err
 	}
@@ -392,6 +404,19 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 		keep = true
 	}
 	return pathname, metadata, err
+}
+
+// qcow2File reports whether pathname starts with the qcow2 magic, so a wrong
+// file is rejected before it is copied into the cache.
+func qcow2File(pathname string) bool {
+	handle, err := os.Open(pathname)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = handle.Close() }()
+	magic := make([]byte, 4)
+	_, err = io.ReadFull(handle, magic)
+	return err == nil && string(magic) == "QFI\xfb"
 }
 
 func (s Store) httpClient() *http.Client {
@@ -613,7 +638,43 @@ func stallAwareError(ctx context.Context, err error) error {
 	if cause := context.Cause(ctx); errors.Is(cause, errImageStalled) {
 		return fmt.Errorf("%w after %s of no progress", errImageStalled, imageStallTimeout)
 	}
-	return err
+	return reachError(err)
+}
+
+// unreachableError names the host and the short network reason instead of
+// Go's `Get "<url>": dial tcp <addr>: connect: ...` chain, which it still wraps.
+type unreachableError struct {
+	host   string
+	reason string
+	cause  error
+}
+
+func (e *unreachableError) Error() string { return "cannot reach " + e.host + ": " + e.reason }
+func (e *unreachableError) Unwrap() error { return e.cause }
+
+// reachError rewrites a failed HTTP round trip for people. Cancellation and
+// non-transport errors pass through unchanged.
+func reachError(err error) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	host := urlErr.URL
+	if parsed, parseErr := url.Parse(urlErr.URL); parseErr == nil && parsed.Host != "" {
+		host = parsed.Host
+	}
+	reason := urlErr.Err.Error()
+	var dnsErr *net.DNSError
+	var syscallErr *os.SyscallError
+	switch {
+	case errors.As(err, &dnsErr):
+		reason = "cannot resolve " + dnsErr.Name
+	case errors.As(err, &syscallErr):
+		reason = syscallErr.Err.Error()
+	case urlErr.Timeout():
+		reason = "timed out"
+	}
+	return failure.WithNext(&unreachableError{host: host, reason: reason, cause: err}, "check the network, or use --mirror / --repo <dir>")
 }
 
 func (s Store) stageSource(ctx context.Context, source, directory string, entry Entry) (string, int64, error) {
@@ -623,6 +684,10 @@ func (s Store) stageSource(ctx context.Context, source, directory string, entry 
 	}
 	if !filepath.IsAbs(source) {
 		return "", 0, errors.New("local repository artifact path must be absolute")
+	}
+	if _, err := os.Lstat(source); errors.Is(err, os.ErrNotExist) {
+		// A local repository without the file answers like an HTTP 404.
+		return "", 0, fmt.Errorf("%w: no such file %s", errSourceGone, source)
 	}
 	s.Progress.Report(activity.Event{
 		Phase: "image-copy", Message: fmt.Sprintf("Copying image %s %s (%s) from the local repository", entry.Alias, entry.Release, entry.Arch), Source: source,
@@ -716,6 +781,7 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 		candidates = append(candidates, candidate{kind: "upstream", source: entry.Upstream})
 	}
 	failures := make([]string, 0, len(candidates))
+	next := ""
 	gone := len(candidates) > 0
 	for index, candidate := range candidates {
 		tempPath, copied, stageErr := s.stageWithRetry(ctx, candidate.source, directory, entry)
@@ -730,6 +796,9 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 			}
 			s.Progress.Report(activity.Event{Phase: "image-fallback", Message: message, Source: displayActivitySource(candidate.source)})
 			failures = append(failures, candidate.kind+": "+stageErr.Error())
+			if _, _, hint := failure.Classify(stageErr); next == "" {
+				next = hint
+			}
 			continue
 		}
 		pathname, metadata, publishErr := s.publish(ctx, tempPath, entry, candidate.kind+":"+candidate.source, copied)
@@ -751,13 +820,13 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 		s.Progress.Report(activity.Event{Phase: "image-fallback", Message: message, Source: displayActivitySource(candidate.source)})
 		failures = append(failures, candidate.kind+": "+publishErr.Error())
 	}
-	message := fmt.Errorf("all image sources failed: %s", strings.Join(failures, "; "))
+	message := fmt.Errorf("download image %s %s: %s", entry.Alias, entry.Release, strings.Join(failures, "; "))
 	if gone {
 		if candidates[0].kind == "repository" {
-			return "", Metadata{}, fmt.Errorf("%w\n\nThe catalog artifact is not present in the selected repository. Run `farrow update`, select another official repository with --mirror/--repo, or `farrow image import` a local copy", message)
+			return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the selected repository does not carry this catalog artifact", message), "farrow update, choose another repository with --mirror / --repo, or farrow image import a local copy")
 		}
 		// A Store without a repository is a compatibility-only upstream path.
-		return "", Metadata{}, fmt.Errorf("%w\n\nThe pinned artifact is no longer published upstream. Run `farrow update` (or `farrow image sync <catalog-url>` for an exact source), point --repo/$FARROW_REPO at a repository that carries it, or `farrow image import` a local copy", message)
+		return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the pinned artifact is no longer published upstream", message), "farrow update, point --repo at a repository that carries it, or farrow image import a local copy")
 	}
-	return "", Metadata{}, message
+	return "", Metadata{}, failure.WithNext(message, next)
 }

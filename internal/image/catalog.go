@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 const (
@@ -286,7 +288,13 @@ func (c Catalog) canonicalImage(value string) (string, CatalogImage, error) {
 			}
 		}
 	}
-	return "", CatalogImage{}, fmt.Errorf("unknown image alias %q", value)
+	return "", CatalogImage{}, unknownSelection(fmt.Errorf("unknown image %q; available: %s", value, strings.Join(sortedKeys(c.Images), ", ")))
+}
+
+// unknownSelection marks a name the user chose that the catalog does not
+// offer; the message lists what it does offer.
+func unknownSelection(err error) error {
+	return failure.New(failure.Usage, err).Because("unknown_image")
 }
 
 func cacheFile(alias, release, arch string) string {
@@ -358,7 +366,7 @@ func resolveVersion(versions map[string]CatalogVersion, selector string) (string
 		matches = append(matches, candidate{name: version, parts: parts})
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("no catalog version matches numeric prefix %q", selector)
+		return "", unknownSelection(fmt.Errorf("no release matches version %q; available: %s", selector, strings.Join(sortedKeys(versions), ", ")))
 	}
 	// Map iteration order must never reach the result. Rank by numeric value and
 	// break every remaining tie on the catalog key itself, so one catalog and one
@@ -392,7 +400,7 @@ func canonicalNumericKey(parts []uint64) string {
 func (c Catalog) Entry(reference, arch string) (Entry, error) {
 	ref, err := ParseReference(reference)
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, failure.New(failure.Usage, err)
 	}
 	canonical, imageRecord, err := c.canonicalImage(ref.Image)
 	if err != nil {
@@ -415,7 +423,7 @@ func (c Catalog) Entry(reference, arch string) (Entry, error) {
 		var ok bool
 		release, ok = imageRecord.Channels[channel]
 		if !ok {
-			return Entry{}, fmt.Errorf("image %s has no channel %q", canonical, channel)
+			return Entry{}, unknownSelection(fmt.Errorf("image %s has no channel %q; available: %s", canonical, channel, strings.Join(sortedKeys(imageRecord.Channels), ", ")))
 		}
 	}
 	version, ok := imageRecord.Versions[release]
@@ -424,7 +432,7 @@ func (c Catalog) Entry(reference, arch string) (Entry, error) {
 	}
 	artifact, ok := version.Variants[arch]
 	if !ok {
-		return Entry{}, fmt.Errorf("image %s version %s has no %s artifact", canonical, release, arch)
+		return Entry{}, unknownSelection(fmt.Errorf("image %s %s has no %s build; available: %s", canonical, release, arch, strings.Join(sortedKeys(version.Variants), ", ")))
 	}
 	boot := artifact.Boot
 	if boot == "" {

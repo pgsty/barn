@@ -836,7 +836,7 @@ finalize_exit() {
   trap - EXIT
   if (( status != 0 )); then
     if [[ -s "${stage_err}" ]]; then
-      detail=$(tail -n 1 "${stage_err}" | tr -d '\r' | cut -c1-200 | sed 's/\\/\\\\/g; s/"/\\"/g')
+      detail=$(tail -n 1 "${stage_err}" | LC_ALL=C tr -d '\r\n' | LC_ALL=C tr '\000-\037\177' ' ' | cut -c1-200 | sed 's/\\/\\\\/g; s/"/\\"/g')
     fi
     if error_tmp=$(mktemp /var/lib/farrow/error.json.XXXXXX); then
       if printf '{"exit_status":%d,"stage":"%s","detail":"%s"}\n' "${status}" "${stage}" "${detail}" > "${error_tmp}" &&

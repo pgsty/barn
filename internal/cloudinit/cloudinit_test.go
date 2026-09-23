@@ -390,7 +390,11 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 				"timeout --kill-after=5s \"${budget}\" ", "", "flock -n 9", "true")
 			for _, name := range []string{"identity-contract", "hosts", "init-disks", "init-shares", "install-control-ssh", "private-contract", "network-check"} {
 				script := "#!/bin/bash\nprintf '%s\\n' " + name + " >> '" + trace + "'\n"
-				if name == failure || name == "network-check" {
+				if name == failure && name == "identity-contract" {
+					// A tab and an escape sequence in the last stderr line must
+					// not break the JSON marker that carries it to the host.
+					script += "printf 'mkfs:\\tfixture \\033[1m\"failed\"\\n' >&2\nexit 23\n"
+				} else if name == failure || name == "network-check" {
 					script += "echo 'fixture \"unavailable\"' >&2\nexit 23\n"
 				}
 				if err := os.WriteFile(filepath.Join(dir, "farrow-"+name), []byte(script), 0700); err != nil {
@@ -426,8 +430,12 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 					t.Fatalf("unsafe ready marker: %s, %v", marker, readyErr)
 				}
 				marker, err = os.ReadFile(filepath.Join(dir, "error.json"))
-				if err != nil || !json.Valid(marker) {
+				var failed struct{ Stage, Detail string }
+				if err != nil || json.Unmarshal(marker, &failed) != nil {
 					t.Fatalf("lost failure: %s %v", marker, err)
+				}
+				if failed.Stage != "identity" || failed.Detail != `mkfs: fixture  [1m"failed"` {
+					t.Fatalf("failure marker = %+v", failed)
 				}
 				return
 			}

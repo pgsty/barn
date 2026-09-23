@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/pgsty/farrow/internal/activity"
 	"github.com/pgsty/farrow/internal/image"
+	"github.com/pgsty/farrow/internal/spec"
 	"github.com/pgsty/farrow/internal/state"
 )
 
@@ -20,6 +22,31 @@ func imageService(repository string, mirror bool, progress activity.Reporter) (i
 		return image.Service{}, err
 	}
 	return image.Service{DataRoot: dataRoot, Repository: repository, Mirror: mirror, Progress: progress}, nil
+}
+
+// checkInventoryImages resolves each node's image against the active local
+// catalog without touching the network, so validate reports an unknown image,
+// channel, or version with the choices instead of leaving it to plan or up.
+func checkInventoryImages(ctx context.Context, resolved spec.Resolved) error {
+	service, err := imageService("", false, nil)
+	if err != nil {
+		return err
+	}
+	session, err := service.OpenCatalog()
+	if err != nil {
+		return err
+	}
+	arch := lifecycleImageArch(resolved)
+	for _, node := range resolved.Nodes {
+		reference := node.Image
+		if reference == "" {
+			reference = resolved.Image
+		}
+		if _, err := session.LookupArch(ctx, reference, arch); err != nil {
+			return fmt.Errorf("host %s (%s): %w", node.Address, node.Name, err)
+		}
+	}
+	return nil
 }
 
 func validImageDigest(value string) bool {

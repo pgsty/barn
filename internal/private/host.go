@@ -80,7 +80,7 @@ func qemuVersionPreflight(ctx context.Context, profile platform.Profile, runner 
 	}
 	qemuPath, err := platform.FindQEMUBinary(profile, exec.LookPath)
 	if err != nil {
-		return "", platform.Version{}, fmt.Errorf("locate QEMU binary: %w", err)
+		return "", platform.Version{}, err
 	}
 	result, err := runner.Run(ctx, qemuPath, "--version")
 	if err != nil {
