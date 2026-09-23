@@ -42,34 +42,3 @@ func processArgv(pid int) ([]string, error) {
 	}
 	return parseNULArgv(data)
 }
-
-// BootID identifies the current host boot; it changes on every restart.
-func BootID() (string, error) {
-	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	if err != nil {
-		return "", fmt.Errorf("read Linux boot id: %w", err)
-	}
-	value := strings.TrimSpace(string(data))
-	if value == "" {
-		return "", errors.New("linux boot id is empty")
-	}
-	return value, nil
-}
-
-func parseNULArgv(data []byte) ([]string, error) {
-	if len(data) == 0 {
-		return nil, errors.New("process argv bytes are empty")
-	}
-	if data[len(data)-1] == 0 {
-		data = data[:len(data)-1]
-	}
-	parts := bytes.Split(data, []byte{0})
-	argv := make([]string, len(parts))
-	for index, part := range parts {
-		argv[index] = string(part)
-	}
-	if len(argv) == 0 || argv[0] == "" {
-		return nil, errors.New("process argv has no executable")
-	}
-	return argv, nil
-}

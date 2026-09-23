@@ -289,8 +289,8 @@ func TestStatusCleansDeadRunningRuntimeBeforeSelfHalt(t *testing.T) {
 }
 
 // After a host reboot, a node recorded running can find its PID taken by an
-// unrelated process. That process is provably not QEMU, so status converges the
-// node to stopped instead of blocking every command on it.
+// unrelated process. Its start time proves it is not the recorded QEMU, so
+// status converges the node to stopped instead of blocking every command.
 func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
 	_, store := statusFixture(t)
 	node, err := store.ReadNode("meta")
@@ -310,7 +310,7 @@ func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
 	pid := stranger.Process.Pid
 	node.Phase = state.Running
 	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
-	node.Process = state.ProcessIdentity{PID: pid, Executable: node.Invocation.Binary, Started: "kinfo:1.000000", ArgvHash: process.ExpectedArgvHash(node.Invocation), Boot: "previous-boot"}
+	node.Process = state.ProcessIdentity{PID: pid, Executable: node.Invocation.Binary, Started: "kinfo:1.000000", ArgvHash: process.ExpectedArgvHash(node.Invocation)}
 	if err := os.WriteFile(node.Runtime.PIDFile, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

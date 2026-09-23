@@ -1022,13 +1022,6 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 				switch {
 				case qmpErr == nil && processMatches:
 					runtimeState = "running"
-					if node.Process.Boot == "" {
-						// Bind a pre-0.9 record to this boot so a later reuse is provable.
-						if boot, err := process.BootID(); err == nil {
-							node.Process.Boot = boot
-							convergenceCandidates = append(convergenceCandidates, node)
-						}
-					}
 				case qmpErr == nil:
 					return fmt.Errorf("node %s has matching QMP but its recorded process identity does not match; recreate --force it", node.Node)
 				case errors.Is(qmpErr, vm.ErrQMPIdentityMismatch):

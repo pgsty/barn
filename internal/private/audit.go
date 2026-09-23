@@ -33,22 +33,19 @@ func completeProcess(value state.ProcessIdentity) bool {
 	return value.PID > 0 && value.Executable != "" && value.Started != "" && value.ArgvHash != ""
 }
 
-// recordProcess binds a verified QEMU identity to the current host boot, so a
-// PID reused after a reboot is provably not the node's process.
 func recordProcess(value process.Identity) state.ProcessIdentity {
-	boot, _ := process.BootID()
-	return state.ProcessIdentity{PID: value.PID, Executable: value.Executable, Started: value.Started, ArgvHash: value.ArgvHash, Boot: boot}
+	return state.ProcessIdentity{PID: value.PID, Executable: value.Executable, Started: value.Started, ArgvHash: value.ArgvHash}
 }
 
 // observeProcess classifies whatever holds pid now against the node's
-// recorded QEMU. Any other PID (a pidfile's) was never recorded under a boot,
-// so only a non-QEMU executable proves it foreign.
+// recorded QEMU. Any other PID (a pidfile's) has no recorded start time, so
+// only a non-QEMU executable proves it foreign.
 func observeProcess(ctx context.Context, runner execx.Runner, node state.NodeState, pid int) process.Verdict {
 	if pid != node.Process.PID {
-		return process.Observe(ctx, runner, process.Identity{PID: pid, Executable: node.Invocation.Binary}, node.Invocation, "")
+		return process.Observe(ctx, runner, process.Identity{PID: pid, Executable: node.Invocation.Binary}, node.Invocation)
 	}
 	recorded := process.Identity{PID: pid, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
-	return process.Observe(ctx, runner, recorded, node.Invocation, node.Process.Boot)
+	return process.Observe(ctx, runner, recorded, node.Invocation)
 }
 
 func captureRuntimeProcess(ctx context.Context, runner execx.Runner, node state.NodeState) (process.Identity, error) {

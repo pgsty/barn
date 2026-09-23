@@ -85,9 +85,6 @@ type ProcessIdentity struct {
 	Executable string `json:"executable"`
 	Started    string `json:"started"`
 	ArgvHash   string `json:"argv_hash"`
-	// Boot is the host boot the process was recorded under; empty in states
-	// written before 0.9. A different boot proves the PID was reused.
-	Boot string `json:"boot,omitempty"`
 }
 
 // GuestWarning records a limited guest feature while management SSH remains

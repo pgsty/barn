@@ -479,7 +479,7 @@ func (l Lifecycle) observe(ctx context.Context, identity process.Identity, invoc
 		// Tests that fake identity matching must also fake reuse evidence.
 		return process.Unknown
 	}
-	return process.Observe(ctx, l.Runner, identity, invocation, "")
+	return process.Observe(ctx, l.Runner, identity, invocation)
 }
 
 func (l Lifecycle) alive(pid int) bool {

@@ -168,18 +168,16 @@ const (
 	Unknown                // a live process whose identity could not be read
 )
 
-// Observe classifies a recorded PID. A different boot, start time, or
-// executable proves reuse; only an unreadable live process stays Unknown, and
-// callers keep refusing to act on it. An empty boot skips the boot check.
-func Observe(ctx context.Context, runner execx.Runner, identity Identity, invocation qemu.Invocation, boot string) Verdict {
+// Observe classifies a recorded PID. A different start time or executable
+// proves reuse (any PID's start time is readable, even after a reboot); only
+// an unreadable live process stays Unknown, and callers keep refusing to act
+// on it.
+func Observe(ctx context.Context, runner execx.Runner, identity Identity, invocation qemu.Invocation) Verdict {
 	if !Alive(identity.PID) {
 		return Dead
 	}
 	if MatchesLive(ctx, runner, identity, invocation) {
 		return Ours
-	}
-	if current, err := BootID(); boot != "" && err == nil && current != boot {
-		return Foreign
 	}
 	if identity.Started != "" && !IsLegacyStart(identity.Started) {
 		if started, err := processStarted(identity.PID); err == nil && started != identity.Started {
