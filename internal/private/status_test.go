@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/farrow/internal/execx"
 	"github.com/pgsty/farrow/internal/process"
 	"github.com/pgsty/farrow/internal/qemu"
 	"github.com/pgsty/farrow/internal/state"
@@ -322,6 +323,54 @@ func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
 	}
 	if !process.Alive(pid) {
 		t.Fatal("status signalled the unrelated process")
+	}
+}
+
+// Ctrl-C during stop can leave a node "stopping" while its verified QEMU keeps
+// running. Status settles it as running, so up and start stop pointing at
+// status in a loop.
+func TestStatusResumesAnInterruptedStopWhoseProcessStillRuns(t *testing.T) {
+	_, store := statusFixture(t)
+	node, err := store.ReadNode("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep is unavailable")
+	}
+	survivor := exec.Command(sleep, "31")
+	if err := survivor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = survivor.Process.Kill(); _, _ = survivor.Process.Wait() })
+	node.Invocation = qemu.Invocation{Binary: sleep, Args: []string{"31"}}
+	var identity process.Identity
+	for attempt := 0; attempt < 100; attempt++ {
+		if identity, err = process.Capture(context.Background(), execx.OSRunner{}, node.Invocation, survivor.Process.Pid); err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := shortRuntimeBase(t, "farrow-interrupted-stop-")
+	directory := filepath.Join(base, "farrow", node.Node)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	node.Phase = state.Stopping
+	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
+	node.Process = recordProcess(identity)
+	if err := store.WriteNode(node); err != nil {
+		t.Fatal(err)
+	}
+	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Running {
+		t.Fatalf("interrupted stop = %#v, %v", status, err)
+	}
+	if settled, err := store.ReadNode("meta"); err != nil || settled.Phase != state.Running {
+		t.Fatalf("settled state = %v, %v", settled.Phase, err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -283,20 +284,36 @@ func PrepareNode(ctx context.Context, config PrepareConfig, name string) (NodeAr
 		if !ok || metadata.Uid != uint32(os.Geteuid()) {
 			return NodeArtifacts{}, fmt.Errorf("preserved unfinished node directory %s owned by another user", nodeDir)
 		}
-		// An offline prepare may leave a journal after a disk/tool failure.
-		// Reuse the existing rollback boundary before preparing again: it refuses
-		// committed state, runtime artifacts and any unrecognized files.
-		journal, err := ReadPrepareJournal(filepath.Join(nodeDir, "private-prepare.json"))
-		if err != nil || journal.Node != name || journal.SpecHash != config.NodeHashes[name] {
-			return NodeArtifacts{}, fmt.Errorf("unfinished node directory %s cannot be recovered automatically; preserve it and inspect its prepare journal", nodeDir)
+		// An offline prepare may leave a journal after a disk/tool failure, and
+		// the user usually edits the inventory before retrying. Reuse the
+		// rollback boundary whatever the node's definition is now: it removes
+		// only journaled artifacts and refuses committed state, runtime
+		// artifacts, and any unrecognized file.
+		entries, err := os.ReadDir(nodeDir)
+		if err != nil {
+			return NodeArtifacts{}, err
 		}
-		for _, path := range []string{nodePlan.Runtime.QMP, nodePlan.Runtime.PIDFile} {
-			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-				return NodeArtifacts{}, fmt.Errorf("unfinished node %s has runtime artifacts; run farrow status before retrying", name)
+		if len(entries) != 0 {
+			journal, err := ReadPrepareJournal(filepath.Join(nodeDir, "private-prepare.json"))
+			if err != nil || journal.Node != name {
+				names := make([]string, 0, len(entries))
+				for _, entry := range entries {
+					names = append(names, entry.Name())
+				}
+				return NodeArtifacts{}, fmt.Errorf("unfinished node directory %s holds files without a readable prepare record (%s); move them away, then retry", nodeDir, strings.Join(names, ", "))
 			}
-		}
-		if _, err := RollbackPrepared(privatePrepareDeployment(config), name, true); err != nil {
-			return NodeArtifacts{}, fmt.Errorf("preserved unfinished node %s: %w", name, err)
+			for _, path := range []string{nodePlan.Runtime.QMP, nodePlan.Runtime.PIDFile} {
+				if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+					return NodeArtifacts{}, fmt.Errorf("unfinished node %s has runtime artifacts; run farrow status before retrying", name)
+				}
+			}
+			if _, err := RollbackPrepared(privatePrepareDeployment(config), name, true); err != nil {
+				return NodeArtifacts{}, fmt.Errorf("preserved unfinished node %s: %w", name, err)
+			}
+		} else if err := os.Remove(nodeDir); err != nil {
+			// A crash between creating the directory and the first journal
+			// write leaves it empty; there is nothing to roll back.
+			return NodeArtifacts{}, err
 		}
 		if err := os.Mkdir(nodeDir, 0o700); err != nil {
 			return NodeArtifacts{}, fmt.Errorf("create recovered private node directory: %w", err)

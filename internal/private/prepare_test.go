@@ -217,6 +217,34 @@ func TestPrepareRetryRecoversOfflineFailureAndPreservesPeers(t *testing.T) {
 	}
 }
 
+// The usual reaction to a failed first up is editing the inventory. The node's
+// definition (and hash) then differs from the failed attempt's journal, which
+// must not strand the unfinished directory.
+func TestPrepareRetryRecoversAfterTheNodeDefinitionChanged(t *testing.T) {
+	root := t.TempDir()
+	fake := &fakePrivateDisks{failSubstring: "meta/data.qcow2"}
+	config := privatePrepareConfig(t, root, fake)
+	if _, err := PrepareNode(context.Background(), config, "meta"); err == nil {
+		t.Fatal("expected data disk failure")
+	}
+	fake.failSubstring = ""
+	config.NodeHashes["meta"] = strings.Repeat("e", 64)
+	if _, err := PrepareNode(context.Background(), config, "meta"); err != nil {
+		t.Fatalf("edited inventory cannot recover: %v", err)
+	}
+}
+
+func TestPrepareRetryRemovesAnEmptyUnfinishedDirectory(t *testing.T) {
+	root := t.TempDir()
+	config := privatePrepareConfig(t, root, &fakePrivateDisks{})
+	if err := os.MkdirAll(filepath.Join(root, "nodes", "meta"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareNode(context.Background(), config, "meta"); err != nil {
+		t.Fatalf("crash before the first journal write cannot recover: %v", err)
+	}
+}
+
 func TestPrepareRetryPreservesUnrecognizedArtifacts(t *testing.T) {
 	root := t.TempDir()
 	fake := &fakePrivateDisks{failSubstring: "meta/data.qcow2"}

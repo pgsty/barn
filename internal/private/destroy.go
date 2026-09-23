@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/lock"
 	"github.com/pgsty/farrow/internal/persistent"
@@ -154,6 +155,22 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		return Status{}, errors.New("destroy currently requires selecting the complete deployment")
 	}
 	selectedSet := nodeNameSet(selected)
+	// An interrupted start, stop, or destroy leaves a transitional phase.
+	// Settle it first (status proves the runtime dead, or live and ours), so
+	// destroy can finish the job instead of sending the user elsewhere.
+	interrupted := make([]string, 0)
+	for _, name := range selected {
+		if node, err := store.ReadNode(name); err == nil && (node.Phase == state.Starting || node.Phase == state.Stopping || node.Phase == state.Destroying) {
+			interrupted = append(interrupted, name)
+		}
+	}
+	if len(interrupted) != 0 {
+		settling := m
+		settling.Nodes = interrupted
+		if _, err := settling.statusForLocked(ctx, deploymentValue, ""); err != nil {
+			return Status{}, err
+		}
+	}
 	needsStop := false
 	stopNodes := make([]string, 0, len(selected))
 	for _, definition := range deploymentState.Resolved.Nodes {
@@ -170,7 +187,12 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			return Status{}, err
 		}
 		stopNodes = append(stopNodes, definition.Name)
-		needsStop = needsStop || node.Phase == state.Running || node.Phase == state.Prepared
+		needsStop = needsStop || node.Phase == state.Running || node.Phase == state.Prepared || node.Phase == state.Starting || node.Phase == state.Stopping
+	}
+	// Known-host cleanup runs after every artifact is gone; a missing tool
+	// found only then would strand a half-destroyed deployment.
+	if _, err := m.lookPath("ssh-keygen"); err != nil {
+		return Status{}, failure.New(failure.Capability, fmt.Errorf("destroy needs ssh-keygen: %w", err))
 	}
 	if needsStop {
 		stopper := m
@@ -197,7 +219,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			continue
 		}
 		if node.Phase != state.Stopped && node.Phase != state.Prepared {
-			return Status{}, fmt.Errorf("node %s phase %s is not destroyable", node.Node, node.Phase)
+			return Status{}, interruptedPhaseError(node)
 		}
 		identityValue := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
 		if process.MatchesLive(ctx, m.runner(), identityValue, node.Invocation) || process.Alive(node.Process.PID) {

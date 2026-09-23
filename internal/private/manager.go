@@ -270,6 +270,16 @@ type Status struct {
 	Note string `json:"note,omitempty"`
 }
 
+// interruptedPhaseError names the command that finishes a transition an
+// interrupted command left behind, once status could not settle it.
+func interruptedPhaseError(node state.NodeState) error {
+	next := "farrow stop " + node.Node
+	if node.Phase == state.Destroying {
+		next = "farrow destroy " + node.Node
+	}
+	return failure.New(failure.Conflict, fmt.Errorf("node %s is still %s after an interrupted command", node.Node, node.Phase)).Because("interrupted_transition").Then(next)
+}
+
 func appendStatusMessage(current, addition string) string {
 	current = strings.TrimSpace(current)
 	addition = strings.TrimSpace(addition)
@@ -394,7 +404,7 @@ func selectedNodeNames(resolved spec.Resolved, requested []string) ([]string, er
 	result := make([]string, 0, len(requested))
 	for _, name := range requested {
 		if _, ok := known[name]; !ok {
-			return nil, unknownNodeError(name, resolved.Nodes)
+			return nil, UnknownNodeError(name, "deployment", resolved.Nodes)
 		}
 		if _, duplicate := seen[name]; duplicate {
 			return nil, fmt.Errorf("node selection repeats %q", name)
@@ -1086,6 +1096,14 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 					convergenceCandidates = append(convergenceCandidates, node)
 					result.Message = appendStatusMessage(result.Message, fmt.Sprintf("adopted interrupted start for %s (pid %d)", node.Node, identityValue.PID))
 					runtimeState = "running"
+				} else if observation.Live && node.Phase != state.Destroying && completeProcess(node.Process) {
+					// A stop or start interrupted while QEMU kept running: the
+					// verified process is simply running again.
+					node.Phase = state.Running
+					node.UpdatedAt = time.Now().UTC()
+					convergenceCandidates = append(convergenceCandidates, node)
+					result.Message = appendStatusMessage(result.Message, "resumed "+node.Node+" as running after an interrupted command")
+					runtimeState = "running"
 				} else if observation.Live {
 					runtimeState = "running"
 				} else {
@@ -1206,7 +1224,7 @@ func (m Manager) Connection(ctx context.Context, requestedNode string) (Connecti
 		knownNode = knownNode || node.Name == requestedNode
 	}
 	if !knownNode {
-		return Connection{}, unknownNodeError(requestedNode, deploymentState.Resolved.Nodes)
+		return Connection{}, UnknownNodeError(requestedNode, "deployment", deploymentState.Resolved.Nodes)
 	}
 	m.Nodes = []string{requestedNode}
 	status, err := m.statusReadOnly(ctx, deploymentValue)
@@ -1218,7 +1236,7 @@ func (m Manager) Connection(ctx context.Context, requestedNode string) (Connecti
 	for _, node := range status.Nodes {
 		if node.Name == requestedNode {
 			if node.State != state.Running || node.Runtime != "running" {
-				return Connection{}, fmt.Errorf("node %s is not running", requestedNode)
+				return Connection{}, notRunningError(requestedNode)
 			}
 			port = node.SSHPort
 			hostKeyAlias = node.hostKeyAlias
@@ -1272,7 +1290,7 @@ func (m Manager) LogPath(nodeName, source string) (string, error) {
 		known = known || node.Name == nodeName
 	}
 	if !known {
-		return "", unknownNodeError(nodeName, deploymentState.Resolved.Nodes)
+		return "", UnknownNodeError(nodeName, "deployment", deploymentState.Resolved.Nodes)
 	}
 	logName := "serial.log"
 	if source == "qemu" {
@@ -1576,6 +1594,9 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 					if err != nil {
 						return Status{}, err
 					}
+					if node.Phase != state.Running && node.Phase != state.Stopped && node.Phase != state.Prepared {
+						return Status{}, interruptedPhaseError(node)
+					}
 				}
 				allRunning = allRunning && node.Phase == state.Running
 				allRunnable = allRunnable && (node.Phase == state.Running || node.Phase == state.Stopped || node.Phase == state.Prepared)
@@ -1584,8 +1605,6 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 				reusableDeployment = &existing
 			} else if allRunning || allRunnable {
 				return m.startExisting(ctx, existing, persisted, hostProfile, backend)
-			} else {
-				return Status{}, errors.New("the deployment has mixed node phases; run `farrow status` to converge interrupted transitions, then retry")
 			}
 		}
 	} else if !missingPath(openErr) {
@@ -1754,6 +1773,9 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 			} else {
 				err = errors.Join(err, peerErr)
 			}
+		} else if peerPartial := IsolatedPartial(peerErr); peerPartial != nil {
+			// Count every selected node, not only the existing peers.
+			err = newPartialError(peerPartial.Failures, len(selected))
 		} else {
 			err = peerErr
 		}
@@ -1855,7 +1877,7 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 			names = append(names, node.Node)
 			starting++
 		default:
-			return Status{}, fmt.Errorf("node %s phase %s requires `farrow status` convergence before start", node.Node, node.Phase)
+			return Status{}, interruptedPhaseError(node)
 		}
 	}
 	if len(names) == 0 {
@@ -2140,11 +2162,18 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	return result, nil
 }
 
-// unknownNodeError names the nodes that do exist so the user can pick one.
-func unknownNodeError(name string, nodes []spec.Node) error {
+// notRunningError is a guest command aimed at a node that is not running.
+func notRunningError(node string) error {
+	return failure.New(failure.Conflict, fmt.Errorf("node %s is not running", node)).Because("node_not_running").Then("farrow start " + node)
+}
+
+// UnknownNodeError names the nodes that do exist so the user can pick one.
+// where is the definition that lacks the node: "inventory" before it is
+// applied, "deployment" after.
+func UnknownNodeError(name, where string, nodes []spec.Node) error {
 	names := make([]string, 0, len(nodes))
 	for _, node := range nodes {
 		names = append(names, node.Name)
 	}
-	return fmt.Errorf("the deployment has no node %q; nodes: %s", name, strings.Join(names, ", "))
+	return failure.New(failure.Usage, fmt.Errorf("the %s has no node %q; nodes: %s", where, name, strings.Join(names, ", "))).Because("unknown_node")
 }

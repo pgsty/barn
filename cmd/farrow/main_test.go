@@ -342,13 +342,13 @@ func TestImplicitRemoteCommandWarnsOnceAtTheCommandBoundary(t *testing.T) {
 
 func TestNodeSelectorsAreValidatedBeforeAnyOperation(t *testing.T) {
 	resolved := spec.Resolved{Nodes: []spec.Node{{Name: "meta"}, {Name: "node-1"}}}
-	if err := validateNodeSelectors(resolved, []string{"node-1", "meta"}); err != nil {
+	if err := validateNodeSelectors(resolved, []string{"node-1", "meta"}, "inventory"); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateNodeSelectors(resolved, []string{"meta", "definitely-not-a-node"}); err == nil || !strings.Contains(err.Error(), `no node "definitely-not-a-node"`) {
+	if err := validateNodeSelectors(resolved, []string{"meta", "definitely-not-a-node"}, "inventory"); err == nil || !strings.Contains(err.Error(), `no node "definitely-not-a-node"`) {
 		t.Fatalf("unknown selector err = %v", err)
 	}
-	if err := validateNodeSelectors(resolved, []string{"meta", "meta"}); err == nil || !strings.Contains(err.Error(), "more than once") {
+	if err := validateNodeSelectors(resolved, []string{"meta", "meta"}, "inventory"); err == nil || !strings.Contains(err.Error(), "more than once") {
 		t.Fatalf("duplicate selector err = %v", err)
 	}
 	// Every inventory-reading command rejects the selector as a usage error

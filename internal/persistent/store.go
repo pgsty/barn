@@ -334,6 +334,11 @@ func Preserve(root string, identity Identity, source string) (Record, error) {
 			return Record{}, fmt.Errorf("retained disk %s/%s ownership is incompatible", identity.Node, identity.Name)
 		}
 		if filepath.Clean(source) != existing.Path {
+			// A destroy interrupted after its rename already preserved this
+			// disk: the node-local source is gone and the record matches.
+			if _, err := os.Lstat(source); errors.Is(err, os.ErrNotExist) {
+				return existing, nil
+			}
 			return Record{}, errors.New("compatible retained disk already exists at a different path")
 		}
 		return existing, nil
