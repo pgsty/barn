@@ -266,6 +266,18 @@ type Status struct {
 	SpecHash    string       `json:"spec_hash"`
 	Nodes       []NodeStatus `json:"nodes"`
 	Message     string       `json:"message,omitempty"`
+	// Note explains a status read while another command held the deployment.
+	Note string `json:"note,omitempty"`
+}
+
+// interruptedPhaseError names the command that finishes a transition an
+// interrupted command left behind, once status could not settle it.
+func interruptedPhaseError(node state.NodeState) error {
+	next := "farrow stop " + node.Node
+	if node.Phase == state.Destroying {
+		next = "farrow destroy " + node.Node
+	}
+	return failure.New(failure.Conflict, fmt.Errorf("node %s is still %s after an interrupted command", node.Node, node.Phase)).Because("interrupted_transition").Then(next)
 }
 
 func appendStatusMessage(current, addition string) string {
@@ -392,7 +404,7 @@ func selectedNodeNames(resolved spec.Resolved, requested []string) ([]string, er
 	result := make([]string, 0, len(requested))
 	for _, name := range requested {
 		if _, ok := known[name]; !ok {
-			return nil, unknownNodeError(name, resolved.Nodes)
+			return nil, UnknownNodeError(name, "deployment", resolved.Nodes)
 		}
 		if _, duplicate := seen[name]; duplicate {
 			return nil, fmt.Errorf("node selection repeats %q", name)
@@ -898,9 +910,7 @@ func committedNodeUUIDs(store state.Store, resolved spec.Resolved, creating []st
 }
 
 func (m Manager) ensureKeys(ctx context.Context, deploymentValue Deployment) (_ string, _ string, _ string, returnErr error) {
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -923,6 +933,13 @@ func (m Manager) ensureKeys(ctx context.Context, deploymentValue Deployment) (_ 
 }
 
 func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment, message string) (Status, error) {
+	return m.observeStatus(ctx, deploymentValue, message, true)
+}
+
+// observeStatus audits every selected node. With converge it also publishes
+// what the audit proved (stopped runtimes, adopted starts); without it, it
+// only reads, for a command that runs while another one holds the lock.
+func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, message string, converge bool) (Status, error) {
 	store := state.Store{Root: deploymentValue.Root}
 	deploymentState, err := store.ReadDeployment()
 	if err != nil {
@@ -958,14 +975,14 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 			readErrors[definition.Name] = err
 			continue
 		}
-		if completeProcess(node.Process) && process.IsLegacyStart(node.Process.Started) {
+		if converge && completeProcess(node.Process) && process.IsLegacyStart(node.Process.Started) {
 			recorded := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
 			if process.MatchesLive(ctx, m.runner(), recorded, node.Invocation) {
 				fresh, captureErr := process.Capture(ctx, m.runner(), node.Invocation, node.Process.PID)
 				if captureErr != nil || fresh.PID != recorded.PID || fresh.ArgvHash != process.ExpectedArgvHash(node.Invocation) {
 					result.Message = appendStatusMessage(result.Message, "kept legacy process identity for "+node.Node+" because native argv binding was unavailable or did not match")
 				} else {
-					node.Process = state.ProcessIdentity{PID: fresh.PID, Executable: fresh.Executable, Started: fresh.Started, ArgvHash: fresh.ArgvHash}
+					node.Process = recordProcess(fresh)
 					node.UpdatedAt = time.Now().UTC()
 					if err := store.WriteNode(node); err != nil {
 						readErrors[node.Node] = fmt.Errorf("migrate process identity: %w", err)
@@ -1015,8 +1032,10 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					return fmt.Errorf("node %s is recorded running with incomplete runtime identity; recreate is required", node.Node)
 				case !completeProcess(node.Process):
 					return fmt.Errorf("node %s is recorded running with incomplete process identity; recreate is required", node.Node)
-				case process.Alive(node.Process.PID):
-					return fmt.Errorf("node %s recorded PID %d is alive but full process identity does not match; verify and stop it manually", node.Node, node.Process.PID)
+				case observeProcess(ctx, m.runner(), node, node.Process.PID) == process.Unknown:
+					// A reused PID (after a reboot, or another exit) is proven
+					// foreign and converges below; only an unreadable one blocks.
+					return fmt.Errorf("node %s recorded PID %d is alive but its identity cannot be read; Farrow will not treat it as stopped", node.Node, node.Process.PID)
 				default:
 					// ValidateIdentity alone cannot distinguish a wholly stale QMP
 					// socket from a live endpoint whose name responded but UUID query
@@ -1032,6 +1051,10 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					// This is the safe self-halt case. The death audit proved both QMP
 					// and every recorded PID dead, so remove the bounded runtime residue
 					// before publishing a startable stopped state.
+					if !converge {
+						node.Phase = state.Stopped
+						return nil
+					}
 					if err := cleanupRuntime(node); err != nil {
 						return fmt.Errorf("clean dead private runtime for %s: %w", node.Node, err)
 					}
@@ -1040,6 +1063,9 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)
 				}
+			} else if !converge && (node.Phase == state.Stopping || node.Phase == state.Starting || node.Phase == state.Destroying) {
+				// The command holding the lock owns this transition.
+				runtimeState = "unknown"
 			} else if node.Phase == state.Stopping || node.Phase == state.Starting || node.Phase == state.Destroying {
 				// An interrupted transition (a killed CLI mid-stop/start/destroy).
 				// Prove the runtime dead before converging. A QMP-bound starting
@@ -1057,11 +1083,19 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					if captureErr != nil {
 						return fmt.Errorf("adopt interrupted private start for %s: %w", node.Node, captureErr)
 					}
-					node.Process = state.ProcessIdentity{PID: identityValue.PID, Executable: identityValue.Executable, Started: identityValue.Started, ArgvHash: identityValue.ArgvHash}
+					node.Process = recordProcess(identityValue)
 					node.Phase = state.Running
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)
 					result.Message = appendStatusMessage(result.Message, fmt.Sprintf("adopted interrupted start for %s (pid %d)", node.Node, identityValue.PID))
+					runtimeState = "running"
+				} else if observation.Live && node.Phase != state.Destroying && completeProcess(node.Process) {
+					// A stop or start interrupted while QEMU kept running: the
+					// verified process is simply running again.
+					node.Phase = state.Running
+					node.UpdatedAt = time.Now().UTC()
+					convergenceCandidates = append(convergenceCandidates, node)
+					result.Message = appendStatusMessage(result.Message, "resumed "+node.Node+" as running after an interrupted command")
 					runtimeState = "running"
 				} else if observation.Live {
 					runtimeState = "running"
@@ -1093,6 +1127,9 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 			SSHHost: "127.0.0.1", SSHPort: node.SSHPort, ProcessID: node.Process.PID,
 		})
 	}
+	if !converge {
+		convergenceCandidates = nil
+	}
 	for _, node := range convergenceCandidates {
 		if err := store.WriteNode(node); err != nil {
 			failures = append(failures, NodeFailure{Node: node.Node, Stage: "status", Error: err.Error()})
@@ -1110,9 +1147,7 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 }
 
 func (m Manager) statusFor(ctx context.Context, deploymentValue Deployment, message string) (_ Status, returnErr error) {
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1127,7 +1162,25 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return m.statusFor(ctx, deploymentValue, "")
+	return m.statusReadOnly(ctx, deploymentValue)
+}
+
+// statusReadOnly never queues behind another farrow command: while one holds
+// the deployment, it reports the recorded state without converging it.
+func (m Manager) statusReadOnly(ctx context.Context, deploymentValue Deployment) (_ Status, returnErr error) {
+	deploymentLock, holder, err := tryDeploymentLock(deploymentValue.Root, false)
+	if err != nil {
+		return Status{}, err
+	}
+	if deploymentLock == nil {
+		status, err := m.observeStatus(ctx, deploymentValue, "", false)
+		status.Note = holder + " is running; showing recorded state"
+		return status, err
+	}
+	defer func() {
+		returnErr = lock.JoinRelease(returnErr, deploymentLock, "deployment status lock")
+	}()
+	return m.statusForLocked(ctx, deploymentValue, "")
 }
 
 func defaultCommittedNode(store state.Store, resolved spec.Resolved) (string, error) {
@@ -1164,10 +1217,10 @@ func (m Manager) Connection(ctx context.Context, requestedNode string) (Connecti
 		knownNode = knownNode || node.Name == requestedNode
 	}
 	if !knownNode {
-		return Connection{}, unknownNodeError(requestedNode, deploymentState.Resolved.Nodes)
+		return Connection{}, UnknownNodeError(requestedNode, "deployment", deploymentState.Resolved.Nodes)
 	}
 	m.Nodes = []string{requestedNode}
-	status, err := m.statusFor(ctx, deploymentValue, "")
+	status, err := m.statusReadOnly(ctx, deploymentValue)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -1176,7 +1229,7 @@ func (m Manager) Connection(ctx context.Context, requestedNode string) (Connecti
 	for _, node := range status.Nodes {
 		if node.Name == requestedNode {
 			if node.State != state.Running || node.Runtime != "running" {
-				return Connection{}, fmt.Errorf("node %s is not running", requestedNode)
+				return Connection{}, notRunningError(requestedNode)
 			}
 			port = node.SSHPort
 			hostKeyAlias = node.hostKeyAlias
@@ -1230,7 +1283,7 @@ func (m Manager) LogPath(nodeName, source string) (string, error) {
 		known = known || node.Name == nodeName
 	}
 	if !known {
-		return "", unknownNodeError(nodeName, deploymentState.Resolved.Nodes)
+		return "", UnknownNodeError(nodeName, "deployment", deploymentState.Resolved.Nodes)
 	}
 	logName := "serial.log"
 	if source == "qemu" {
@@ -1534,6 +1587,9 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 					if err != nil {
 						return Status{}, err
 					}
+					if node.Phase != state.Running && node.Phase != state.Stopped && node.Phase != state.Prepared {
+						return Status{}, interruptedPhaseError(node)
+					}
 				}
 				allRunning = allRunning && node.Phase == state.Running
 				allRunnable = allRunnable && (node.Phase == state.Running || node.Phase == state.Stopped || node.Phase == state.Prepared)
@@ -1542,8 +1598,6 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 				reusableDeployment = &existing
 			} else if allRunning || allRunnable {
 				return m.startExisting(ctx, existing, persisted, hostProfile, backend)
-			} else {
-				return Status{}, errors.New("the deployment has mixed node phases; run `farrow status` to converge interrupted transitions, then retry")
 			}
 		}
 	} else if !missingPath(openErr) {
@@ -1612,9 +1666,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	if err := validatePrivatePersistentDesired(deploymentValue, requested); err != nil {
 		return Status{}, err
 	}
-	allocatorContext, cancelAllocator := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelAllocator()
-	allocator, err := lock.Acquire(allocatorContext, filepath.Join(deploymentValue.Root, "locks", "allocator.lock"), false)
+	allocator, err := waitForLock(ctx, filepath.Join(deploymentValue.Root, "locks", "allocator.lock"), false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1714,6 +1766,9 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 			} else {
 				err = errors.Join(err, peerErr)
 			}
+		} else if peerPartial := IsolatedPartial(peerErr); peerPartial != nil {
+			// Count every selected node, not only the existing peers.
+			err = newPartialError(peerPartial.Failures, len(selected))
 		} else {
 			err = peerErr
 		}
@@ -1778,9 +1833,7 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 	if err := m.ensureSSHAddressesUnused(startableDefinitions); err != nil {
 		return Status{}, err
 	}
-	lockContext, cancelLock := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelLock()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1817,7 +1870,7 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 			names = append(names, node.Node)
 			starting++
 		default:
-			return Status{}, fmt.Errorf("node %s phase %s requires `farrow status` convergence before start", node.Node, node.Phase)
+			return Status{}, interruptedPhaseError(node)
 		}
 	}
 	if len(names) == 0 {
@@ -1878,9 +1931,7 @@ func (m Manager) Stop(ctx context.Context) (_ Status, returnErr error) {
 	if err != nil {
 		return Status{}, err
 	}
-	lockContext, cancelLock := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelLock()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -2104,11 +2155,18 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	return result, nil
 }
 
-// unknownNodeError names the nodes that do exist so the user can pick one.
-func unknownNodeError(name string, nodes []spec.Node) error {
+// notRunningError is a guest command aimed at a node that is not running.
+func notRunningError(node string) error {
+	return failure.New(failure.Conflict, fmt.Errorf("node %s is not running", node)).Because("node_not_running").Then("farrow start " + node)
+}
+
+// UnknownNodeError names the nodes that do exist so the user can pick one.
+// where is the definition that lacks the node: "inventory" before it is
+// applied, "deployment" after.
+func UnknownNodeError(name, where string, nodes []spec.Node) error {
 	names := make([]string, 0, len(nodes))
 	for _, node := range nodes {
 		names = append(names, node.Name)
 	}
-	return fmt.Errorf("the deployment has no node %q; nodes: %s", name, strings.Join(names, ", "))
+	return failure.New(failure.Usage, fmt.Errorf("the %s has no node %q; nodes: %s", where, name, strings.Join(names, ", "))).Because("unknown_node")
 }

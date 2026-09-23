@@ -47,7 +47,7 @@ func TestSelectedRecreateRefusesPeerDriftBeforeDeletingDisks(t *testing.T) {
 func TestDestroyAndStopReadStateOnlyAfterAcquiringLock(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
 	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
-	held, err := acquireDeploymentLock(context.Background(), fixture.Deployment.Root, false)
+	held, err := acquireDeploymentLock(context.Background(), fixture.Deployment.Root, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

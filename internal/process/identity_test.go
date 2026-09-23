@@ -234,3 +234,35 @@ func TestMatchesLiveRejectsARecycledPID(t *testing.T) {
 		t.Fatal("MatchesLive accepted a different live process under a reused PID")
 	}
 }
+
+func TestObserveProvesPIDReuse(t *testing.T) {
+	t.Parallel()
+	pid, invocation := liveProcess(t, "123")
+	identity, err := Capture(context.Background(), testRunner(), invocation, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Observe(context.Background(), testRunner(), identity, invocation); got != Ours {
+		t.Fatalf("recorded live process = %v, want Ours", got)
+	}
+	// A different live process under the recorded PID: its start time differs.
+	other, otherInvocation := liveProcess(t, "124")
+	reused := identity
+	reused.PID = other
+	if got := Observe(context.Background(), testRunner(), reused, otherInvocation); got != Foreign {
+		t.Fatalf("reused PID = %v, want Foreign", got)
+	}
+	if got := Observe(context.Background(), testRunner(), Identity{PID: 1 << 30}, invocation); got != Dead {
+		t.Fatalf("free PID = %v, want Dead", got)
+	}
+}
+
+func TestObserveProvesARootProcessIsNotQEMU(t *testing.T) {
+	t.Parallel()
+	// PID 1 answers signal 0 with EPERM, so it is alive but unsignalable; its
+	// executable and start time still prove it is not a recorded QEMU.
+	recorded := Identity{PID: 1, Executable: "/opt/homebrew/bin/qemu-system-aarch64", Started: "kinfo:1.000000", ArgvHash: "0"}
+	if got := Observe(context.Background(), testRunner(), recorded, qemu.Invocation{Binary: recorded.Executable}); got != Foreign {
+		t.Fatalf("PID 1 = %v, want Foreign", got)
+	}
+}

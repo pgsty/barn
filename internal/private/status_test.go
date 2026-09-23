@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/farrow/internal/execx"
 	"github.com/pgsty/farrow/internal/process"
 	"github.com/pgsty/farrow/internal/qemu"
 	"github.com/pgsty/farrow/internal/state"
@@ -284,6 +285,92 @@ func TestStatusCleansDeadRunningRuntimeBeforeSelfHalt(t *testing.T) {
 	}
 	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("dead running runtime directory remains: %v", err)
+	}
+}
+
+// After a host reboot, a node recorded running can find its PID taken by an
+// unrelated process. Its start time proves it is not the recorded QEMU, so
+// status converges the node to stopped instead of blocking every command.
+func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
+	_, store := statusFixture(t)
+	node, err := store.ReadNode("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stranger := exec.Command("sleep", "30")
+	if err := stranger.Start(); err != nil {
+		t.Skip("sleep is unavailable")
+	}
+	t.Cleanup(func() { _ = stranger.Process.Kill(); _, _ = stranger.Process.Wait() })
+	base := shortRuntimeBase(t, "farrow-reused-pid-")
+	directory := filepath.Join(base, "farrow", node.Node)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pid := stranger.Process.Pid
+	node.Phase = state.Running
+	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
+	node.Process = state.ProcessIdentity{PID: pid, Executable: node.Invocation.Binary, Started: "kinfo:1.000000", ArgvHash: process.ExpectedArgvHash(node.Invocation)}
+	if err := os.WriteFile(node.Runtime.PIDFile, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteNode(node); err != nil {
+		t.Fatal(err)
+	}
+	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Stopped {
+		t.Fatalf("reused PID = %#v, %v", status, err)
+	}
+	if !process.Alive(pid) {
+		t.Fatal("status signalled the unrelated process")
+	}
+}
+
+// Ctrl-C during stop can leave a node "stopping" while its verified QEMU keeps
+// running. Status settles it as running, so up and start stop pointing at
+// status in a loop.
+func TestStatusResumesAnInterruptedStopWhoseProcessStillRuns(t *testing.T) {
+	_, store := statusFixture(t)
+	node, err := store.ReadNode("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep is unavailable")
+	}
+	survivor := exec.Command(sleep, "31")
+	if err := survivor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = survivor.Process.Kill(); _, _ = survivor.Process.Wait() })
+	node.Invocation = qemu.Invocation{Binary: sleep, Args: []string{"31"}}
+	var identity process.Identity
+	for attempt := 0; attempt < 100; attempt++ {
+		if identity, err = process.Capture(context.Background(), execx.OSRunner{}, node.Invocation, survivor.Process.Pid); err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := shortRuntimeBase(t, "farrow-interrupted-stop-")
+	directory := filepath.Join(base, "farrow", node.Node)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	node.Phase = state.Stopping
+	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
+	node.Process = recordProcess(identity)
+	if err := store.WriteNode(node); err != nil {
+		t.Fatal(err)
+	}
+	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Running {
+		t.Fatalf("interrupted stop = %#v, %v", status, err)
+	}
+	if settled, err := store.ReadNode("meta"); err != nil || settled.Phase != state.Running {
+		t.Fatalf("settled state = %v, %v", settled.Phase, err)
 	}
 }
 

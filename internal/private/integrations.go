@@ -31,9 +31,9 @@ func (m Manager) integrationSnapshot(ctx context.Context) (_ Deployment, _ state
 	if err != nil {
 		return Deployment{}, state.DeploymentState{}, nil, err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, true)
+	// Integrations only read state, which is published atomically: while
+	// another command holds the deployment, read without queueing behind it.
+	deploymentLock, _, err := tryDeploymentLock(deploymentValue.Root, true)
 	if err != nil {
 		return Deployment{}, state.DeploymentState{}, nil, err
 	}
@@ -93,9 +93,7 @@ func (m Manager) Connections(ctx context.Context) (_ []Connection, returnErr err
 	if err != nil {
 		return nil, err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +127,7 @@ func (m Manager) ConnectionsLocked(ctx context.Context, deploymentValue Deployme
 	for index, node := range nodes {
 		definition := deploymentState.Resolved.Nodes[index]
 		if node.Phase != state.Running {
-			return nil, fmt.Errorf("node %s is not running", node.Node)
+			return nil, notRunningError(node.Node)
 		}
 		identity := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
 		if err := lifecycle.ValidateIdentity(ctx, node.Runtime.QMP, node.Node, node.VMUUID); err != nil {

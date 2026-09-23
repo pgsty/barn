@@ -584,7 +584,7 @@ func splitRemoteInvocation(arguments []string, resolved spec.Resolved) (string, 
 		case len(head) > 1:
 			return "", nil, false, fmt.Errorf("at most one node may precede --, got %s", strings.Join(head, " "))
 		case !known(head[0]):
-			return "", nil, false, fmt.Errorf("the deployment has no node %q", head[0])
+			return "", nil, false, privatevm.UnknownNodeError(head[0], "deployment", resolved.Nodes)
 		}
 		return head[0], command, false, nil
 	}
@@ -1020,6 +1020,9 @@ func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
 	}
 	if status.Message != "" {
 		bestEffortln(out, status.Message)
+	}
+	if status.Note != "" {
+		textField(out, 6, "note", status.Note)
 	}
 }
 
@@ -1537,7 +1540,11 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	}
 	// Selectors are checked against the same specification the engine will
 	// use, before host preflight, confirmation prompts, or any change.
-	if err := validateNodeSelectors(resolvedFile, nodes); err != nil {
+	selectorSource := "inventory"
+	if source == "" {
+		selectorSource = "deployment"
+	}
+	if err := validateNodeSelectors(resolvedFile, nodes, selectorSource); err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
 	if source == "" {
@@ -1610,7 +1617,9 @@ func interactiveTextSession(stderr io.Writer) bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
-func validateNodeSelectors(resolved spec.Resolved, nodes []string) error {
+// validateNodeSelectors checks selectors against resolved; where names it
+// for the user ("inventory" or "deployment").
+func validateNodeSelectors(resolved spec.Resolved, nodes []string, where string) error {
 	known := make(map[string]struct{}, len(resolved.Nodes))
 	for _, node := range resolved.Nodes {
 		known[node.Name] = struct{}{}
@@ -1618,7 +1627,7 @@ func validateNodeSelectors(resolved spec.Resolved, nodes []string) error {
 	seen := make(map[string]struct{}, len(nodes))
 	for _, name := range nodes {
 		if _, ok := known[name]; !ok {
-			return fmt.Errorf("the deployment has no node %q", name)
+			return privatevm.UnknownNodeError(name, where, resolved.Nodes)
 		}
 		if _, duplicate := seen[name]; duplicate {
 			return fmt.Errorf("node %q is selected more than once", name)

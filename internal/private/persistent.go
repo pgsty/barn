@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pgsty/farrow/internal/disk"
 	"github.com/pgsty/farrow/internal/identity"
@@ -87,11 +86,15 @@ func validatePrivatePersistentState(deploymentValue Deployment, deploymentState 
 	for _, identityValue := range desired {
 		desiredDisks[identityValue.Node+"\x00"+identityValue.Name] = identityValue
 	}
+	preserved := make(map[string]persistent.Record, len(retained))
+	for _, record := range retained {
+		preserved[record.Node+"\x00"+record.Name] = record
+	}
 	stateDisks := make(map[string]state.DataDisk)
 	for _, node := range nodes {
 		for _, dataDisk := range node.DataDisks {
 			if dataDisk.Persistent {
-				if err := persistent.ValidateSource(deploymentValue.Root, dataDisk.Path); err != nil {
+				if err := persistent.ValidateSource(deploymentValue.Root, dataDisk.Path); err != nil && !alreadyPreserved(dataDisk, preserved[node.Node+"\x00"+dataDisk.Name]) {
 					return nil, err
 				}
 				stateDisks[node.Node+"\x00"+dataDisk.Name] = dataDisk
@@ -108,6 +111,16 @@ func validatePrivatePersistentState(deploymentValue Deployment, deploymentState 
 		}
 	}
 	return desired, nil
+}
+
+// alreadyPreserved is a destroy interrupted between preserving a persistent
+// disk and removing its node: the node-local source is gone and the retained
+// record carries the same identity, so a retry may continue.
+func alreadyPreserved(dataDisk state.DataDisk, record persistent.Record) bool {
+	if _, err := os.Lstat(dataDisk.Path); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return record.Path != "" && record.Serial == dataDisk.Serial && record.Size == dataDisk.Size && record.Mount == dataDisk.Mount
 }
 
 type privateDiskInspector interface {
@@ -167,9 +180,7 @@ func (m Manager) DeletePersistent(ctx context.Context) (_ []persistent.Record, r
 	if err != nil {
 		return nil, err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return nil, err
 	}

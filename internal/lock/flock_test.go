@@ -86,3 +86,35 @@ func TestJoinReleasePreservesOperationAndReleaseErrors(t *testing.T) {
 		t.Fatalf("joined error = %v", joined)
 	}
 }
+
+func TestTryAcquireReportsBusyAndOwnerUntilRelease(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "lock")
+	held, err := TryAcquire(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Record([]byte("farrow up")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TryAcquire(path, true); !errors.Is(err, ErrBusy) {
+		t.Fatalf("second holder = %v, want ErrBusy", err)
+	}
+	if owner := string(Owner(path)); owner != "farrow up" {
+		t.Fatalf("owner = %q", owner)
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if owner := Owner(path); len(owner) != 0 {
+		t.Fatalf("released lock kept owner %q", owner)
+	}
+	shared, err := TryAcquire(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := shared.Record([]byte("x")); err == nil {
+		t.Fatal("a shared holder recorded an owner")
+	}
+	_ = shared.Release()
+}

@@ -3,7 +3,6 @@ package private
 import (
 	"context"
 	"encoding/base64"
-	"time"
 
 	"github.com/pgsty/farrow/internal/cloudinit"
 	"github.com/pgsty/farrow/internal/lock"
@@ -32,9 +31,7 @@ func (m Manager) RefreshGuestMetadata(ctx context.Context) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	held, err := acquireDeploymentLock(lockContext, deployment.Root, false)
+	held, err := acquireDeploymentLock(ctx, deployment.Root, false, m.Progress)
 	if err != nil {
 		return err
 	}
