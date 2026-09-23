@@ -446,7 +446,7 @@ func committedNodeNames(store state.Store, resolved spec.Resolved, names []strin
 		} else if missingPath(err) && !explicit {
 			continue
 		} else if missingPath(err) {
-			return nil, failure.New(failure.Conflict, fmt.Errorf("node %s has not been created", name)).Then("farrow up "+name)
+			return nil, failure.New(failure.Conflict, fmt.Errorf("node %s has not been created", name)).Then("farrow up " + name)
 		} else {
 			return nil, err
 		}
