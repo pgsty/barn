@@ -404,7 +404,7 @@ func (e Executor) Execute(ctx context.Context, action string, entries []Entry, a
 		return Report{}, err
 	}
 	if digest(actual) != plan.AfterSHA256 {
-		return Report{}, errors.New("hosts apply returned success but target digest does not match the reviewed plan")
+		return Report{}, failure.New(failure.Integrity, errors.New("hosts apply returned success but target digest does not match the reviewed plan"))
 	}
 	report.Applied = true
 	return report, nil
@@ -451,7 +451,7 @@ func installedHelperDigest(path string) (string, error) {
 			return "", errors.New("packaged hosts helper digest is invalid")
 		}
 		if actual != ExpectedHelperSHA256 {
-			return "", errors.New("root-owned hosts helper digest differs from the packaged CLI companion")
+			return "", failure.New(failure.Integrity, errors.New("root-owned hosts helper digest differs from the packaged CLI companion"))
 		}
 	}
 	return actual, nil
@@ -494,7 +494,7 @@ func CompanionHelperDigest(path string) (string, error) {
 	}
 	actual := digest(data)
 	if actual != ExpectedHelperSHA256 {
-		return "", errors.New("companion hosts helper digest differs from the packaged CLI")
+		return "", failure.New(failure.Integrity, errors.New("companion hosts helper digest differs from the packaged CLI"))
 	}
 	return actual, nil
 }

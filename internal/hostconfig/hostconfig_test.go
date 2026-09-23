@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 func fixtureEntries() []Entry {
@@ -76,8 +78,12 @@ func TestReconcileRejectsNameConflictOutsideOwnedBlock(t *testing.T) {
 	t.Parallel()
 	entries := fixtureEntries()
 	before := []byte("127.0.0.1 localhost\n192.0.2.50 meta # user managed\n")
-	if _, _, _, err := ReconcileContent(before, ActionInstall, entries); err == nil {
+	_, _, _, err := ReconcileContent(before, ActionInstall, entries)
+	if err == nil {
 		t.Fatalf("conflicting existing name was accepted:\n%s", before)
+	}
+	if class, _, next := failure.Classify(err); class != failure.Conflict || !strings.Contains(next, "192.0.2.50 meta") {
+		t.Fatalf("conflict = %q next=%q: %v", class, next, err)
 	}
 	same := []byte("127.0.0.1 localhost\n10.10.10.10 meta\n")
 	if _, _, _, err := ReconcileContent(same, ActionInstall, entries); err != nil {

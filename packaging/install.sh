@@ -203,9 +203,18 @@ fi
 resolved_latest=false
 if [[ -z ${version} ]]; then
   resolved_latest=true
-  if ! latest=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${repository}/releases/latest"); then
-    printf 'no stable Farrow release is published at https://github.com/%s/releases/latest; set FARROW_VERSION explicitly for a pre-release\n' "${repository}" >&2
-    exit 2
+  if latest=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${repository}/releases/latest"); then
+    :
+  else
+    curl_status=$?
+    # curl -f exits 22 on an HTTP error: GitHub answered, but has no stable
+    # release. Anything else never reached GitHub.
+    if [[ ${curl_status} -eq 22 ]]; then
+      printf 'no stable Farrow release is published at https://github.com/%s/releases/latest; set FARROW_VERSION explicitly for a pre-release\n' "${repository}" >&2
+      exit 2
+    fi
+    printf 'cannot reach github.com to find the latest Farrow release (curl exit %s); check the network or proxy settings, or set FARROW_VERSION\n' "${curl_status}" >&2
+    exit 1
   fi
   tag=${latest##*/}
   version=${tag#v}
@@ -309,7 +318,7 @@ secure_path_to_home "${install_directory}" || exit 7
 
 lock_path=${install_directory}/.farrow-install.lock
 if ! mkdir -m 0700 "${lock_path}"; then
-  printf 'another Farrow installer is active, or a stale lock remains: %s\n' "${lock_path}" >&2
+  printf 'another Farrow installer is active, or a stale lock remains: %s\nif no installer is running, remove it with: rmdir %s\n' "${lock_path}" "${lock_path}" >&2
   exit 4
 fi
 install_lock=${lock_path}
