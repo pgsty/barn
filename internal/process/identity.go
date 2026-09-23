@@ -158,6 +158,43 @@ func MatchesLive(ctx context.Context, runner execx.Runner, identity Identity, in
 	return err == nil && current == identity
 }
 
+// Verdict is what a recorded QEMU PID proves about the process holding it now.
+type Verdict int
+
+const (
+	Dead    Verdict = iota // no process holds the PID
+	Ours                   // the recorded process: executable, start time, and argv match
+	Foreign                // another process reused the PID after a reboot or an exit
+	Unknown                // a live process whose identity could not be read
+)
+
+// Observe classifies a recorded PID. A different boot, start time, or
+// executable proves reuse; only an unreadable live process stays Unknown, and
+// callers keep refusing to act on it. An empty boot skips the boot check.
+func Observe(ctx context.Context, runner execx.Runner, identity Identity, invocation qemu.Invocation, boot string) Verdict {
+	if !Alive(identity.PID) {
+		return Dead
+	}
+	if MatchesLive(ctx, runner, identity, invocation) {
+		return Ours
+	}
+	if current, err := BootID(); boot != "" && err == nil && current != boot {
+		return Foreign
+	}
+	if identity.Started != "" && !IsLegacyStart(identity.Started) {
+		if started, err := processStarted(identity.PID); err == nil && started != identity.Started {
+			return Foreign
+		}
+	}
+	if argv, err := processArgv(identity.PID); err == nil && len(argv) != 0 && identity.Executable != "" && filepath.Base(argv[0]) != filepath.Base(identity.Executable) {
+		return Foreign
+	}
+	if !Alive(identity.PID) {
+		return Dead
+	}
+	return Unknown
+}
+
 func parseDarwinProcArgs(data []byte) ([]string, error) {
 	if len(data) < 4 {
 		return nil, errors.New("darwin process arguments lack argc")

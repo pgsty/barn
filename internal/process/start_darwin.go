@@ -26,3 +26,15 @@ func processArgv(pid int) ([]string, error) {
 	}
 	return parseDarwinProcArgs(data)
 }
+
+// BootID identifies the current host boot; it changes on every restart.
+func BootID() (string, error) {
+	value, err := unix.Sysctl("kern.bootsessionuuid")
+	if err != nil {
+		return "", fmt.Errorf("read Darwin boot session: %w", err)
+	}
+	if value == "" {
+		return "", errors.New("darwin boot session is empty")
+	}
+	return value, nil
+}

@@ -287,6 +287,44 @@ func TestStatusCleansDeadRunningRuntimeBeforeSelfHalt(t *testing.T) {
 	}
 }
 
+// After a host reboot, a node recorded running can find its PID taken by an
+// unrelated process. That process is provably not QEMU, so status converges the
+// node to stopped instead of blocking every command on it.
+func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
+	_, store := statusFixture(t)
+	node, err := store.ReadNode("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stranger := exec.Command("sleep", "30")
+	if err := stranger.Start(); err != nil {
+		t.Skip("sleep is unavailable")
+	}
+	t.Cleanup(func() { _ = stranger.Process.Kill(); _, _ = stranger.Process.Wait() })
+	base := shortRuntimeBase(t, "farrow-reused-pid-")
+	directory := filepath.Join(base, "farrow", node.Node)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pid := stranger.Process.Pid
+	node.Phase = state.Running
+	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
+	node.Process = state.ProcessIdentity{PID: pid, Executable: node.Invocation.Binary, Started: "kinfo:1.000000", ArgvHash: process.ExpectedArgvHash(node.Invocation), Boot: "previous-boot"}
+	if err := os.WriteFile(node.Runtime.PIDFile, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteNode(node); err != nil {
+		t.Fatal(err)
+	}
+	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Stopped {
+		t.Fatalf("reused PID = %#v, %v", status, err)
+	}
+	if !process.Alive(pid) {
+		t.Fatal("status signalled the unrelated process")
+	}
+}
+
 func TestAppendStatusMessageDoesNotLeadWithSeparator(t *testing.T) {
 	if got := appendStatusMessage("", "adopted"); got != "adopted" {
 		t.Fatalf("message = %q", got)

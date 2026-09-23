@@ -464,6 +464,22 @@ func TestStopQMPIdentityMismatchRefusesEverySignal(t *testing.T) {
 	}
 }
 
+func TestStopTreatsAReusedPIDAsAlreadyStopped(t *testing.T) {
+	t.Parallel()
+	fake := &lifecycleQMP{names: []qmpResult[qmp.Name]{{err: errors.New("socket unavailable")}}}
+	recorder := &stopRecorder{matches: []bool{false}}
+	lifecycle := testStopLifecycle(fake, recorder)
+	lifecycle.observeProcess = func(context.Context, execx.Runner, process.Identity, qemu.Invocation) process.Verdict {
+		return process.Foreign
+	}
+	if err := lifecycle.Stop(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, testInvocation, time.Second); err != nil {
+		t.Fatalf("reused PID after QEMU exit: %v", err)
+	}
+	if signals := recorder.recordedSignals(); len(signals) != 0 {
+		t.Fatalf("signalled a foreign process: %v", signals)
+	}
+}
+
 func TestStopQMPUnavailableRefusesUnknownProcessIdentity(t *testing.T) {
 	t.Parallel()
 	fake := &lifecycleQMP{names: []qmpResult[qmp.Name]{{err: errors.New("socket unavailable")}}}

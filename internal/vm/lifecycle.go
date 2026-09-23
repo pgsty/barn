@@ -33,6 +33,7 @@ type Lifecycle struct {
 	// callers leave them nil and use the conservative process package plus the
 	// operating system's signal primitive.
 	matchesProcess func(context.Context, execx.Runner, process.Identity, qemu.Invocation) bool
+	observeProcess func(context.Context, execx.Runner, process.Identity, qemu.Invocation) process.Verdict
 	captureProcess func(context.Context, execx.Runner, qemu.Invocation, int) (process.Identity, error)
 	processAlive   func(int) bool
 	signalProcess  func(int, syscall.Signal) error
@@ -418,6 +419,11 @@ func (l Lifecycle) stopWithSignals(ctx context.Context, identity process.Identit
 		return nil
 	}
 	if !l.matchesLive(ctx, identity, invocation) {
+		if l.observe(ctx, identity, invocation) == process.Foreign {
+			// QMP is gone and the PID now belongs to another process (a reboot
+			// or reuse): the recorded QEMU has already exited. Never signal it.
+			return nil
+		}
 		return fmt.Errorf("refuse signal fallback without matching process identity (%v)", reason)
 	}
 	if err := l.signal(identity.PID, syscall.SIGTERM); err != nil {
@@ -463,6 +469,17 @@ func (l Lifecycle) matchesLive(ctx context.Context, identity process.Identity, i
 		return l.matchesProcess(ctx, l.Runner, identity, invocation)
 	}
 	return process.MatchesLive(ctx, l.Runner, identity, invocation)
+}
+
+func (l Lifecycle) observe(ctx context.Context, identity process.Identity, invocation qemu.Invocation) process.Verdict {
+	if l.observeProcess != nil {
+		return l.observeProcess(ctx, l.Runner, identity, invocation)
+	}
+	if l.matchesProcess != nil {
+		// Tests that fake identity matching must also fake reuse evidence.
+		return process.Unknown
+	}
+	return process.Observe(ctx, l.Runner, identity, invocation, "")
 }
 
 func (l Lifecycle) alive(pid int) bool {

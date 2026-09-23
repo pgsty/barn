@@ -965,7 +965,7 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 				if captureErr != nil || fresh.PID != recorded.PID || fresh.ArgvHash != process.ExpectedArgvHash(node.Invocation) {
 					result.Message = appendStatusMessage(result.Message, "kept legacy process identity for "+node.Node+" because native argv binding was unavailable or did not match")
 				} else {
-					node.Process = state.ProcessIdentity{PID: fresh.PID, Executable: fresh.Executable, Started: fresh.Started, ArgvHash: fresh.ArgvHash}
+					node.Process = recordProcess(fresh)
 					node.UpdatedAt = time.Now().UTC()
 					if err := store.WriteNode(node); err != nil {
 						readErrors[node.Node] = fmt.Errorf("migrate process identity: %w", err)
@@ -1005,6 +1005,13 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 				switch {
 				case qmpErr == nil && processMatches:
 					runtimeState = "running"
+					if node.Process.Boot == "" {
+						// Bind a pre-0.9 record to this boot so a later reuse is provable.
+						if boot, err := process.BootID(); err == nil {
+							node.Process.Boot = boot
+							convergenceCandidates = append(convergenceCandidates, node)
+						}
+					}
 				case qmpErr == nil:
 					return fmt.Errorf("node %s has matching QMP but its recorded process identity does not match; recreate --force it", node.Node)
 				case errors.Is(qmpErr, vm.ErrQMPIdentityMismatch):
@@ -1015,8 +1022,10 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					return fmt.Errorf("node %s is recorded running with incomplete runtime identity; recreate is required", node.Node)
 				case !completeProcess(node.Process):
 					return fmt.Errorf("node %s is recorded running with incomplete process identity; recreate is required", node.Node)
-				case process.Alive(node.Process.PID):
-					return fmt.Errorf("node %s recorded PID %d is alive but full process identity does not match; verify and stop it manually", node.Node, node.Process.PID)
+				case observeProcess(ctx, m.runner(), node, node.Process.PID) == process.Unknown:
+					// A reused PID (after a reboot, or another exit) is proven
+					// foreign and converges below; only an unreadable one blocks.
+					return fmt.Errorf("node %s recorded PID %d is alive but its identity cannot be read; Farrow will not treat it as stopped", node.Node, node.Process.PID)
 				default:
 					// ValidateIdentity alone cannot distinguish a wholly stale QMP
 					// socket from a live endpoint whose name responded but UUID query
@@ -1057,7 +1066,7 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					if captureErr != nil {
 						return fmt.Errorf("adopt interrupted private start for %s: %w", node.Node, captureErr)
 					}
-					node.Process = state.ProcessIdentity{PID: identityValue.PID, Executable: identityValue.Executable, Started: identityValue.Started, ArgvHash: identityValue.ArgvHash}
+					node.Process = recordProcess(identityValue)
 					node.Phase = state.Running
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)

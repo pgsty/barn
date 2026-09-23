@@ -482,7 +482,7 @@ func startOne(ctx context.Context, config StartConfig, store state.Store, node *
 	if err != nil {
 		return err
 	}
-	node.Process = state.ProcessIdentity{PID: identityValue.PID, Executable: identityValue.Executable, Started: identityValue.Started, ArgvHash: identityValue.ArgvHash}
+	node.Process = recordProcess(identityValue)
 	node.Phase = state.Running
 	node.UpdatedAt = config.now()
 	if err := store.WriteNode(*node); err != nil {

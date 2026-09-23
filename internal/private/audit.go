@@ -33,6 +33,24 @@ func completeProcess(value state.ProcessIdentity) bool {
 	return value.PID > 0 && value.Executable != "" && value.Started != "" && value.ArgvHash != ""
 }
 
+// recordProcess binds a verified QEMU identity to the current host boot, so a
+// PID reused after a reboot is provably not the node's process.
+func recordProcess(value process.Identity) state.ProcessIdentity {
+	boot, _ := process.BootID()
+	return state.ProcessIdentity{PID: value.PID, Executable: value.Executable, Started: value.Started, ArgvHash: value.ArgvHash, Boot: boot}
+}
+
+// observeProcess classifies whatever holds pid now against the node's
+// recorded QEMU. Any other PID (a pidfile's) was never recorded under a boot,
+// so only a non-QEMU executable proves it foreign.
+func observeProcess(ctx context.Context, runner execx.Runner, node state.NodeState, pid int) process.Verdict {
+	if pid != node.Process.PID {
+		return process.Observe(ctx, runner, process.Identity{PID: pid, Executable: node.Invocation.Binary}, node.Invocation, "")
+	}
+	recorded := process.Identity{PID: pid, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
+	return process.Observe(ctx, runner, recorded, node.Invocation, node.Process.Boot)
+}
+
 func captureRuntimeProcess(ctx context.Context, runner execx.Runner, node state.NodeState) (process.Identity, error) {
 	if runner == nil {
 		return process.Identity{}, errors.New("runtime process capture requires a command runner")
@@ -110,8 +128,14 @@ func RuntimeIdentityAuditor(runner execx.Runner, timeout time.Duration) RuntimeA
 		if completeProcess(node.Process) && process.MatchesLive(ctx, runner, recorded, node.Invocation) {
 			return Observation{Node: node.Node, Live: true, Authority: "process", Evidence: "matching executable, start time, and argv identity"}, nil
 		}
-		if node.Process.PID > 0 && process.Alive(node.Process.PID) {
-			return Observation{}, fmt.Errorf("node %s recorded PID %d is alive but identity does not match", node.Node, node.Process.PID)
+		processEvidence := "recorded process identity is dead"
+		if node.Process.PID > 0 {
+			switch observeProcess(ctx, runner, node, node.Process.PID) {
+			case process.Unknown, process.Ours:
+				return Observation{}, fmt.Errorf("node %s recorded PID %d is alive but its identity cannot be verified", node.Node, node.Process.PID)
+			case process.Foreign:
+				processEvidence = fmt.Sprintf("recorded PID %d now belongs to another process", node.Process.PID)
+			}
 		}
 		pidEvidence := "pidfile absent"
 		if info, err := os.Lstat(node.Runtime.PIDFile); err == nil {
@@ -126,10 +150,14 @@ func RuntimeIdentityAuditor(runner execx.Runner, timeout time.Duration) RuntimeA
 			if parseErr != nil || pid <= 0 {
 				return Observation{}, fmt.Errorf("node %s pidfile is malformed", node.Node)
 			}
-			if process.Alive(pid) {
+			switch observeProcess(ctx, runner, node, pid) {
+			case process.Dead:
+				pidEvidence = fmt.Sprintf("pidfile PID %d is dead", pid)
+			case process.Foreign:
+				pidEvidence = fmt.Sprintf("pidfile PID %d now belongs to another process", pid)
+			default:
 				return Observation{}, fmt.Errorf("node %s pidfile references unverified live PID %d", node.Node, pid)
 			}
-			pidEvidence = fmt.Sprintf("pidfile PID %d is dead", pid)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return Observation{}, err
 		}
@@ -137,6 +165,6 @@ func RuntimeIdentityAuditor(runner execx.Runner, timeout time.Duration) RuntimeA
 		if qmpExists {
 			qmpEvidence = "QMP socket stale/unresponsive"
 		}
-		return Observation{Node: node.Node, Authority: "dead", Evidence: qmpEvidence + "; " + pidEvidence + "; recorded process identity is dead"}, nil
+		return Observation{Node: node.Node, Authority: "dead", Evidence: qmpEvidence + "; " + pidEvidence + "; " + processEvidence}, nil
 	}
 }

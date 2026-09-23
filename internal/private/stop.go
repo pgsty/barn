@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pgsty/farrow/internal/execx"
 	"github.com/pgsty/farrow/internal/process"
 	"github.com/pgsty/farrow/internal/runtimepath"
 	"github.com/pgsty/farrow/internal/state"
@@ -61,7 +62,7 @@ func checkRuntimeUnused(node state.NodeState) error {
 	}
 	if data, err := os.ReadFile(node.Runtime.PIDFile); err == nil {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
-		if pid > 0 && process.Alive(pid) {
+		if verdict := observeProcess(context.Background(), execx.OSRunner{Timeout: 5 * time.Second}, node, pid); pid > 0 && verdict != process.Dead && verdict != process.Foreign {
 			return fmt.Errorf("node %s runtime pidfile still refers to live process %d", node.Node, pid)
 		}
 	}
