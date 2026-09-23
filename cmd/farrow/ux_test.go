@@ -117,8 +117,8 @@ func TestPartialLifecycleCountsMissingStateAndRetainsConnect(t *testing.T) {
 func TestBareCommandKeepsTheNextStepsCompact(t *testing.T) {
 	t.Setenv("FARROW_HOME", t.TempDir())
 	var out, errOut bytes.Buffer
-	if code := run(nil, &out, &errOut); code != exitUsage {
-		t.Fatalf("missing-command exit contract changed: %d", code)
+	if code := run(nil, &out, &errOut); code != exitOK {
+		t.Fatalf("bare farrow must succeed: %d", code)
 	}
 	if !strings.Contains(out.String(), "farrow up") || !strings.Contains(out.String(), "farrow --help") || strings.Count(out.String(), "\n") > 8 || errOut.Len() != 0 {
 		t.Fatalf("noisy onboarding: %s %s", out.String(), errOut.String())

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/farrow/internal/execx"
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/term"
 )
@@ -684,5 +685,67 @@ func lifecycleMessage(command string) string {
 		return "Purging the complete deployment"
 	default:
 		return "Running " + command
+	}
+}
+
+// logTextWriter renders Farrow's JSONL event and QEMU records as one readable
+// line each; the serial console and any non-record line pass through intact.
+// The recorded QEMU argv is shown only with --verbose.
+type logTextWriter struct {
+	out     io.Writer
+	render  bool
+	pending []byte
+}
+
+func newLogTextWriter(out io.Writer, source string) *logTextWriter {
+	return &logTextWriter{out: out, render: source == "events" || source == "qemu"}
+}
+
+func (w *logTextWriter) Write(data []byte) (int, error) {
+	if !w.render {
+		return w.out.Write(data)
+	}
+	w.pending = append(w.pending, data...)
+	for {
+		end := bytes.IndexByte(w.pending, '\n')
+		if end < 0 {
+			return len(data), nil
+		}
+		w.writeLine(w.pending[:end])
+		w.pending = w.pending[end+1:]
+	}
+}
+
+// Flush renders a final line that has no trailing newline.
+func (w *logTextWriter) Flush() {
+	if len(w.pending) != 0 {
+		w.writeLine(w.pending)
+		w.pending = nil
+	}
+}
+
+func (w *logTextWriter) writeLine(line []byte) {
+	var record struct {
+		Time    time.Time `json:"time"`
+		Level   string    `json:"level"`
+		Action  string    `json:"action"`
+		Phase   string    `json:"phase"`
+		Message string    `json:"message"`
+		Argv    []string  `json:"argv"`
+	}
+	if json.Unmarshal(line, &record) != nil || record.Time.IsZero() {
+		bestEffortf(w.out, "%s\n", line)
+		return
+	}
+	text := record.Time.Local().Format("2006-01-02 15:04:05") + " " + record.Level + " " + record.Action
+	if record.Phase != "" {
+		text += " " + record.Phase
+	}
+	if record.Message != "" {
+		text += ": " + record.Message
+	}
+	bestEffortf(w.out, "%s\n", text)
+	if len(record.Argv) != 0 && verboseOutput(w.out) {
+		bestEffortf(w.out, "    %s\n", execx.Display(record.Argv[0], record.Argv[1:]...))
 	}
 }

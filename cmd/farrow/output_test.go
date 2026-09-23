@@ -599,3 +599,21 @@ func TestCompletionStructuredEnvelope(t *testing.T) {
 		t.Fatalf("result=%+v err=%v output=%s", result, err, stdout.String())
 	}
 }
+
+func TestLogTextWriterRendersRecordsAndPassesConsoleThrough(t *testing.T) {
+	var out bytes.Buffer
+	writer := newLogTextWriter(&out, "qemu")
+	record := `{"schema":1,"time":"2026-09-23T04:00:00Z","level":"info","node":"meta","operation_id":"12345678","action":"up","message":"started","argv":["/opt/qemu","-name","meta"]}`
+	_, _ = writer.Write([]byte(record + "\nqemu-system: raw stderr line\n" + record[:20]))
+	writer.Flush()
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 || !strings.HasSuffix(lines[0], " info up: started") || strings.Contains(out.String(), "-name") || lines[1] != "qemu-system: raw stderr line" {
+		t.Fatalf("rendered log = %q", out.String())
+	}
+	out.Reset()
+	serial := newLogTextWriter(&out, "serial")
+	_, _ = serial.Write([]byte(record))
+	if out.String() != record {
+		t.Fatalf("serial console changed: %q", out.String())
+	}
+}

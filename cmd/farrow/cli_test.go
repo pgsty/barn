@@ -118,7 +118,6 @@ func TestCommandAliasesResolveToCanonicalCommands(t *testing.T) {
 		{arguments: []string{"rc"}, path: "farrow recreate"},
 		{arguments: []string{"st"}, path: "farrow status"},
 		{arguments: []string{"de"}, path: "farrow destroy"},
-		{arguments: []string{"rm"}, path: "farrow purge"},
 		{arguments: []string{"ex"}, path: "farrow exec"},
 		{arguments: []string{"l"}, path: "farrow logs"},
 		{arguments: []string{"sc"}, path: "farrow ssh-config"},
@@ -167,7 +166,8 @@ func TestCommandAliasesAreUniqueWithinEachScope(t *testing.T) {
 }
 
 func TestMisleadingAliasesAreRejected(t *testing.T) {
-	for _, arguments := range [][]string{{"clean"}, {"image", "rm"}} {
+	// rm is deliberately not a purge alias: two letters must not discard a lab.
+	for _, arguments := range [][]string{{"clean"}, {"rm"}, {"image", "rm"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(arguments, &stdout, &stderr); code != exitUsage || !strings.Contains(stderr.String(), "unknown command") {
 			t.Errorf("run %v code=%d stdout=%q stderr=%q", arguments, code, stdout.String(), stderr.String())
@@ -321,7 +321,7 @@ func TestAliasesAreDiscoverableInHelpAndCompletion(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != exitOK {
 		t.Fatalf("root help code=%d stderr=%q", code, stderr.String())
 	}
-	for _, want := range []string{"Command aliases:", "s=setup", "rm=purge", "sc=ssh-config", "dt=doctor", "im=image"} {
+	for _, want := range []string{"Command aliases:", "s=setup", "sc=ssh-config", "dt=doctor", "im=image"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("root help missing %q:\n%s", want, stdout.String())
 		}
@@ -332,7 +332,6 @@ func TestAliasesAreDiscoverableInHelpAndCompletion(t *testing.T) {
 	}{
 		{arguments: []string{"__complete", "sc"}, want: "sc\tAlias for ssh-config"},
 		{arguments: []string{"__complete", "dt"}, want: "dt\tAlias for doctor"},
-		{arguments: []string{"__complete", "rm"}, want: "rm\tAlias for purge"},
 		{arguments: []string{"__complete", "im", "pr"}, want: "pr\tAlias for prune"},
 	} {
 		stdout.Reset()
@@ -661,7 +660,7 @@ func TestCompletionRejectsUnsupportedShell(t *testing.T) {
 }
 
 func TestStructuredUsageErrorIsParseableAndDiagnostic(t *testing.T) {
-	for _, arguments := range [][]string{{"--json"}, {"--json", "image"}, {"--json", "up", "--bogus"}} {
+	for _, arguments := range [][]string{{"--json", "image"}, {"--json", "up", "--bogus"}} {
 		t.Run(strings.Join(arguments, "_"), func(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
@@ -726,8 +725,13 @@ func TestUsageExitStatusDoesNotDependOnPresentation(t *testing.T) {
 		if plain != structured {
 			t.Errorf("run(%v) exited %d plain but %d with --json", arguments, plain, structured)
 		}
-		if plain != exitUsage {
-			t.Errorf("run(%v) exited %d, want %d for a missing command", arguments, plain, exitUsage)
+		// Bare farrow greets; a bare namespace is missing its subcommand.
+		want := exitUsage
+		if arguments == nil {
+			want = exitOK
+		}
+		if plain != want {
+			t.Errorf("run(%v) exited %d, want %d", arguments, plain, want)
 		}
 	}
 	// Asking for help on purpose is not an error in either presentation.

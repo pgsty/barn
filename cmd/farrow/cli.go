@@ -20,6 +20,7 @@ type commandRunner func(context.Context, []string, io.Writer, io.Writer) (comman
 const (
 	configDiscoverySummary = "farrow.yml, farrow.yaml, pigsty.yml, or pigsty.yaml"
 	repositoryFlagHelp     = "image repository URL or directory; overrides --mirror and $FARROW_REPO"
+	repositoryOnlyFlagHelp = "image repository URL or directory; overrides $FARROW_REPO"
 	mirrorFlagHelp         = "use the China official repository at repo.pigsty.cc; overridden by --repo"
 )
 
@@ -222,13 +223,17 @@ func configureHelpOnly(command *cobra.Command, message string, stdout, stderr io
 		// --json emits the machine-readable failure, while the plain form still
 		// prints the full help on stdout because that is what a person came for.
 		// `farrow --help` remains the deliberate, successful way to ask for help.
+		if command.Parent() == nil {
+			// Bare `farrow` is someone looking for a starting point, not a mistake.
+			actions := welcomeActions()
+			return collectCommandOutcome(command.Context(), commandOutcome{payload: struct {
+				Actions []welcomeAction `json:"actions"`
+			}{actions}, text: func(out, _ io.Writer) error {
+				printWelcome(out, actions)
+				return nil
+			}})
+		}
 		if !structuredOutput(stdout) {
-			if command.Parent() == nil {
-				return newCommandError(exitUsage, errors.New(message)).withText(func(out, _ io.Writer) error {
-					printWelcome(out)
-					return nil
-				}).quiet()
-			}
 			if err := command.Help(); err != nil {
 				return newRuntimeError(err)
 			}

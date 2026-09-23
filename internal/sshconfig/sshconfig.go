@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/openssh"
 )
@@ -183,6 +184,41 @@ func readOptionalRegular(pathname string) ([]byte, bool, error) {
 	return data, true, nil
 }
 
+// managedElsewhere reports a config that is a symlink or hard link, as dotfile
+// managers create. Farrow never rewrites such a file.
+func managedElsewhere(pathname string) (bool, error) {
+	info, err := os.Lstat(pathname)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return info.Mode()&os.ModeSymlink != 0 || ok && info.Mode().IsRegular() && stat.Nlink > 1, nil
+}
+
+// includesFragment reports whether the (possibly linked) config already has an
+// Include naming the fragment, as the user was asked to add by hand.
+func includesFragment(configPath, fragmentName string) bool {
+	handle, err := os.Open(configPath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = handle.Close() }()
+	data, err := io.ReadAll(io.LimitReader(handle, maxConfigBytes))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.EqualFold(fields[0], "Include") && strings.Contains(line, fragmentName) {
+			return true
+		}
+	}
+	return false
+}
+
 // markerOwned reports whether fragment content is exactly one marker-owned
 // block; only such fragments may be overwritten or removed.
 func markerOwned(data []byte) bool {
@@ -227,15 +263,33 @@ func InstallMany(home string, entries []Entry) (Result, error) {
 	if fragmentExists && !markerOwned(existingFragment) {
 		return Result{}, errors.New("refuse overwrite of SSH fragment without exact Farrow ownership markers")
 	}
-	config, configExists, err := readOptionalRegular(configPath)
-	if err != nil {
-		return Result{}, err
-	}
 	quotedFragment, err := openssh.QuoteConfigValue(fragment)
 	if err != nil {
 		return Result{}, err
 	}
 	includeLine := "Include " + quotedFragment
+	if linked, err := managedElsewhere(configPath); err != nil || linked {
+		if err != nil {
+			return Result{}, err
+		}
+		// A dotfile manager owns this config; Farrow only publishes its fragment.
+		fragmentChanged := !fragmentExists || string(existingFragment) != content
+		if fragmentChanged {
+			if err := fsutil.AtomicWrite(fragment, []byte(content), 0o600); err != nil {
+				return Result{}, err
+			}
+		}
+		result := Result{Fragment: fragment, Config: configPath, Changed: fragmentChanged, Action: "install"}
+		if !includesFragment(configPath, filepath.Base(fragment)) {
+			return result, failure.New(failure.Conflict, fmt.Errorf("%s is a link managed outside Farrow; Farrow will not edit it", configPath)).
+				Because("ssh_config_linked").Then("add this line near the top of that file: " + includeLine)
+		}
+		return result, nil
+	}
+	config, configExists, err := readOptionalRegular(configPath)
+	if err != nil {
+		return Result{}, err
+	}
 	configText := string(config)
 	block := includeMarker + "\n" + includeLine + "\n"
 	markerCount := strings.Count(configText, includeMarker)
@@ -280,9 +334,16 @@ func Remove(home, name string) (Result, error) {
 	}
 	includeLine := "Include " + quotedFragment
 	block := includeMarker + "\n" + includeLine + "\n"
-	config, configExists, err := readOptionalRegular(configPath)
-	if err != nil {
+	var config []byte
+	configExists := false
+	if linked, err := managedElsewhere(configPath); err != nil {
 		return Result{}, err
+	} else if !linked {
+		// A linked config is never edited; its Include of a missing fragment
+		// matches nothing, so removing the fragment alone is enough.
+		if config, configExists, err = readOptionalRegular(configPath); err != nil {
+			return Result{}, err
+		}
 	}
 	fragmentData, fragmentExists, err := readOptionalRegular(fragment)
 	if err != nil {

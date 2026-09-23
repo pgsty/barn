@@ -67,7 +67,7 @@ Run 'farrow update' first to see a newer catalog.`,
 			return collectImageCommand(command, listOptions, stdout, stderr)
 		},
 	}
-	list.Flags().StringVarP(&listOptions.Repository, "repo", "r", "", repositoryFlagHelp)
+	list.Flags().StringVarP(&listOptions.Repository, "repo", "r", "", repositoryOnlyFlagHelp)
 	parent.AddCommand(list)
 
 	for _, action := range []string{"info", "pull"} {
@@ -114,7 +114,11 @@ repository-failure fallback.`
 		}
 		command.Flags().StringVarP(&options.Arch, "arch", "a", "", "artifact architecture, amd64 or arm64; defaults to the host architecture")
 		_ = command.RegisterFlagCompletionFunc("arch", enumFlagCompletion("amd64", "arm64"))
-		command.Flags().StringVarP(&options.Repository, "repo", "r", "", repositoryFlagHelp)
+		repoHelp := repositoryOnlyFlagHelp
+		if action == "pull" {
+			repoHelp = repositoryFlagHelp
+		}
+		command.Flags().StringVarP(&options.Repository, "repo", "r", "", repoHelp)
 		if action == "pull" {
 			command.Flags().BoolVar(&options.Mirror, "mirror", false, mirrorFlagHelp)
 			noFileCompletions(command, "mirror")
@@ -140,7 +144,7 @@ staging files. The default and --dry-run are read-only; deletion requires
 	}
 	prune.Flags().BoolVarP(&pruneOptions.DryRun, "dry-run", "d", false, "show unreferenced images and stale staging files without deleting")
 	prune.Flags().BoolVarP(&pruneOptions.Apply, "yes", "y", false, "delete the displayed unreferenced images and stale staging files")
-	prune.Flags().StringVarP(&pruneOptions.Repository, "repo", "r", "", repositoryFlagHelp)
+	prune.Flags().StringVarP(&pruneOptions.Repository, "repo", "r", "", repositoryOnlyFlagHelp)
 	prune.MarkFlagsMutuallyExclusive("dry-run", "yes")
 	noFileCompletions(prune, "dry-run", "yes")
 	parent.AddCommand(prune)

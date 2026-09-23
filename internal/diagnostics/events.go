@@ -41,6 +41,7 @@ type QEMULogRecord struct {
 	OperationID string    `json:"operation_id"`
 	Action      string    `json:"action"`
 	Message     string    `json:"message"`
+	Argv        []string  `json:"argv,omitempty"`
 }
 
 func validateEvent(event Event) error {

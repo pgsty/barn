@@ -78,8 +78,8 @@ client configuration.`,
 	},
 	"status": {
 		long: `Show recorded applied state and live runtime identity for selected nodes.
-Status works outside the inventory directory and repairs state left by an
-interrupted operation before reporting it.`,
+Status works outside the inventory directory. After an interrupted
+operation it first records which nodes are actually running.`,
 		example: `  farrow status                  # show every node
   farrow status meta             # show one node
   farrow --json status           # stable machine-readable status`,
@@ -123,7 +123,7 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 	switch name {
 	case "plan":
 		command.Flags().StringVarP(&options.ConfigPath, "file", "f", "", "desired inventory; defaults to the discovered inventory, then the applied state")
-		command.Flags().StringVarP(&options.Repository, "repo", "r", "", repositoryFlagHelp)
+		command.Flags().StringVarP(&options.Repository, "repo", "r", "", repositoryOnlyFlagHelp)
 	case "up", "reload":
 		command.Flags().StringVarP(&options.ConfigPath, "file", "f", "", "desired inventory; defaults to the discovered inventory, then the applied state")
 		command.Flags().StringVarP(&options.Repository, "repo", "r", "", repositoryFlagHelp)
@@ -159,9 +159,8 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 
 func newPurgeCommand(stdout, stderr io.Writer) *cobra.Command {
 	command := &cobra.Command{
-		Use:     "purge",
-		Aliases: []string{"rm"},
-		Short:   "Discard the entire deployment without confirmation",
+		Use:   "purge",
+		Short: "Discard the entire deployment without confirmation",
 		Long: `Destroy every virtual machine in the applied deployment and delete its
 root disks, persistent data disks, SSH keys, state, and default SSH client
 configuration without asking for confirmation. The verified image cache and
@@ -171,7 +170,6 @@ Purge accepts no node selectors and never reads an inventory. It is idempotent
 when no deployment exists, but still refuses ambiguous or unsafe retained
 artifacts rather than deleting them by path alone.`,
 		Example: `  farrow purge                    # discard the complete local lab
-  farrow rm                       # short alias, with identical semantics
   farrow --json purge             # stable output for automation`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {

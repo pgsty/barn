@@ -233,7 +233,7 @@ Configuration-aware commands use -f first, then discover farrow.yml,
 farrow.yaml, pigsty.yml, or pigsty.yaml in the working directory. Once a
 deployment exists, lifecycle commands can fall back to the last applied
 inventory; validate always requires an inventory file.`,
-		Example: `  farrow init                  # write a U24 inventory
+		Example: `  farrow init                  # write an Ubuntu 24.04 inventory
   farrow plan                  # review images, resources, and changes
   farrow up                    # prepare the host if needed, then start the lab
   farrow status                # inspect the deployment from any directory
@@ -251,6 +251,15 @@ inventory; validate always requires an inventory file.`,
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	configureHelpOnly(root, "farrow requires a command", stdout, stderr)
+	// --version is the conventional spelling of `farrow version`.
+	showVersion := root.Flags().Bool("version", false, "print build version")
+	greet := root.RunE
+	root.RunE = func(command *cobra.Command, arguments []string) error {
+		if *showVersion {
+			return collectCommandOutcome(command.Context(), runVersionCommand())
+		}
+		return greet(command, arguments)
+	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return err })
 	root.PersistentFlags().Bool("json", false, "emit JSON output")
 	root.PersistentFlags().Bool("yaml", false, "emit YAML output")
@@ -403,7 +412,18 @@ architecture.`,
 	completion.GroupID = "advanced"
 	root.AddCommand(versionCommand, completion)
 	configureAliasDiscovery(root)
+	completeInventoryFiles(root)
 	return root
+}
+
+// completeInventoryFiles limits every --file completion to YAML inventories.
+func completeInventoryFiles(command *cobra.Command) {
+	if command.Flags().Lookup("file") != nil {
+		_ = command.MarkFlagFilename("file", "yml", "yaml")
+	}
+	for _, child := range command.Commands() {
+		completeInventoryFiles(child)
+	}
 }
 
 func executeCLI(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {

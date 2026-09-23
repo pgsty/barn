@@ -1296,7 +1296,7 @@ func (m Manager) RecordEvent(ctx context.Context, action, level, message string)
 		if err != nil {
 			continue
 		}
-		record := diagnostics.QEMULogRecord{Schema: 1, Time: time.Now().UTC(), Level: level, Node: node.Node, OperationID: m.OperationID, Action: action, Message: message + "; " + execx.Display(node.Invocation.Binary, node.Invocation.Args...)}
+		record := diagnostics.QEMULogRecord{Schema: 1, Time: time.Now().UTC(), Level: level, Node: node.Node, OperationID: m.OperationID, Action: action, Message: message, Argv: append([]string{node.Invocation.Binary}, node.Invocation.Args...)}
 		if err := diagnostics.AppendQEMULog(ctx, filepath.Join(filepath.Dir(node.RootDisk), "qemu.log"), record); err != nil {
 			return err
 		}

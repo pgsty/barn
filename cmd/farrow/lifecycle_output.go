@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/hostshare"
 	privatevm "github.com/pgsty/farrow/internal/private"
 	"github.com/pgsty/farrow/internal/state"
@@ -28,7 +29,11 @@ func sshIntegrationWarning(action string, err error) lifecycleWarning {
 	if action == "remove" {
 		message = "VM data removed; the old SSH aliases could not be removed"
 	}
-	return lifecycleWarning{Code: "ssh_config", Message: message, Detail: err.Error(), Next: "farrow ssh-config --" + action}
+	next := "farrow ssh-config --" + action
+	if _, _, hinted := failure.Classify(err); hinted != "" {
+		next = hinted
+	}
+	return lifecycleWarning{Code: "ssh_config", Message: message, Detail: err.Error(), Next: next}
 }
 
 func startupCommand(command string) bool {

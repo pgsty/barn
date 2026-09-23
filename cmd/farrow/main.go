@@ -27,6 +27,7 @@ import (
 	"github.com/pgsty/farrow/internal/hostconfig"
 	"github.com/pgsty/farrow/internal/identity"
 	"github.com/pgsty/farrow/internal/image"
+	"github.com/pgsty/farrow/internal/naming"
 	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
 	linuxnet "github.com/pgsty/farrow/internal/network/linux"
 	netpreflight "github.com/pgsty/farrow/internal/network/preflight"
@@ -589,6 +590,12 @@ func splitRemoteInvocation(arguments []string, resolved spec.Resolved) (string, 
 	}
 	if len(arguments) > 0 && known(arguments[0]) {
 		return arguments[0], arguments[1:], false, nil
+	}
+	// A near-miss node name is a typo, not a command to run on the default node.
+	if len(arguments) > 0 {
+		if suggestion := naming.Closest(arguments[0], sortedNodeNames(resolved)); suggestion != "" {
+			return "", nil, false, failure.New(failure.Usage, fmt.Errorf("unknown node %q (did you mean %s?)", arguments[0], suggestion)).Then("to run it on the default node, put -- before it")
+		}
 	}
 	return "", arguments, len(arguments) > 0, nil
 }
@@ -1316,10 +1323,15 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 				result.Failures = partial.Failures
 				result.RolledBack = partial.RolledBack
 			}
-			return commandOutcome{}, newCommandError(exitPartial, err).withOperation(operationID).withPayload(result).withText(func(stdout, _ io.Writer) error {
+			failure := newCommandError(exitPartial, err).withOperation(operationID).withPayload(result).withText(func(stdout, _ io.Writer) error {
 				printLifecycleResult(stdout, command, result, noWait)
 				return nil
-			}).quiet()
+			})
+			if isPartial {
+				// The node table carries the detail; stderr keeps one line.
+				failure.failure.Message = fmt.Sprintf("%d of %d node(s) failed", len(partial.Failures), partial.Total)
+			}
+			return commandOutcome{}, failure
 		}
 		return commandOutcome{}, classifyPrivateLifecycleError(err, operationID)
 	}
@@ -1507,6 +1519,13 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	}
 	if !hasConfig {
 		switch {
+		case command == "destroy" && len(nodes) == 0:
+			// Like purge, destroying nothing is already done.
+			status := privatevm.Status{Message: "no deployment to destroy"}
+			return commandOutcome{payload: lifecycleResult{Status: status}, text: func(stdout, _ io.Writer) error {
+				printPrivateStatus(stdout, status)
+				return nil
+			}}, nil
 		case !lifecycleReadsConfig(command):
 			return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 		case command == "up":
@@ -1922,11 +1941,14 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 		}
 		result := logResult{Node: node, Source: options.Source, Path: path, Content: string(content), Bytes: len(content), TotalBytes: int64(len(content))}
 		return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
-			_, _ = stdout.Write(content)
+			out := newLogTextWriter(stdout, options.Source)
+			_, _ = out.Write(content)
+			out.Flush()
 			return nil
 		}}, nil
 	}
-	if _, err := io.Copy(stdout, handle); err != nil {
+	followed := newLogTextWriter(stdout, options.Source)
+	if _, err := io.Copy(followed, handle); err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}
 	bestEffortf(stderr, "%s following %s log for %s\n", styled(stderr, ansiCyan, "→"), options.Source, node)
@@ -1935,7 +1957,7 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 		case <-ctx.Done():
 			return commandOutcome{}, ErrCancelled
 		case <-time.After(250 * time.Millisecond):
-			if _, err := io.Copy(stdout, handle); err != nil {
+			if _, err := io.Copy(followed, handle); err != nil {
 				return commandOutcome{}, newRuntimeError(err)
 			}
 		}

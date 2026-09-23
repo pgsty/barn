@@ -195,3 +195,43 @@ func TestRemoveValidatesFragmentBeforeChangingConfig(t *testing.T) {
 		t.Fatalf("config changed before fragment validation:\n%s", configAfter)
 	}
 }
+
+func TestLinkedConfigIsNeverEditedAndAcceptsManualInclude(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.Mkdir(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(home, "dotfiles-ssh-config")
+	userContent := "Host user-owned\n  HostName example.invalid\n"
+	if err := os.WriteFile(managed, []byte(userContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(managed, filepath.Join(sshDir, "config")); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Name: "farrow", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	result, err := Install(home, entry)
+	if err == nil || !strings.Contains(err.Error(), "managed outside Farrow") || !result.Changed {
+		t.Fatalf("linked install = %#v, %v", result, err)
+	}
+	if data, _ := os.ReadFile(managed); string(data) != userContent {
+		t.Fatalf("linked config was edited: %q", data)
+	}
+	if _, err := os.Stat(result.Fragment); err != nil {
+		t.Fatalf("fragment not published: %v", err)
+	}
+	if err := os.WriteFile(managed, []byte("Include ~/.ssh/farrow_config\n"+userContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(home, entry); err != nil {
+		t.Fatalf("manual Include must satisfy install: %v", err)
+	}
+	if _, err := Remove(home, "farrow"); err != nil {
+		t.Fatalf("remove with linked config: %v", err)
+	}
+	if data, _ := os.ReadFile(managed); !strings.HasPrefix(string(data), "Include ~/.ssh/farrow_config") {
+		t.Fatalf("linked config was edited on remove: %q", data)
+	}
+}

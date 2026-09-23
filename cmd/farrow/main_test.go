@@ -279,6 +279,8 @@ func TestSplitRemoteInvocationValidatesNodesBeforeSeparator(t *testing.T) {
 		{arguments: []string{"meta", "--", "ls", "--", "-l"}, node: "meta", command: "ls -- -l"},
 		{arguments: []string{"metaa", "--", "uptime"}, wantErr: `the deployment has no node "metaa"`},
 		{arguments: []string{"meta", "node-1", "--", "uptime"}, wantErr: "at most one node may precede --"},
+		{arguments: []string{"node-2", "uptime"}, wantErr: `unknown node "node-2" (did you mean node-1?)`},
+		{arguments: []string{"--", "node-2"}, command: "node-2"},
 	} {
 		node, command, implicit, err := splitRemoteInvocation(test.arguments, resolved)
 		if test.wantErr != "" {
@@ -624,7 +626,7 @@ func TestImageListJSON(t *testing.T) {
 func TestUsageErrors(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
-	if code := run(nil, &stdout, &stderr); code != exitUsage || !strings.Contains(stdout.String(), "farrow --help") {
+	if code := run(nil, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "farrow --help") {
 		t.Fatalf("empty invocation code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	for _, args := range [][]string{{"unknown"}, {"version", "extra"}} {
@@ -740,7 +742,7 @@ func TestPurgeIsIdempotentWithoutDeploymentAndNeedsNoConfirmation(t *testing.T) 
 	}
 	t.Setenv("FARROW_HOME", root)
 	t.Setenv("HOME", home)
-	for _, invocation := range [][]string{{"purge", "--json"}, {"rm", "--json"}} {
+	for _, invocation := range [][]string{{"purge", "--json"}, {"purge", "--json"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(invocation, &stdout, &stderr); code != exitOK {
 			t.Fatalf("run(%v) code=%d stdout=%q stderr=%q", invocation, code, stdout.String(), stderr.String())
