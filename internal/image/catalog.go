@@ -22,6 +22,11 @@ const (
 	MaxManifestSize         = 4 << 20
 )
 
+// IsLocalAlias reports an image reference that names an imported local image.
+func IsLocalAlias(reference string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(reference)), localAliasPrefix)
+}
+
 func reservedLocalNamespace(value string) bool {
 	return value == "local" || strings.HasPrefix(value, localAliasPrefix)
 }

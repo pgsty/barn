@@ -112,3 +112,15 @@ func TestConfigSizeErrorShowsFileLineValueAndExample(t *testing.T) {
 		}
 	}
 }
+
+func TestFarrow08TemplateStaysRecognized(t *testing.T) {
+	// Byte-for-byte what `farrow init` wrote in 0.8.
+	legacy := "---\n# Farrow lab \"meta\": 1 fixed-IP node(s) on 10.10.10.0/24.\n# Start: farrow up; connect: farrow ssh.\n# Optional per-host settings: vm_cpu: 2, vm_mem: 4096, vm_disk: 64, vm_image: u24.\n# Other Pigsty/Ansible variables can stay in this inventory.\nall:\n  vars:\n    admin_ip: 10.10.10.10\n  children:\n    nodes:\n      hosts:\n        10.10.10.10: { nodename: meta }\n"
+	template, err := config.Template("meta", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(withoutDataDiskComment(template)); got != legacy {
+		t.Fatalf("0.8 template no longer recognized:\n%s", got)
+	}
+}

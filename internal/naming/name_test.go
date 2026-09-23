@@ -37,4 +37,10 @@ func TestClosestSuggestsOnlyNearNodeNames(t *testing.T) {
 			t.Errorf("Closest(%q) = %q, want %q", name, got, want)
 		}
 	}
+	// Two edits reach almost any short word: db and web must not claim these.
+	for _, command := range []string{"ls", "ps", "id", "wc"} {
+		if got := Closest(command, []string{"db", "web"}); got != "" {
+			t.Errorf("Closest(%q) = %q, want none", command, got)
+		}
+	}
 }

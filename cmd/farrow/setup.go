@@ -1312,6 +1312,18 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	}
 	if result.NetworkCIDR != plannedCIDR {
 		bestEffortf(stderr, "%s Using network %s: %s is not available on this host\n", styled(stderr, ansiCyan, "→"), result.NetworkCIDR, plannedCIDR)
+		// The confirmed plan named another network; ask again unless --yes.
+		if !options.Yes {
+			resume := suspendProgress(stderr)
+			err := confirmPlan("Continue with "+result.NetworkCIDR+"? [Y/n] ", true, os.Stdin, stderr)
+			resume()
+			if err != nil {
+				if errors.Is(err, ErrCancelled) {
+					return commandOutcome{}, err
+				}
+				return failSetup(&result, exitRuntime, err)
+			}
+		}
 	}
 	if !report.Ready && !report.CanRepair() {
 		code, failure := blocked(report)

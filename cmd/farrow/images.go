@@ -24,24 +24,34 @@ func imageService(repository string, mirror bool, progress activity.Reporter) (i
 	return image.Service{DataRoot: dataRoot, Repository: repository, Mirror: mirror, Progress: progress}, nil
 }
 
-// checkInventoryImages resolves each node's image against the active local
-// catalog without touching the network, so validate reports an unknown image,
-// channel, or version with the choices instead of leaving it to plan or up.
-func checkInventoryImages(ctx context.Context, resolved spec.Resolved) error {
-	service, err := imageService("", false, nil)
-	if err != nil {
-		return err
+// checkInventoryImages resolves each node's image against the repository's
+// active local catalog without touching the network, so validate reports an
+// unknown image, channel, or version with the choices instead of leaving it to
+// plan or up. Only a definite miss fails; a catalog that cannot be read is a
+// warning, and local aliases are left to up, which verifies their bytes.
+func checkInventoryImages(ctx context.Context, resolved spec.Resolved, repository string) ([]string, error) {
+	service, err := imageService(repository, false, nil)
+	if err == nil {
+		var session *image.CatalogSession
+		if session, err = service.OpenCatalog(); err == nil {
+			return nil, lookupInventoryImages(ctx, session, resolved)
+		}
 	}
-	session, err := service.OpenCatalog()
-	if err != nil {
-		return err
-	}
+	return []string{"images were not checked: " + err.Error()}, nil
+}
+
+func lookupInventoryImages(ctx context.Context, session *image.CatalogSession, resolved spec.Resolved) error {
 	arch := lifecycleImageArch(resolved)
+	checked := make(map[string]bool)
 	for _, node := range resolved.Nodes {
 		reference := node.Image
 		if reference == "" {
 			reference = resolved.Image
 		}
+		if checked[reference] || image.IsLocalAlias(reference) {
+			continue
+		}
+		checked[reference] = true
 		if _, err := session.LookupArch(ctx, reference, arch); err != nil {
 			return fmt.Errorf("host %s (%s): %w", node.Address, node.Name, err)
 		}

@@ -318,9 +318,10 @@ as plain ssh would: everything after -- is joined and parsed by the remote
 shell, so quotes, pipes, and semicolons work the way they do with ssh.
 Flags before -- belong to Farrow; everything before -- must be nothing or one
 known node; an unknown node before -- is refused.
-Without --, a known first argument selects the node; otherwise all arguments
-run as a command on the default node, with a warning. Use -- in scripts to
-make the node/command boundary explicit.`,
+Without --, a known first argument selects the node; a near-miss node name is
+refused as a typo; otherwise all arguments run as a command on the default
+node, with a warning. Use -- in scripts to make the node/command boundary
+explicit.`,
 		`  farrow ssh                          # open the default node
   farrow ssh meta                     # open one named node
   farrow ssh meta -- uptime           # run a remote command
@@ -339,7 +340,8 @@ including spaces, quotes and empty values. A single command string keeps the
 shell shorthand; use sh -c for explicit shell expressions.
 Everything before -- must be nothing or one known node.
 For convenience, -- may be omitted: a known first argument selects the node;
-otherwise the command runs on the default node, with a warning.`,
+a near-miss node name is refused as a typo; otherwise the command runs on the
+default node, with a warning.`,
 		`  farrow exec -- hostname
   farrow exec meta -- systemctl is-active postgresql
   farrow exec meta -- 'uptime; id'

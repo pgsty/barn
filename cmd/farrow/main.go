@@ -382,7 +382,10 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			question, defaultYes = "Remove the Farrow network? [y/N] ", false
 		}
 		if err := confirmPlan(question, defaultYes, os.Stdin, stderr); err != nil {
-			return commandOutcome{}, err
+			if errors.Is(err, ErrCancelled) {
+				return commandOutcome{}, err
+			}
+			return commandOutcome{}, newRuntimeError(err)
 		}
 		outcome, _, err = run(true)
 		return outcome, err
@@ -615,7 +618,9 @@ func splitRemoteInvocation(arguments []string, resolved spec.Resolved) (string, 
 		return arguments[0], arguments[1:], false, nil
 	}
 	// A near-miss node name is a typo, not a command to run on the default node.
-	if len(arguments) > 0 {
+	// Only words shaped like node names (a digit or '-') qualify, so short
+	// commands such as ls, df, or wc still run.
+	if len(arguments) > 0 && strings.ContainsAny(arguments[0], "-0123456789") {
 		if suggestion := naming.Closest(arguments[0], sortedNodeNames(resolved)); suggestion != "" {
 			return "", nil, false, failure.New(failure.Usage, fmt.Errorf("unknown node %q (did you mean %s?)", arguments[0], suggestion)).Then("to run it on the default node, put -- before it")
 		}
@@ -1347,14 +1352,17 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 				result.Failures = partial.Failures
 				result.RolledBack = partial.RolledBack
 			}
-			failure := newCommandError(exitPartial, err).withOperation(operationID).withPayload(result).withText(func(stdout, _ io.Writer) error {
-				printLifecycleResult(stdout, command, result, noWait)
-				return nil
-			})
-			if isPartial {
+			failure := newCommandError(exitPartial, err).withOperation(operationID)
+			// A global error joined to node failures keeps its own class and line.
+			result.Error = failure.failure.Error
+			if privatevm.IsolatedPartial(err) != nil {
 				// The node table carries the detail; stderr keeps one line.
 				failure.failure.Message = fmt.Sprintf("%d of %d node(s) failed", len(partial.Failures), partial.Total)
 			}
+			failure = failure.withPayload(result).withText(func(stdout, _ io.Writer) error {
+				printLifecycleResult(stdout, command, result, noWait)
+				return nil
+			})
 			return commandOutcome{}, failure
 		}
 		return commandOutcome{}, classifyPrivateLifecycleError(err, operationID)
@@ -1543,6 +1551,9 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	}
 	if !hasConfig {
 		switch {
+		case command == "destroy" && len(nodes) == 0 && (options.DeletePersistent || options.Purge):
+			// Retained persistent disks can outlive the state; purge proves and removes them.
+			return commandOutcome{}, newCommandError(exitConflict, failure.WithNext(errors.New("no deployment state found; retained persistent disks are removed by purge"), "farrow purge"))
 		case command == "destroy" && len(nodes) == 0:
 			// Like purge, destroying nothing is already done.
 			status := privatevm.Status{Message: "no deployment to destroy"}
@@ -1753,20 +1764,18 @@ func removeSSHConfigFragment(name string) (sshconfig.Result, error) {
 }
 
 type sshConfigFailurePayload struct {
-	Error   string           `json:"error"`
-	Message string           `json:"message"`
+	commandFailure
 	Partial bool             `json:"partial"`
 	Result  sshconfig.Result `json:"result"`
 }
 
 func classifySSHConfigFailure(result sshconfig.Result, err error) error {
 	partial := result.Changed && strings.HasSuffix(result.Action, "-partial")
-	payload := sshConfigFailurePayload{Error: "ssh_config", Message: err.Error(), Partial: partial, Result: result}
 	if partial {
 		err = fmt.Errorf("SSH config operation partially changed owned state; retry is safe (action=%s fragment=%s config=%s): %w", result.Action, result.Fragment, result.Config, err)
-		payload.Message = err.Error()
 	}
-	return newCommandError(exitRuntime, err).withPayload(payload)
+	boundary := newCommandError(exitRuntime, err)
+	return boundary.withPayload(sshConfigFailurePayload{commandFailure: boundary.failure, Partial: partial, Result: result})
 }
 
 func runHosts(parent context.Context, action string, apply bool, stderr io.Writer) (commandOutcome, error) {
@@ -1822,7 +1831,10 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 			question, defaultYes = "Remove the Farrow block from /etc/hosts? [y/N] ", false
 		}
 		if err := confirmPlan(question, defaultYes, os.Stdin, stderr); err != nil {
-			return commandOutcome{}, err
+			if errors.Is(err, ErrCancelled) {
+				return commandOutcome{}, err
+			}
+			return commandOutcome{}, newRuntimeError(err)
 		}
 	}
 	privilege := &sudoSession{base: baseRunner, stderr: stderr, scope: "hosts command"}
@@ -2011,7 +2023,10 @@ type validateResult struct {
 	Warnings []string      `json:"warnings,omitempty"`
 }
 
-func runValidate(filePath string) (commandOutcome, error) {
+func runValidate(filePath, repository string) (commandOutcome, error) {
+	if _, _, err := image.ResolveRepository(repository, false); err != nil {
+		return commandOutcome{}, newUsageError(err)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
@@ -2024,14 +2039,15 @@ func runValidate(filePath string) (commandOutcome, error) {
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
-	if err := checkInventoryImages(context.Background(), resolved); err != nil {
-		return commandOutcome{}, newRuntimeError(err)
+	imageWarnings, err := checkInventoryImages(context.Background(), resolved, repository)
+	if err != nil {
+		return commandOutcome{}, newUsageError(err)
 	}
 	hash, err := spec.Hash(resolved)
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	warnings := configurationWarnings(resolved)
+	warnings := append(configurationWarnings(resolved), imageWarnings...)
 	result := validateResult{Valid: true, Source: source, SpecHash: hash, Resolved: resolved, Warnings: warnings}
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printWarnings(stderr, warnings)

@@ -45,6 +45,7 @@ func TestErrorContract(t *testing.T) {
 		{arguments: []string{"validate", "-f", "typo.yml"}, code: exitUsage, class: "usage", message: "did you mean vm_cpu?"},
 		{arguments: []string{"validate", "-f", "image.yml"}, code: exitUsage, class: "usage", reason: "unknown_image", message: `unknown image "u99"; available: `},
 		{arguments: []string{"image", "info", "bogus"}, code: exitUsage, class: "usage", reason: "unknown_image", message: `unknown image "bogus"`},
+		{arguments: []string{"destroy", "--delete-persistent", "--force"}, code: exitConflict, class: "conflict", message: "no deployment state found", next: "farrow purge"},
 	} {
 		t.Run(strings.Join(test.arguments, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

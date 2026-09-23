@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -541,7 +540,7 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 		if hostPath == "" || guestPath == "" {
 			return nil, true, fmt.Errorf("host %s vm_shares entry requires host and guest paths", host.address)
 		}
-		share := ShareConfig{Host: canonicalShareHost(hostPath), Guest: guestPath}
+		share := ShareConfig{Host: hostPath, Guest: guestPath}
 		if value, present := entry["readonly"]; present {
 			flag, ok := value.(bool)
 			if !ok {
@@ -552,19 +551,6 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 		shares = append(shares, share)
 	}
 	return shares, true, nil
-}
-
-// canonicalShareHost resolves symlinked components (such as /tmp on macOS)
-// once, so the no-follow opens at start time reach the real directory. A
-// missing path stays as written; only the node that uses it fails to start.
-func canonicalShareHost(path string) string {
-	if !filepath.IsAbs(path) {
-		return path
-	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
-	}
-	return path
 }
 
 // nodeName resolves the VM name: explicit nodename, then the Pigsty

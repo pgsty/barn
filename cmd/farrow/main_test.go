@@ -281,6 +281,7 @@ func TestSplitRemoteInvocationValidatesNodesBeforeSeparator(t *testing.T) {
 		{arguments: []string{"meta", "node-1", "--", "uptime"}, wantErr: "at most one node may precede --"},
 		{arguments: []string{"node-2", "uptime"}, wantErr: `unknown node "node-2" (did you mean node-1?)`},
 		{arguments: []string{"--", "node-2"}, command: "node-2"},
+		{arguments: []string{"node", "-e", "1"}, command: "node -e 1", implicit: true},
 	} {
 		node, command, implicit, err := splitRemoteInvocation(test.arguments, resolved)
 		if test.wantErr != "" {

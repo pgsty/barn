@@ -2,6 +2,7 @@ package private
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -48,5 +49,20 @@ func TestMutatingCommandNamesTheHolderAndGivesUpAsConflict(t *testing.T) {
 	}
 	if !strings.HasPrefix(waiting, "Waiting for another farrow command: ") || !strings.Contains(waiting, ", since ") {
 		t.Fatalf("wait was not reported: %q", waiting)
+	}
+}
+
+func TestLongCommandLineStillTakesTheLock(t *testing.T) {
+	config, _ := statusFixture(t)
+	previous := os.Args
+	os.Args = []string{"farrow", "exec", "meta", "--", "bash", "-c", strings.Repeat("x", 4096)}
+	t.Cleanup(func() { os.Args = previous })
+	held, holder, err := tryDeploymentLock(config.Deployment.Root, false)
+	if err != nil || held == nil || holder != "" {
+		t.Fatalf("long exec could not take the free lock: held=%v holder=%q err=%v", held != nil, holder, err)
+	}
+	defer func() { _ = held.Release() }()
+	if described := lockHolder(deploymentLockPath(config.Deployment.Root)); !strings.Contains(described, "farrow exec meta") || len(described) > 400 {
+		t.Fatalf("holder = %q", described)
 	}
 }

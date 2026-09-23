@@ -14,11 +14,15 @@ func ValidNodeName(name string) bool {
 // NodeNameRule states the node-name contract for error messages.
 const NodeNameRule = "use lowercase letters, digits and '-', at most 63 characters, not starting or ending with '-'"
 
-// Closest returns the candidate within two single-character edits of name, for
-// "did you mean" hints. It returns "" when name matches exactly or nothing is
-// close enough.
+// Closest returns the candidate within two single-character edits of name
+// (one for names of four characters or fewer, where two edits reach almost
+// anything), for "did you mean" hints. It returns "" when name matches exactly
+// or nothing is close enough.
 func Closest(name string, candidates []string) string {
 	best, bestDistance := "", 3
+	if len(name) <= 4 {
+		bestDistance = 2
+	}
 	for _, candidate := range candidates {
 		if candidate == name {
 			return ""

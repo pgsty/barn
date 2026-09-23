@@ -1,30 +1,9 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// Share hosts are stored as real paths, so no-follow opens work under
-// symlinked components such as macOS /tmp and /var.
-func TestShareHostResolvesSymlinkedComponents(t *testing.T) {
-	t.Parallel()
-	real := t.TempDir()
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
-	}
-	want, err := filepath.EvalSymlinks(real)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file, err := ParseInventory([]byte(`all: {children: {n: {hosts: {10.10.10.10: {vm_shares: [{host: ` + link + `, guest: /mnt/x}]}}}}}`))
-	if err != nil || file.Nodes[0].Shares[0].Host != want {
-		t.Fatalf("share host = %+v, %v; want %s", file.Nodes, err, want)
-	}
-}
 
 // Each rejected inventory names the host, the value, and the rule.
 func TestInventoryErrorsStateTheRule(t *testing.T) {

@@ -213,7 +213,9 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, args
 			commandErr.Signal = unix.SignalName(status.Signal())
 		}
 	}
-	if r.Timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+	// Only a kill by the runner's own deadline is a timeout; a command that
+	// failed by itself just before the deadline keeps its exit status.
+	if r.Timeout > 0 && commandErr.Signal != "" && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
 		commandErr.Timeout = r.Timeout
 		commandErr.Signal = ""
 	}

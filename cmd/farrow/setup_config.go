@@ -31,13 +31,24 @@ func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
 	}
 	for _, profile := range config.TemplateNames() {
 		template, err := config.Template(profile, "")
-		if err == nil && bytes.Equal(template, data) {
+		if err == nil && (bytes.Equal(template, data) || bytes.Equal(withoutDataDiskComment(template), data)) {
 			selection.Profile, selection.Generated = profile, true
 			selection.OriginalConfig = data
 			return selection
 		}
 	}
 	return selection
+}
+
+// withoutDataDiskComment is a template as Farrow 0.8 wrote it, before the
+// comment about the default /data disk; such untouched files stay recognized.
+func withoutDataDiskComment(template []byte) []byte {
+	start := bytes.Index(template, []byte("# Each node also gets"))
+	if start < 0 {
+		return template
+	}
+	end := bytes.IndexByte(template[start:], '\n')
+	return append(append([]byte(nil), template[:start]...), template[start+end+1:]...)
 }
 
 func publishSetupConfig(selection setupSelection) error {

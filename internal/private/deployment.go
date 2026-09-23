@@ -70,7 +70,7 @@ func waitForLock(ctx context.Context, path string, shared bool, progress activit
 		waitCtx, cancel := context.WithTimeout(ctx, deploymentLockWait)
 		defer cancel()
 		held, err = lock.Acquire(waitCtx, path, shared)
-		if err != nil && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		if err != nil && errors.Is(err, context.DeadlineExceeded) && !errors.Is(ctx.Err(), context.Canceled) {
 			return nil, failure.New(failure.Conflict, fmt.Errorf("another farrow command still holds the deployment: %s", lockHolder(path))).Because("deployment_busy").Then("retry when it finishes")
 		}
 	}
@@ -78,9 +78,8 @@ func waitForLock(ctx context.Context, path string, shared bool, progress activit
 		return nil, err
 	}
 	if !shared {
-		if err := held.Record(currentHolder()); err != nil {
-			return nil, errors.Join(err, held.Release())
-		}
+		// The record only makes a waiter's message readable; never fail on it.
+		_ = held.Record(currentHolder())
 	}
 	return held, nil
 }
@@ -98,9 +97,7 @@ func tryDeploymentLock(root string, shared bool) (*lock.File, string, error) {
 		return nil, lockHolder(path), nil
 	}
 	if err == nil && !shared {
-		if recordErr := held.Record(currentHolder()); recordErr != nil {
-			return nil, "", errors.Join(recordErr, held.Release())
-		}
+		_ = held.Record(currentHolder())
 	}
 	return held, "", err
 }
@@ -111,9 +108,15 @@ type holderRecord struct {
 	Started time.Time `json:"started"`
 }
 
+// maxHolderCommand keeps a long exec script from outgrowing the lock record.
+const maxHolderCommand = 200
+
 func currentHolder() []byte {
-	command := append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...)
-	data, _ := json.Marshal(holderRecord{PID: os.Getpid(), Command: strings.Join(command, " "), Started: time.Now().UTC()})
+	command := strings.Join(append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...), " ")
+	if len(command) > maxHolderCommand {
+		command = command[:maxHolderCommand] + "…"
+	}
+	data, _ := json.Marshal(holderRecord{PID: os.Getpid(), Command: command, Started: time.Now().UTC()})
 	return data
 }
 

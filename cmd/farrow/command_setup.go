@@ -90,7 +90,7 @@ inventory to stdout for inspection or composition.`,
 }
 
 func newValidateCommand(stdout, stderr io.Writer) *cobra.Command {
-	filePath := ""
+	filePath, repository := "", ""
 	command := &cobra.Command{
 		Use:   "validate",
 		Short: "Validate and resolve a Farrow configuration",
@@ -102,7 +102,7 @@ never falls back to the already-applied deployment state.`,
   farrow --json validate         # emit the resolved specification as JSON`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			outcome, err := runValidate(filePath)
+			outcome, err := runValidate(filePath, repository)
 			if err != nil {
 				return err
 			}
@@ -110,5 +110,6 @@ never falls back to the already-applied deployment state.`,
 		},
 	}
 	command.Flags().StringVarP(&filePath, "file", "f", "", "inventory to validate; defaults to the discovered "+configDiscoverySummary)
+	command.Flags().StringVarP(&repository, "repo", "r", "", "image repository whose catalog checks the images; overrides $FARROW_REPO")
 	return command
 }

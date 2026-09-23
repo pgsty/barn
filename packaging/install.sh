@@ -207,10 +207,11 @@ if [[ -z ${version} ]]; then
     :
   else
     curl_status=$?
-    # curl -f exits 22 on an HTTP error: GitHub answered, but has no stable
-    # release. Anything else never reached GitHub.
+    # curl -f exits 22 on an HTTP error: GitHub answered, usually because no
+    # stable release exists yet (or it is rate-limiting). Anything else never
+    # reached GitHub.
     if [[ ${curl_status} -eq 22 ]]; then
-      printf 'no stable Farrow release is published at https://github.com/%s/releases/latest; set FARROW_VERSION explicitly for a pre-release\n' "${repository}" >&2
+      printf 'GitHub returned an HTTP error for https://github.com/%s/releases/latest: no stable release is published yet, or GitHub is rate-limiting; set FARROW_VERSION explicitly (pre-releases always need it)\n' "${repository}" >&2
       exit 2
     fi
     printf 'cannot reach github.com to find the latest Farrow release (curl exit %s); check the network or proxy settings, or set FARROW_VERSION\n' "${curl_status}" >&2

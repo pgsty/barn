@@ -26,9 +26,11 @@ and messages that say what went wrong and what to do.
 - **JSON:** failures carry `error` from a closed set (`runtime`, `usage`,
   `capability`, `conflict`, `partial`, `resource`, `integrity`, `cancelled`,
   plus `remote_exit` for ssh/exec), an optional stable `reason`, `next`, and
-  `command` for an external program. `recreate_required`, `nodes_removed`,
-  `network_preflight`, and `persistent_delete` moved from `error` to `reason`,
-  and `resource_conflict` is now `resource`. JSON output no longer escapes
+  `command` for an external program. `recreate_required` and `nodes_removed`
+  moved from `error` to `reason` (class `conflict`); network-preflight and
+  persistent-disk deletion failures now carry the class of their cause, and
+  `ssh-config` failures use the same envelope. `resource_conflict` is now
+  `resource`. JSON output no longer escapes
   `<`, `>`, and `&`.
 - A second farrow command waits up to 10 minutes behind a running one and says
   which (`farrow up (pid 4821, since 14:02:31)`); on timeout it exits 4 with
@@ -37,18 +39,25 @@ and messages that say what went wrong and what to do.
 - `network` and `hosts` install/uninstall ask for confirmation on a terminal
   (`[Y/n]` for install, `[y/N]` for uninstall). `hosts` plans without sudo, and
   `network install` on a Mac without a Farrow network points to `farrow setup`
-  before any sudo prompt. Setup's plan states when it will use sudo and where socket_vmnet
-  comes from, and says so when it switches to another /24.
+  before any sudo prompt. Setup's plan states when it will use sudo and where
+  socket_vmnet comes from; if it must switch to another /24 after the
+  confirmation, it says so and asks again (unless `--yes`).
 - `plan` lists each node's data disks, including the implicit 128 GiB `/data`.
   Sizes drop a trailing `.0` and use TiB from 1024 GiB.
 - `logs --source events|qemu` prints one readable line per record; the QEMU
   argv appears only with `--verbose`.
-- Bare `farrow` and `destroy` without a deployment succeed. `--version` is
-  accepted. `-f` completes YAML files only.
+- Bare `farrow` and a plain `destroy` without a deployment succeed;
+  `destroy --delete-persistent/--purge` without state points to `farrow purge`,
+  which removes retained disks. `--version` is accepted. `-f` completes YAML
+  files only. `validate` accepts `--repo` to check images against that
+  repository's catalog; an unreadable catalog is a warning, and imported local
+  images are left to `up`.
 - Inventory errors state the rule, value, and line (`line 3: host 10.10.10.10
   vm_mem = 10: must be at least 512 MiB …`), suggest the nearest `vm_*` key,
   and explain reserved addresses and paths. macOS warns about `vm_shares` at
-  `validate` and `plan`. Share host paths are stored with symlinks resolved.
+  `validate` and `plan`. A share path through a symlink is still refused, now
+  with the real path to write instead of a raw `too many levels of symbolic
+  links`.
 
 ### Removed
 
@@ -68,7 +77,9 @@ and messages that say what went wrong and what to do.
 - A guest error whose last stderr line contains a tab or escape sequence is
   reported with its stage and detail instead of an unreadable marker.
 - `ssh` and `exec` refuse a near-miss node name (`did you mean pg-meta-1?`)
-  instead of running it as a command on the default node.
+  instead of running it as a command on the default node. Only words shaped
+  like node names (with a digit or `-`) are checked, so `ls`, `df`, or `wc`
+  still run.
 - A mistyped destroy/recreate confirmation says what was typed and that nothing
   changed.
 - A symlinked or hard-linked `~/.ssh/config` (dotfile managers) is never edited;

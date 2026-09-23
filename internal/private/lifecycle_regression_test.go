@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/image"
 	"github.com/pgsty/farrow/internal/platform"
 	"github.com/pgsty/farrow/internal/runtimepath"
@@ -61,7 +62,7 @@ func TestDestroyAndStopReadStateOnlyAfterAcquiringLock(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		_, err := operation(ctx)
 		cancel()
-		if !errors.Is(err, context.DeadlineExceeded) {
+		if _, reason, _ := failure.Classify(err); reason != "deployment_busy" {
 			t.Fatalf("read uncommitted state before lock: %v", err)
 		}
 	}

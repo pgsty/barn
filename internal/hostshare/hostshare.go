@@ -73,7 +73,12 @@ func openDirectory(share spec.Share) (*os.File, error) {
 		case errors.Is(openErr, unix.ENOENT):
 			return nil, missingShare(fmt.Sprintf("host share %s does not exist", share.Host))
 		case errors.Is(openErr, unix.ELOOP):
-			return nil, fmt.Errorf("host share %s has a symlink at %q; use the real path", share.Host, component)
+			// Shares bind the directory named in the inventory; a symlink could
+			// be repointed underneath the lab, so ask for the real path.
+			if real, err := filepath.EvalSymlinks(share.Host); err == nil {
+				return nil, fmt.Errorf("host share %s goes through a symlink at %q; write the real path %s in the inventory", share.Host, component, real)
+			}
+			return nil, fmt.Errorf("host share %s goes through a symlink at %q; write the real path in the inventory", share.Host, component)
 		default:
 			return nil, fmt.Errorf("open host share %s at %q: %w", share.Host, component, openErr)
 		}
