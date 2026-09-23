@@ -332,7 +332,7 @@ all:
       hosts:
         10.10.10.10: { vm_cpus: 4 }
 `))
-	if err == nil || !strings.Contains(err.Error(), "unknown farrow variable") {
+	if err == nil || !strings.Contains(err.Error(), "unknown variable vm_cpus") || !strings.Contains(err.Error(), "did you mean vm_cpu?") {
 		t.Fatalf("expected strict vm_* namespace error, got %v", err)
 	}
 }

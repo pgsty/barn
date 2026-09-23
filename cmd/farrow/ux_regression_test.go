@@ -27,7 +27,7 @@ func TestInitCustomPathAndFreshPlan(t *testing.T) {
 	if code := run([]string{"plan", "-f", "lab.yml"}, &out, &errOut); code != 0 {
 		t.Fatalf("plan: %d %s", code, errOut.String())
 	}
-	for _, want := range []string{"create", "u24@", "8 vCPU", "16.0 GiB RAM"} {
+	for _, want := range []string{"create", "u24@", "8 vCPU", "16 GiB RAM", "data:        /data 128 GiB (auto fs) on each node"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("plan missing %q: %s", want, out.String())
 		}

@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/naming"
 	"github.com/pgsty/farrow/internal/vm"
 	"golang.org/x/sys/unix"
@@ -49,6 +50,9 @@ func LoadScript(path string) (Script, error) {
 		return Script{}, fmt.Errorf("resolve provision script: %w", err)
 	}
 	before, err := os.Lstat(absolute)
+	if errors.Is(err, os.ErrNotExist) {
+		return Script{}, failure.New(failure.Usage, fmt.Errorf("provision script %s does not exist", absolute))
+	}
 	if err != nil {
 		return Script{}, fmt.Errorf("inspect provision script: %w", err)
 	}

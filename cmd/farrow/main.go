@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -32,6 +33,7 @@ import (
 	linuxnet "github.com/pgsty/farrow/internal/network/linux"
 	netpreflight "github.com/pgsty/farrow/internal/network/preflight"
 	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/farrow/internal/platform"
 	privatevm "github.com/pgsty/farrow/internal/private"
 	"github.com/pgsty/farrow/internal/provision"
 	"github.com/pgsty/farrow/internal/spec"
@@ -85,8 +87,62 @@ func configurationWarnings(resolved spec.Resolved) []string {
 				warnings = append(warnings, fmt.Sprintf("node %s exposes host TCP %s:%d beyond loopback; this may make guest port %d reachable from other machines", node.Name, forward.Bind, forward.Host, forward.Guest))
 			}
 		}
+		if len(node.Shares) != 0 && runtime.GOOS == "darwin" {
+			warnings = append(warnings, fmt.Sprintf("node %s sets vm_shares, which QEMU cannot open on macOS; the node will not start until vm_shares is removed", node.Name))
+		}
 	}
 	return warnings
+}
+
+// planSize prints an inventory size as written: 128 GiB rather than 128.0 GiB,
+// switching to TiB from 1024 GiB.
+func planSize(value int64) string {
+	return strings.Replace(progressBytes(value), ".0 ", " ", 1)
+}
+
+// planDataDisks names the data disks plan will create, which the inventory
+// often implies (every node gets /data unless vm_disks says otherwise).
+func planDataDisks(resolved spec.Resolved, selected []string) string {
+	wanted := make(map[string]bool, len(selected))
+	for _, name := range selected {
+		wanted[name] = true
+	}
+	var names, descriptions []string
+	for _, node := range resolved.Nodes {
+		if len(wanted) != 0 && !wanted[node.Name] {
+			continue
+		}
+		disks := make([]string, 0, len(node.Disks))
+		for _, disk := range node.Disks {
+			filesystem := disk.Filesystem
+			if filesystem == "" {
+				filesystem = "auto"
+			}
+			description := fmt.Sprintf("%s %s (%s fs", disk.Mount, planSize(disk.Size), filesystem)
+			if disk.Persistent {
+				description += ", persistent"
+			}
+			disks = append(disks, description+")")
+		}
+		description := strings.Join(disks, ", ")
+		if description == "" {
+			description = "none"
+		}
+		names, descriptions = append(names, node.Name), append(descriptions, description)
+	}
+	if len(descriptions) == 0 {
+		return "none"
+	}
+	if slices.Equal(descriptions[1:], descriptions[:len(descriptions)-1]) {
+		if len(descriptions) == 1 {
+			return descriptions[0]
+		}
+		return descriptions[0] + " on each node"
+	}
+	for index := range descriptions {
+		descriptions[index] = names[index] + ": " + descriptions[index]
+	}
+	return strings.Join(descriptions, "; ")
 }
 
 func printWarnings(out io.Writer, warnings []string) {
@@ -1148,7 +1204,8 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		}
 		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
-			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %.1f GiB RAM, %.1f GiB virtual disk capacity", plan.CPUs, float64(plan.Memory)/float64(spec.GiB), float64(plan.Storage)/float64(spec.GiB)))
+			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %s RAM, %s virtual disk capacity", plan.CPUs, planSize(plan.Memory), planSize(plan.Storage)))
+			textField(stdout, 12, "data", planDataDisks(resolved, plan.Nodes))
 			for _, change := range plan.Changes {
 				textField(stdout, 12, "change", change)
 			}
@@ -1995,6 +2052,9 @@ func runValidate(filePath string) (commandOutcome, error) {
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
+	if err := checkInventoryImages(context.Background(), resolved); err != nil {
+		return commandOutcome{}, newRuntimeError(err)
+	}
 	hash, err := spec.Hash(resolved)
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
@@ -2061,6 +2121,9 @@ func runInit(options initOptions) (commandOutcome, error) {
 	target, err = filepath.Abs(target)
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
+	}
+	if info, statErr := os.Stat(filepath.Dir(target)); statErr != nil || !info.IsDir() {
+		return commandOutcome{}, newUsageError(fmt.Errorf("directory %s does not exist", filepath.Dir(target)))
 	}
 	if options.Force {
 		err = fsutil.AtomicWrite(target, data, 0o600)
@@ -2218,7 +2281,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		qemuImg, err := exec.LookPath("qemu-img")
 		if err != nil {
-			return commandOutcome{}, newCommandError(exitCapability, fmt.Errorf("repository %s requires qemu-img: %w", strings.TrimPrefix(options.Action, "repo-"), err))
+			return commandOutcome{}, newCapabilityError(platform.QEMUMissing("qemu-img", err))
 		}
 		ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
 		defer cancel()

@@ -62,7 +62,7 @@ func (s Service) store(repository string) (Store, error) {
 	if qemuImg == "" {
 		found, err := exec.LookPath("qemu-img")
 		if err != nil {
-			return Store{}, err
+			return Store{}, platform.QEMUMissing("qemu-img", err)
 		}
 		qemuImg = found
 	}

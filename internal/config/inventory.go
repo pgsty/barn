@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pgsty/farrow/internal/image"
+	"github.com/pgsty/farrow/internal/naming"
 	"github.com/pgsty/farrow/internal/network/subnet"
 	"github.com/pgsty/farrow/internal/spec"
 	"go.yaml.in/yaml/v3"
@@ -202,12 +205,45 @@ func varsOf(node *yaml.Node, origin string) (map[string]*yaml.Node, error) {
 		key := entry[0].Value
 		if strings.HasPrefix(key, "vm_") {
 			if _, known := knownVMKeys[key]; !known {
-				return nil, fmt.Errorf("unknown farrow variable %q in %s; the vm_* namespace is strict", key, origin)
+				return nil, unknownVMKeyError(entry[0], origin)
 			}
 		}
 		result[key] = entry[1]
 	}
 	return result, nil
+}
+
+// unknownVMKeyError keeps the vm_* namespace strict while pointing at the
+// likely intended variable.
+func unknownVMKeyError(key *yaml.Node, origin string) error {
+	known := make([]string, 0, len(knownVMKeys))
+	for name := range knownVMKeys {
+		known = append(known, name)
+	}
+	sort.Strings(known)
+	hint := "valid vm_* variables: " + strings.Join(known, ", ")
+	if closest := naming.Closest(key.Value, known); closest != "" {
+		hint = fmt.Sprintf("did you mean %s?", closest)
+	}
+	return fmt.Errorf("line %d: unknown variable %s in %s; %s", key.Line, key.Value, origin, hint)
+}
+
+// valueError locates a bad variable value: its line, the host it applies to,
+// the value as written, and where it was inherited from when not set on the
+// host itself.
+func (host inventoryHost) valueError(node *yaml.Node, key, origin, rule string) error {
+	value := "a " + map[yaml.Kind]string{yaml.SequenceNode: "list", yaml.MappingNode: "mapping"}[node.Kind]
+	if node.Kind == yaml.ScalarNode {
+		value = node.Value
+		if node.Tag == "!!str" {
+			value = strconv.Quote(node.Value)
+		}
+	}
+	from := ""
+	if !strings.HasSuffix(origin, " host "+host.address) {
+		from = " (from " + origin + ")"
+	}
+	return fmt.Errorf("line %d: host %s %s = %s%s: %s", node.Line, host.address, key, value, from, rule)
 }
 
 func decodeAny(node *yaml.Node) (any, error) {
@@ -297,7 +333,7 @@ func (host inventoryHost) lookupString(key string) (string, bool, error) {
 	}
 	var value string
 	if decodeErr := node.Decode(&value); decodeErr != nil {
-		return "", true, fmt.Errorf("host %s variable %q from %s must be a string", host.address, key, origin)
+		return "", true, host.valueError(node, key, origin, "must be a string")
 	}
 	return value, true, nil
 }
@@ -311,23 +347,27 @@ func (host inventoryHost) lookupVersionSelector(key string) (string, bool, error
 		return "", found, err
 	}
 	if node.Kind != yaml.ScalarNode || (node.Tag != "!!str" && node.Tag != "!!int" && node.Tag != "!!float") {
-		return "", true, fmt.Errorf("host %s variable %q from %s must be a numeric version scalar such as 9 or 9.7", host.address, key, origin)
+		return "", true, host.valueError(node, key, origin, "must be a numeric version such as 9 or 9.7")
 	}
 	value := strings.TrimSpace(node.Value)
 	if value == "" {
-		return "", true, fmt.Errorf("host %s variable %q from %s must not be empty", host.address, key, origin)
+		return "", true, host.valueError(node, key, origin, "must not be empty")
 	}
 	return value, true, nil
 }
 
-func (host inventoryHost) lookupInt(key string) (int64, bool, error) {
+// lookupInt reads an integer in [minimum, maximum].
+func (host inventoryHost) lookupInt(key string, minimum, maximum int64) (int64, bool, error) {
 	node, origin, found, err := host.lookup(key)
 	if err != nil || !found {
 		return 0, found, err
 	}
 	var value int64
 	if decodeErr := node.Decode(&value); node.Tag != "!!int" || decodeErr != nil {
-		return 0, true, fmt.Errorf("host %s variable %q from %s must be an integer", host.address, key, origin)
+		return 0, true, host.valueError(node, key, origin, "must be an integer")
+	}
+	if value < minimum || value > maximum {
+		return 0, true, host.valueError(node, key, origin, fmt.Sprintf("must be between %d and %d", minimum, maximum))
 	}
 	return value, true, nil
 }
@@ -339,39 +379,45 @@ func (host inventoryHost) lookupBool(key string) (bool, bool, error) {
 	}
 	var value bool
 	if decodeErr := node.Decode(&value); decodeErr != nil {
-		return false, true, fmt.Errorf("host %s variable %q from %s must be a boolean", host.address, key, origin)
+		return false, true, host.valueError(node, key, origin, "must be true or false")
 	}
 	return value, true, nil
 }
 
-// lookupSize accepts a bare integer scaled by unitMultiplier (MiB for memory,
-// GiB for disks) or a string with an explicit unit.
-func (host inventoryHost) lookupSize(key string, unitMultiplier int64) (int64, bool, error) {
+// lookupSize accepts a bare integer scaled by unit (MiB for memory, GiB for
+// disks) or a string with an explicit unit, and enforces a minimum.
+func (host inventoryHost) lookupSize(key string, unit, minimum int64) (int64, bool, error) {
 	node, origin, found, err := host.lookup(key)
 	if err != nil || !found {
 		return 0, found, err
 	}
-	sizeError := func(err error) error {
-		return fmt.Errorf("line %d: host %s variable %q = %q: %w; use an integer or a size such as 4GiB", node.Line, host.address, key, node.Value, err)
+	unitName := "GiB"
+	if unit == 1<<20 {
+		unitName = "MiB"
 	}
+	invalid := func(rule string) error {
+		return host.valueError(node, key, origin, fmt.Sprintf("%s (plain integers are %s; sizes such as 4GiB also work)", rule, unitName))
+	}
+	var value int64
 	if node.Tag == "!!int" {
 		var integer int64
 		if err := node.Decode(&integer); err != nil {
-			return 0, true, sizeError(errors.New("value is too large"))
+			return 0, true, invalid("value is too large")
 		}
-		value, err := scaleSize(integer, unitMultiplier)
-		if err != nil {
-			return 0, true, sizeError(err)
+		if value, err = scaleSize(integer, unit); err != nil {
+			return 0, true, invalid(err.Error())
 		}
-		return value, true, nil
+	} else {
+		var text string
+		if decodeErr := node.Decode(&text); node.Tag != "!!str" || decodeErr != nil {
+			return 0, true, invalid("must be an integer or a size")
+		}
+		if value, err = ParseSize(text); err != nil {
+			return 0, true, invalid(err.Error())
+		}
 	}
-	var text string
-	if decodeErr := node.Decode(&text); node.Tag != "!!str" || decodeErr != nil {
-		return 0, true, sizeError(fmt.Errorf("value from %s must be an integer or a size string", origin))
-	}
-	value, parseErr := ParseSize(text)
-	if parseErr != nil {
-		return 0, true, sizeError(parseErr)
+	if value < minimum {
+		return 0, true, invalid(fmt.Sprintf("must be at least %d %s", minimum/unit, unitName))
 	}
 	return value, true, nil
 }
@@ -383,7 +429,7 @@ func (host inventoryHost) lookupStringList(key string) ([]string, bool, error) {
 	}
 	var value []string
 	if decodeErr := node.Decode(&value); decodeErr != nil {
-		return nil, true, fmt.Errorf("host %s variable %q from %s must be a list of strings", host.address, key, origin)
+		return nil, true, host.valueError(node, key, origin, "must be a list of strings")
 	}
 	return value, true, nil
 }
@@ -428,7 +474,7 @@ func (host inventoryHost) lookupDisks() ([]DiskConfig, bool, error) {
 	}
 	var entries []map[string]any
 	if decodeErr := node.Decode(&entries); decodeErr != nil {
-		return nil, true, fmt.Errorf("host %s vm_disks from %s must be a list of {path, size, fs, persistent} entries", host.address, origin)
+		return nil, true, host.valueError(node, "vm_disks", origin, "must be a list of {path, size, fs, persistent} entries")
 	}
 	disks := make([]DiskConfig, 0, len(entries))
 	for _, entry := range entries {
@@ -479,7 +525,7 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 	}
 	var entries []map[string]any
 	if decodeErr := node.Decode(&entries); decodeErr != nil {
-		return nil, true, fmt.Errorf("host %s vm_shares from %s must be a list of {host, guest, readonly} entries", host.address, origin)
+		return nil, true, host.valueError(node, "vm_shares", origin, "must be a list of {host, guest, readonly} entries")
 	}
 	shares := make([]ShareConfig, 0, len(entries))
 	for _, entry := range entries {
@@ -495,7 +541,7 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 		if hostPath == "" || guestPath == "" {
 			return nil, true, fmt.Errorf("host %s vm_shares entry requires host and guest paths", host.address)
 		}
-		share := ShareConfig{Host: hostPath, Guest: guestPath}
+		share := ShareConfig{Host: canonicalShareHost(hostPath), Guest: guestPath}
 		if value, present := entry["readonly"]; present {
 			flag, ok := value.(bool)
 			if !ok {
@@ -506,6 +552,19 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 		shares = append(shares, share)
 	}
 	return shares, true, nil
+}
+
+// canonicalShareHost resolves symlinked components (such as /tmp on macOS)
+// once, so the no-follow opens at start time reach the real directory. A
+// missing path stays as written; only the node that uses it fails to start.
+func canonicalShareHost(path string) string {
+	if !filepath.IsAbs(path) {
+		return path
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 // nodeName resolves the VM name: explicit nodename, then the Pigsty
@@ -520,12 +579,16 @@ func (host inventoryHost) nodeName() (string, error) {
 	if clusterErr != nil {
 		return "", fmt.Errorf("%v (set nodename explicitly to name this VM)", clusterErr)
 	}
-	sequence, sequenceFound, sequenceErr := host.lookupInt("pg_seq")
+	sequence, sequenceFound, sequenceErr := host.lookupInt("pg_seq", 0, 1<<31-1)
 	if sequenceErr != nil {
 		return "", fmt.Errorf("%v (set nodename explicitly to name this VM)", sequenceErr)
 	}
 	if clusterFound && sequenceFound && cluster != "" {
-		return fmt.Sprintf("%s-%d", cluster, sequence), nil
+		name := fmt.Sprintf("%s-%d", cluster, sequence)
+		if !naming.ValidNodeName(name) {
+			return "", fmt.Errorf("host %s: node name %q derived from pg_cluster and pg_seq is invalid: %s; set nodename explicitly", host.address, name, naming.NodeNameRule)
+		}
+		return name, nil
 	}
 	address, err := netip.ParseAddr(host.address)
 	if err != nil || !address.Is4() {
@@ -625,14 +688,17 @@ func dedupeVarSources(host inventoryHost) inventoryHost {
 }
 
 func inventoryCIDR(hosts []inventoryHost) (subnet.Layout, error) {
-	prefixes := make(map[string]struct{})
+	prefixes := make(map[string]string) // prefix -> first host in it
 	for _, host := range hosts {
 		address, err := netip.ParseAddr(host.address)
 		if err != nil || !address.Is4() {
 			return subnet.Layout{}, fmt.Errorf("inventory host key %q must be an IPv4 address", host.address)
 		}
 		octets := address.As4()
-		prefixes[fmt.Sprintf("%d.%d.%d.0/24", octets[0], octets[1], octets[2])] = struct{}{}
+		prefix := fmt.Sprintf("%d.%d.%d.0/24", octets[0], octets[1], octets[2])
+		if _, seen := prefixes[prefix]; !seen {
+			prefixes[prefix] = host.address
+		}
 	}
 	if len(prefixes) != 1 {
 		list := make([]string, 0, len(prefixes))
@@ -642,17 +708,32 @@ func inventoryCIDR(hosts []inventoryHost) (subnet.Layout, error) {
 		sort.Strings(list)
 		return subnet.Layout{}, fmt.Errorf("all managed hosts must share one /24; inventory spans %s", strings.Join(list, ", "))
 	}
-	for prefix := range prefixes {
-		return subnet.Parse(prefix)
+	for prefix, host := range prefixes {
+		layout, err := subnet.Parse(prefix)
+		if err != nil {
+			return subnet.Layout{}, fmt.Errorf("host %s: %w", host, err)
+		}
+		return layout, nil
 	}
 	return subnet.Layout{}, errors.New("inventory has no managed hosts")
 }
 
+var yamlLinePrefix = regexp.MustCompile(`^yaml: line (\d+): `)
+
+// inventoryDocument decodes exactly one YAML document, phrasing decoder errors
+// for people: "invalid YAML at line 3: …" rather than "yaml: line 3: …".
 func inventoryDocument(data []byte) (yaml.Node, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var document, extra yaml.Node
 	if err := decoder.Decode(&document); err != nil {
-		return document, err
+		if errors.Is(err, io.EOF) {
+			return document, errors.New("inventory is empty")
+		}
+		message := strings.TrimPrefix(yamlLinePrefix.ReplaceAllString(err.Error(), "invalid YAML at line $1: "), "yaml: ")
+		if !strings.HasPrefix(message, "invalid YAML") {
+			message = "invalid YAML: " + message
+		}
+		return document, errors.New(message)
 	}
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err != nil {
@@ -671,7 +752,7 @@ func ParseInventory(data []byte) (File, error) {
 	}
 	document, err := inventoryDocument(data)
 	if err != nil {
-		return File{}, fmt.Errorf("decode inventory YAML: %w", err)
+		return File{}, err
 	}
 	if len(document.Content) != 1 {
 		return File{}, errors.New("inventory must be exactly one YAML document")
@@ -790,24 +871,21 @@ func ParseInventory(data []byte) (File, error) {
 		}
 
 		node.CPUs = defaultCPU
-		if value, found, err := host.lookupInt("vm_cpu"); err != nil {
+		if value, found, err := host.lookupInt("vm_cpu", 1, maxVirtualCPUs); err != nil {
 			return File{}, err
 		} else if found {
-			if value < 1 || value > maxVirtualCPUs {
-				return File{}, fmt.Errorf("host %s vm_cpu must be 1..%d", host.address, maxVirtualCPUs)
-			}
 			node.CPUs = int(value)
 		}
 
 		node.Memory = Size(defaultMemMiB << 20)
-		if value, found, err := host.lookupSize("vm_mem", 1<<20); err != nil {
+		if value, found, err := host.lookupSize("vm_mem", 1<<20, minMemory); err != nil {
 			return File{}, err
 		} else if found {
 			node.Memory = Size(value)
 		}
 
 		node.RootDisk = Size(defaultDiskGiB * spec.GiB)
-		if value, found, err := host.lookupSize("vm_disk", spec.GiB); err != nil {
+		if value, found, err := host.lookupSize("vm_disk", spec.GiB, 0); err != nil {
 			return File{}, err
 		} else if found {
 			node.RootDisk = Size(value)
@@ -842,9 +920,9 @@ func ParseInventory(data []byte) (File, error) {
 		if sshUser == "" {
 			sshUser, sshUserOwner = user, host.address
 		} else if sshUser != user {
-			return File{}, fmt.Errorf("hosts %s and %s declare different node_admin_username values; farrow v1 uses one login user per deployment", sshUserOwner, host.address)
+			return File{}, fmt.Errorf("hosts %s and %s declare different node_admin_username values; farrow uses one login user per deployment", sshUserOwner, host.address)
 		}
-		if value, found, err := host.lookupInt("node_admin_uid"); err != nil {
+		if value, found, err := host.lookupInt("node_admin_uid", 0, 1<<31-1); err != nil {
 			return File{}, err
 		} else if found && user == defaultSSHUser && value != defaultAdminUID {
 			return File{}, fmt.Errorf("host %s sets node_admin_uid=%d; farrow provisions %s with the fixed UID %d", host.address, value, defaultSSHUser, defaultAdminUID)
@@ -877,10 +955,10 @@ func ParseInventory(data []byte) (File, error) {
 func DetectFormat(data []byte) (string, error) {
 	document, err := inventoryDocument(data)
 	if err != nil {
-		return "", fmt.Errorf("decode configuration YAML: %w", err)
+		return "", err
 	}
 	if len(document.Content) == 0 {
-		return "", errors.New("configuration is empty")
+		return "", errors.New("inventory is empty")
 	}
 	root := document.Content[0]
 	if !isMapping(root) {

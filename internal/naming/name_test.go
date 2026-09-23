@@ -19,10 +19,20 @@ func TestValidNodeNameContract(t *testing.T) {
 	}
 }
 
-func TestClosestSuggestsOnlyNearNames(t *testing.T) {
+func TestClosestSuggestsWithinTwoEdits(t *testing.T) {
+	t.Parallel()
+	candidates := []string{"vm_cpu", "vm_mem", "vm_disk", "vm_disks"}
+	for name, want := range map[string]string{"vm_cpus": "vm_cpu", "vm_dsk": "vm_disk", "vm_cpu": "", "vm_network": ""} {
+		if got := Closest(name, candidates); got != want {
+			t.Errorf("Closest(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestClosestSuggestsOnlyNearNodeNames(t *testing.T) {
 	t.Parallel()
 	nodes := []string{"pg-meta-1", "pg-test-1", "pg-test-2"}
-	for name, want := range map[string]string{"pg-mta-1": "pg-meta-1", "pg-tset-1": "pg-test-1", "hostname": "", "pg-meta-1": "", "vm_cpus": ""} {
+	for name, want := range map[string]string{"pg-mta-1": "pg-meta-1", "hostname": "", "pg-meta-1": ""} {
 		if got := Closest(name, nodes); got != want {
 			t.Errorf("Closest(%q) = %q, want %q", name, got, want)
 		}

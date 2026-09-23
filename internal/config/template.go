@@ -52,6 +52,7 @@ func Template(name, cidr string) ([]byte, error) {
 	fmt.Fprintf(&output, "# Farrow lab %q: %d fixed-IP node(s) on %s.\n", name, len(nodes), layout.CIDR())
 	fmt.Fprintf(&output, "# Start: farrow up; connect: farrow ssh.\n")
 	fmt.Fprintf(&output, "# Optional per-host settings: vm_cpu: 2, vm_mem: 4096, vm_disk: 64, vm_image: %s.\n", defaultImage)
+	fmt.Fprintf(&output, "# Each node also gets a %d GiB /data disk; set vm_disks to change it, or vm_disks: [] for none.\n", defaultDataGiB)
 	fmt.Fprintf(&output, "# Other Pigsty/Ansible variables can stay in this inventory.\n")
 	fmt.Fprintf(&output, "all:\n")
 	fmt.Fprintf(&output, "  vars:\n")

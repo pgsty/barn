@@ -149,6 +149,27 @@ func safeDiskMount(value string) bool {
 	return true
 }
 
+// unsafeGuestPathReason explains why safeDiskMount rejected a guest path.
+func unsafeGuestPathReason(value string) string {
+	for _, root := range reservedMounts {
+		if guestPathOverlap(value, root) {
+			return "overlaps the reserved system path " + root
+		}
+	}
+	return "must be a clean absolute path other than /"
+}
+
+// label names a node the way the inventory does: by its host key.
+func (node NodeConfig) label() string {
+	if node.Address == "" {
+		return "node " + node.Name
+	}
+	return fmt.Sprintf("host %s (%s)", node.Address, node.Name)
+}
+
+// minMemory is the smallest guest memory Farrow boots.
+const minMemory = 512 << 20
+
 func safeShareHost(value string) bool {
 	return filepath.IsAbs(value) && filepath.Clean(value) == value && value != "/" && !strings.ContainsAny(value, "\x00\r\n")
 }
@@ -257,18 +278,14 @@ func (f *File) Validate() error {
 	if len(f.Nodes) == 0 || len(f.Nodes) > 20 {
 		return errors.New("configuration requires 1..20 nodes")
 	}
-	privateLayout := subnet.Layout{}
-	if f.Network.Mode == "private" {
-		var err error
-		privateLayout, err = subnet.Parse(f.Network.CIDR)
-		if err != nil {
-			return err
-		}
-		if f.Network.HostAddress != privateLayout.HostAddress() || f.Network.DHCPEnd != privateLayout.DHCPEnd() {
-			return fmt.Errorf("private v1 requires host %s and DHCP end %s for %s", privateLayout.HostAddress(), privateLayout.DHCPEnd(), privateLayout.CIDR())
-		}
+	layout, err := subnet.Parse(f.Network.CIDR)
+	if err != nil {
+		return err
 	}
-	names := make(map[string]struct{})
+	if f.Network.HostAddress != layout.HostAddress() || f.Network.DHCPEnd != layout.DHCPEnd() {
+		return fmt.Errorf("network %s requires host address %s and DHCP end %s", layout.CIDR(), layout.HostAddress(), layout.DHCPEnd())
+	}
+	names := make(map[string]string) // name -> node label
 	addresses := make(map[string]struct{})
 	allAliases := make(map[string]struct{})
 	controls := 0
@@ -280,46 +297,48 @@ func (f *File) Validate() error {
 	deploymentShareHosts := make([]deploymentShareHost, 0)
 	for _, node := range f.Nodes {
 		if !naming.ValidNodeName(node.Name) {
-			return fmt.Errorf("invalid node name %q", node.Name)
+			return fmt.Errorf("%s: invalid node name %q: %s", node.label(), node.Name, naming.NodeNameRule)
 		}
-		if _, exists := names[node.Name]; exists {
-			return fmt.Errorf("duplicate node name %q", node.Name)
+		if first, exists := names[node.Name]; exists {
+			return fmt.Errorf("%s and %s have the same node name; set a distinct nodename", first, node.label())
 		}
-		names[node.Name] = struct{}{}
+		names[node.Name] = node.label()
 		allAliases[node.Name] = struct{}{}
 	}
 	for nodeIndex := range f.Nodes {
 		node := &f.Nodes[nodeIndex]
+		where := node.label()
 		if _, err := image.ParseReference(node.Image); err != nil {
-			return fmt.Errorf("node %s image reference: %w", node.Name, err)
+			return fmt.Errorf("%s image: %w", where, err)
 		}
 		if node.Control {
 			controls++
 		}
-		if node.CPUs < 1 || node.CPUs > maxVirtualCPUs || int64(node.Memory) < 512<<20 || int64(node.RootDisk) <= 0 {
-			return fmt.Errorf("invalid CPU/memory/root resources for node %s", node.Name)
+		switch {
+		case node.CPUs < 1 || node.CPUs > maxVirtualCPUs:
+			return fmt.Errorf("%s: %d vCPUs is out of range; use 1 to %d", where, node.CPUs, maxVirtualCPUs)
+		case int64(node.Memory) < minMemory:
+			return fmt.Errorf("%s: %d MiB memory is below the %d MiB minimum", where, int64(node.Memory)>>20, minMemory>>20)
+		case int64(node.RootDisk) <= 0:
+			return fmt.Errorf("%s: root disk size must be positive", where)
 		}
-		if f.Network.Mode == "private" {
-			if !privateLayout.IsStatic(node.Address) {
-				return fmt.Errorf("private node %s address must be in %s-%s", node.Name, privateLayout.StaticStart(), privateLayout.StaticEnd())
-			}
-			if _, exists := addresses[node.Address]; exists {
-				return fmt.Errorf("duplicate private address %s", node.Address)
-			}
-			addresses[node.Address] = struct{}{}
-		} else if node.Address != "" {
-			return fmt.Errorf("user-network node %s must not set address", node.Name)
+		if !layout.IsStatic(node.Address) {
+			return fmt.Errorf("%s: address must be in %s-%s; %s-%s are reserved for the host and DHCP", where, layout.StaticStart(), layout.StaticEnd(), layout.HostAddress(), layout.DHCPEnd())
 		}
+		if _, exists := addresses[node.Address]; exists {
+			return fmt.Errorf("%s: address %s is used by another node", where, node.Address)
+		}
+		addresses[node.Address] = struct{}{}
 		aliasSeen := make(map[string]struct{})
 		for _, alias := range node.HostAliases {
 			if !dnsName.MatchString(alias) || strings.Contains(alias, "..") {
-				return fmt.Errorf("invalid host alias %q", alias)
+				return fmt.Errorf("%s: invalid host alias %q: use lowercase DNS labels separated by dots", where, alias)
 			}
 			if _, exists := aliasSeen[alias]; exists {
-				return fmt.Errorf("duplicate host alias %q", alias)
+				return fmt.Errorf("%s: duplicate host alias %q", where, alias)
 			}
 			if _, exists := allAliases[alias]; exists {
-				return fmt.Errorf("host alias %q collides within deployment", alias)
+				return fmt.Errorf("%s: host alias %q is already a node name or another node's alias", where, alias)
 			}
 			aliasSeen[alias] = struct{}{}
 			allAliases[alias] = struct{}{}
@@ -327,56 +346,60 @@ func (f *File) Validate() error {
 		diskNames := make(map[string]struct{})
 		mounts := make(map[string]struct{})
 		for _, disk := range node.Disks {
-			if !diskName.MatchString(disk.Name) || disk.Size <= 0 || !safeDiskMount(disk.Mount) {
-				return fmt.Errorf("invalid disk %q on node %s", disk.Name, node.Name)
-			}
-			if !spec.ValidFilesystem(disk.Filesystem) {
-				return fmt.Errorf("unsupported filesystem %q", disk.Filesystem)
+			switch {
+			case !diskName.MatchString(disk.Name):
+				return fmt.Errorf("%s: invalid disk name %q", where, disk.Name)
+			case disk.Size <= 0:
+				return fmt.Errorf("%s: disk %s size must be positive", where, disk.Mount)
+			case !safeDiskMount(disk.Mount):
+				return fmt.Errorf("%s: disk mount %q %s", where, disk.Mount, unsafeGuestPathReason(disk.Mount))
+			case !spec.ValidFilesystem(disk.Filesystem):
+				return fmt.Errorf("%s: disk %s fs %q must be auto, xfs, or ext4", where, disk.Mount, disk.Filesystem)
 			}
 			if _, exists := diskNames[disk.Name]; exists {
-				return fmt.Errorf("duplicate disk name %q", disk.Name)
+				return fmt.Errorf("%s: duplicate disk name %q", where, disk.Name)
 			}
 			if _, exists := mounts[disk.Mount]; exists {
-				return fmt.Errorf("duplicate mount %q", disk.Mount)
+				return fmt.Errorf("%s: duplicate disk mount %q", where, disk.Mount)
 			}
 			diskNames[disk.Name] = struct{}{}
 			mounts[disk.Mount] = struct{}{}
 		}
 		if len(node.Shares) > spec.MaxSharesPerNode {
-			return fmt.Errorf("node %s has %d shares; maximum is %d", node.Name, len(node.Shares), spec.MaxSharesPerNode)
+			return fmt.Errorf("%s has %d shares; maximum is %d", where, len(node.Shares), spec.MaxSharesPerNode)
 		}
 		shareHosts := make([]string, 0, len(node.Shares))
 		shareGuests := make([]string, 0, len(node.Shares))
 		sshDirectory := pathpkg.Join("/home", f.SSH.User, ".ssh")
 		for _, share := range node.Shares {
 			if !safeShareHost(share.Host) {
-				return fmt.Errorf("invalid share host %q on node %s", share.Host, node.Name)
+				return fmt.Errorf("%s: share host %q must be a clean absolute path other than / (~ and relative paths are not expanded)", where, share.Host)
 			}
 			if !safeShareGuest(share.Guest) {
-				return fmt.Errorf("invalid share guest %q on node %s", share.Guest, node.Name)
+				return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
 			}
 			if guestPathOverlap(share.Guest, sshDirectory) {
-				return fmt.Errorf("share guest %q overlaps SSH directory %q on node %s", share.Guest, sshDirectory, node.Name)
+				return fmt.Errorf("%s: share guest %q overlaps the SSH directory %q", where, share.Guest, sshDirectory)
 			}
 			for _, previous := range shareHosts {
 				if hostPathOverlap(previous, share.Host) {
-					return fmt.Errorf("overlapping share hosts %q and %q on node %s", previous, share.Host, node.Name)
+					return fmt.Errorf("%s: share hosts %q and %q overlap", where, previous, share.Host)
 				}
 			}
 			for _, previous := range shareGuests {
 				if guestPathOverlap(previous, share.Guest) {
-					return fmt.Errorf("overlapping share guests %q and %q on node %s", previous, share.Guest, node.Name)
+					return fmt.Errorf("%s: share guests %q and %q overlap", where, previous, share.Guest)
 				}
 			}
 			for mount := range mounts {
 				if guestPathOverlap(mount, share.Guest) {
-					return fmt.Errorf("share guest %q overlaps data disk mount %q on node %s", share.Guest, mount, node.Name)
+					return fmt.Errorf("%s: share guest %q overlaps disk mount %q", where, share.Guest, mount)
 				}
 			}
 			readonly := shareReadonly(share)
 			for _, previous := range deploymentShareHosts {
 				if previous.node != node.Name && hostPathOverlap(previous.path, share.Host) && (!previous.readonly || !readonly) {
-					return fmt.Errorf("cross-node share hosts %q on %s and %q on %s overlap with read-write access", previous.path, previous.node, share.Host, node.Name)
+					return fmt.Errorf("share host %q on %s and %q on %s overlap with read-write access; make both readonly or separate them", previous.path, previous.node, share.Host, node.Name)
 				}
 			}
 			shareHosts = append(shareHosts, share.Host)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/pgsty/farrow/internal/activity"
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 func makeQCOW2(t *testing.T, path string, backing string) {
@@ -233,7 +234,7 @@ func TestMissingRepositoryArtifactDoesNotRequestUpstream(t *testing.T) {
 	store.HTTPClient = upstream.Client()
 	entry := Entry{Alias: "u24", Release: "1", Arch: "arm64", File: "u24/u24-1-arm64.qcow2", Upstream: upstream.URL + "/image.qcow2", SHA256: hex.EncodeToString(digestBytes[:]), Format: "qcow2", ArtifactSize: int64(len(data)), VirtualSize: 64 << 20}
 	_, _, err = store.Pull(context.Background(), entry)
-	if err == nil || !strings.Contains(err.Error(), "not present in the selected repository") {
+	if err == nil || !strings.Contains(err.Error(), "does not carry this catalog artifact") {
 		t.Fatalf("missing repository artifact error = %v", err)
 	}
 	if upstreamHits.Load() != 0 {
@@ -498,9 +499,10 @@ func TestIntegrationRotatedAwayUpstreamExplainsTheRemedy(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing upstream artifact was accepted")
 	}
-	for _, want := range []string{"no longer published upstream", "farrow image sync", "FARROW_REPO", "farrow image import"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("rotated-away upstream error is missing %q:\n%v", want, err)
+	_, _, next := failure.Classify(err)
+	for _, want := range []string{"no longer published upstream", "farrow update", "--repo", "farrow image import"} {
+		if !strings.Contains(err.Error()+" next: "+next, want) {
+			t.Errorf("rotated-away upstream error is missing %q:\n%v next: %s", want, err, next)
 		}
 	}
 }

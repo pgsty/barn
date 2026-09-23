@@ -2,11 +2,36 @@ package image
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
+
+func TestUnreachableSourceNamesHostAndKeepsRetryableCause(t *testing.T) {
+	t.Parallel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	_ = listener.Close()
+	_, getErr := http.Get("http://" + address + "/catalog.json")
+	err = reachError(getErr)
+	if got, want := err.Error(), "cannot reach "+address+": connection refused"; got != want {
+		t.Fatalf("message = %q, want %q", got, want)
+	}
+	if _, _, next := failure.Classify(err); !strings.Contains(next, "--mirror") {
+		t.Fatalf("next = %q", next)
+	}
+	if !retrySource(err) {
+		t.Fatal("rewording hid the retryable transport error")
+	}
+}
 
 func TestValidateCachedDigestMismatchHasFactualError(t *testing.T) {
 	t.Parallel()

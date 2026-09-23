@@ -28,7 +28,7 @@ func TestImageLookupErrorsWithoutQEMU(t *testing.T) {
 	service := Service{DataRoot: t.TempDir()}
 	for _, name := range []string{"unknown-fixture", "local-missing"} {
 		_, err := service.InfoArch(context.Background(), name, "arm64")
-		if err == nil || !strings.Contains(err.Error(), "unknown image alias") || !strings.Contains(err.Error(), name) {
+		if err == nil || !strings.Contains(err.Error(), "unknown image") || !strings.Contains(err.Error(), name) {
 			t.Errorf("lookup %s lost the alias error: %v", name, err)
 		}
 	}
@@ -72,7 +72,7 @@ func TestRegisteredLocalImagePreservesFailureCause(t *testing.T) {
 			}
 			service := Service{DataRoot: root, QEMUImg: "/unused-qemu-img"}
 			_, err = service.InfoArch(context.Background(), alias.Name, arch)
-			if err == nil || strings.Contains(err.Error(), "unknown image alias") {
+			if err == nil || strings.Contains(err.Error(), "unknown image \"") {
 				t.Fatalf("registered image %s lost its real error: %v", problem, err)
 			}
 			switch problem {

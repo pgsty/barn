@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"aead.dev/minisign"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/lock"
 	"github.com/pgsty/farrow/internal/webclient"
@@ -413,7 +414,7 @@ func (m ManifestManager) download(ctx context.Context, source string, limit int6
 	}
 	response, err := m.httpClient().Do(request)
 	if err != nil {
-		return nil, err
+		return nil, reachError(err)
 	}
 	defer func() {
 		// The bounded response is read-only and is verified before acceptance;
@@ -434,7 +435,7 @@ func (m ManifestManager) readSource(ctx context.Context, source string) ([]byte,
 	parsed, err := url.Parse(source)
 	if err == nil && parsed.Scheme != "" {
 		if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return nil, nil, "", errors.New("remote catalog source must be absolute HTTP(S) without credentials, query, or fragment")
+			return nil, nil, "", failure.New(failure.Usage, errors.New("remote catalog source must be an absolute HTTP(S) URL without credentials, query, or fragment"))
 		}
 		manifestSource := parsed.String()
 		signatureURL := *parsed
@@ -478,7 +479,7 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 	}
 	data, signatureText, provenance, err := m.readSource(ctx, source)
 	if err != nil {
-		return ManifestState{}, err
+		return ManifestState{}, fmt.Errorf("fetch catalog %s: %w", source, err)
 	}
 	keyID := uint64(0)
 	if len(signatureText) != 0 {

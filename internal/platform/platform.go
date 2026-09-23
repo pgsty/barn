@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 // Tier describes release evidence, not whether a platform can compile.
@@ -79,13 +81,23 @@ func FindQEMUBinary(profile Profile, lookup func(string) (string, error)) (strin
 		return path, nil
 	}
 	if !allowsRHELQEMUFallback(profile) {
-		return "", primaryErr
+		return "", QEMUMissing(profile.QEMUBinary, primaryErr)
 	}
 	path, fallbackErr := lookup(RHELQEMUBinary)
 	if fallbackErr == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("locate %s or %s: %w", profile.QEMUBinary, RHELQEMUBinary, errors.Join(primaryErr, fallbackErr))
+	return "", QEMUMissing(profile.QEMUBinary+" or "+RHELQEMUBinary, errors.Join(primaryErr, fallbackErr))
+}
+
+// QEMUMissing reports a QEMU program that is not installed, pointing at the
+// one command that installs it.
+func QEMUMissing(program string, cause error) error {
+	err := fmt.Errorf("QEMU is not installed (%s not found in PATH)", program)
+	if !errors.Is(cause, exec.ErrNotFound) {
+		err = fmt.Errorf("QEMU is not usable (%s): %w", program, cause)
+	}
+	return failure.New(failure.Capability, err).Because("qemu_missing").Then("farrow setup")
 }
 
 func allowsRHELQEMUFallback(profile Profile) bool {
