@@ -107,7 +107,8 @@ func (item *progress) Report(event activity.Event) {
 		item.nodes[event.Node] = event
 	}
 	// Plain logs retain meaningful milestones, while fast checks remain silent.
-	if !item.tty && item.verbose && (previous.Phase != event.Phase || event.Done) {
+	// Waiting on another command is always worth one line, even in scripts.
+	if !item.tty && (item.verbose || event.Phase == "lock") && (previous.Phase != event.Phase || event.Done) {
 		item.logEvent(time.Now())
 	}
 }

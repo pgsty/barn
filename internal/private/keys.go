@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pgsty/farrow/internal/lock"
 	"github.com/pgsty/farrow/internal/persistent"
@@ -61,9 +60,7 @@ func (m Manager) PurgeKeys(ctx context.Context, apply bool) (_ KeyPurgeReport, r
 	if err != nil {
 		return KeyPurgeReport{}, err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return KeyPurgeReport{}, err
 	}

@@ -133,9 +133,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 	if err != nil {
 		return Status{}, err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}

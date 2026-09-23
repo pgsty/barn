@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pgsty/farrow/internal/disk"
 	"github.com/pgsty/farrow/internal/identity"
@@ -167,9 +166,7 @@ func (m Manager) DeletePersistent(ctx context.Context) (_ []persistent.Record, r
 	if err != nil {
 		return nil, err
 	}
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return nil, err
 	}

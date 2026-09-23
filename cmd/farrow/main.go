@@ -1014,6 +1014,9 @@ func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
 	if status.Message != "" {
 		bestEffortln(out, status.Message)
 	}
+	if status.Note != "" {
+		textField(out, 6, "note", status.Note)
+	}
 }
 
 // Only a successful SSH readiness probe justifies a ready label.

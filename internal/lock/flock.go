@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,35 +16,26 @@ import (
 )
 
 type File struct {
-	mu     sync.Mutex
-	handle *os.File
-	path   string
-	shared bool
+	mu       sync.Mutex
+	handle   *os.File
+	path     string
+	shared   bool
+	recorded bool
 }
 
+// ErrBusy reports a lock another process holds right now.
+var ErrBusy = errors.New("lock is held by another process")
+
+// Acquire waits until the lock is free or ctx ends.
 func Acquire(ctx context.Context, path string, shared bool) (*File, error) {
-	if path == "" || !filepath.IsAbs(path) {
-		return nil, errors.New("lock path must be absolute")
-	}
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("refuse symlink lock path: %s", path)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	handle, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	handle, err := openLock(path)
 	if err != nil {
 		return nil, err
 	}
-	operation := unix.LOCK_EX | unix.LOCK_NB
-	if shared {
-		operation = unix.LOCK_SH | unix.LOCK_NB
-	}
 	for {
-		if err := unix.Flock(int(handle.Fd()), operation); err == nil {
-			return &File{handle: handle, path: path, shared: shared}, nil
-		} else if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
-			_ = handle.Close()
-			return nil, fmt.Errorf("lock %s: %w", path, err)
+		held, err := tryLock(handle, path, shared)
+		if !errors.Is(err, ErrBusy) {
+			return held, err
 		}
 		select {
 		case <-ctx.Done():
@@ -52,6 +44,87 @@ func Acquire(ctx context.Context, path string, shared bool) (*File, error) {
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
+}
+
+// TryAcquire takes the lock only if it is free now, and returns ErrBusy
+// otherwise.
+func TryAcquire(path string, shared bool) (*File, error) {
+	handle, err := openLock(path)
+	if err != nil {
+		return nil, err
+	}
+	held, err := tryLock(handle, path, shared)
+	if errors.Is(err, ErrBusy) {
+		_ = handle.Close()
+	}
+	return held, err
+}
+
+func openLock(path string) (*os.File, error) {
+	if path == "" || !filepath.IsAbs(path) {
+		return nil, errors.New("lock path must be absolute")
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("refuse symlink lock path: %s", path)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+}
+
+// tryLock closes handle on every outcome except success and ErrBusy.
+func tryLock(handle *os.File, path string, shared bool) (*File, error) {
+	operation := unix.LOCK_EX | unix.LOCK_NB
+	if shared {
+		operation = unix.LOCK_SH | unix.LOCK_NB
+	}
+	err := unix.Flock(int(handle.Fd()), operation)
+	switch {
+	case err == nil:
+		return &File{handle: handle, path: path, shared: shared}, nil
+	case errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN):
+		return nil, ErrBusy
+	default:
+		_ = handle.Close()
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+}
+
+// maxOwnerBytes bounds the holder description kept in a lock file.
+const maxOwnerBytes = 1024
+
+// Record writes a short description of the exclusive holder into the lock
+// file, so a waiting process can say what it waits for. Release clears it.
+func (f *File) Record(owner []byte) error {
+	if len(owner) > maxOwnerBytes {
+		return errors.New("lock owner description is too long")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.handle == nil || f.shared {
+		return errors.New("only a live exclusive lock records its owner")
+	}
+	if err := f.handle.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := f.handle.WriteAt(owner, 0); err != nil {
+		return err
+	}
+	f.recorded = true
+	return nil
+}
+
+// Owner returns what the current exclusive holder of path recorded. The
+// kernel drops a crashed holder's lock, so a stale description is only read
+// by a caller that did not first find the lock busy.
+func Owner(path string) []byte {
+	handle, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = handle.Close() }()
+	owner, _ := io.ReadAll(io.LimitReader(handle, maxOwnerBytes))
+	return owner
 }
 
 func (f *File) Path() string { return f.path }
@@ -88,6 +161,10 @@ func (f *File) Release() error {
 	defer f.mu.Unlock()
 	if f.handle == nil {
 		return nil
+	}
+	if f.recorded {
+		// A stale description is harmless; never let it block the unlock.
+		_ = f.handle.Truncate(0)
 	}
 	unlockErr := unix.Flock(int(f.handle.Fd()), unix.LOCK_UN)
 	closeErr := f.handle.Close()

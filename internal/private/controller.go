@@ -157,9 +157,7 @@ func (controller Controller) CreateAndStart(ctx context.Context) (_ CreateResult
 	if controller.Deployment.Root == "" || controller.Prepare.DeploymentRoot != controller.Deployment.Root || controller.Lifecycle == nil || controller.Version == "" {
 		return result, fmt.Errorf("controller deployment, prepare, lifecycle, or version is incomplete")
 	}
-	lockContext, cancelLock := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelLock()
-	deploymentLock, err := acquireDeploymentLock(lockContext, controller.Deployment.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, controller.Deployment.Root, false, controller.Progress)
 	if err != nil {
 		return result, err
 	}

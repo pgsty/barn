@@ -266,6 +266,8 @@ type Status struct {
 	SpecHash    string       `json:"spec_hash"`
 	Nodes       []NodeStatus `json:"nodes"`
 	Message     string       `json:"message,omitempty"`
+	// Note explains a status read while another command held the deployment.
+	Note string `json:"note,omitempty"`
 }
 
 func appendStatusMessage(current, addition string) string {
@@ -898,9 +900,7 @@ func committedNodeUUIDs(store state.Store, resolved spec.Resolved, creating []st
 }
 
 func (m Manager) ensureKeys(ctx context.Context, deploymentValue Deployment) (_ string, _ string, _ string, returnErr error) {
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -923,6 +923,13 @@ func (m Manager) ensureKeys(ctx context.Context, deploymentValue Deployment) (_ 
 }
 
 func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment, message string) (Status, error) {
+	return m.observeStatus(ctx, deploymentValue, message, true)
+}
+
+// observeStatus audits every selected node. With converge it also publishes
+// what the audit proved (stopped runtimes, adopted starts); without it, it
+// only reads, for a command that runs while another one holds the lock.
+func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, message string, converge bool) (Status, error) {
 	store := state.Store{Root: deploymentValue.Root}
 	deploymentState, err := store.ReadDeployment()
 	if err != nil {
@@ -958,7 +965,7 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 			readErrors[definition.Name] = err
 			continue
 		}
-		if completeProcess(node.Process) && process.IsLegacyStart(node.Process.Started) {
+		if converge && completeProcess(node.Process) && process.IsLegacyStart(node.Process.Started) {
 			recorded := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
 			if process.MatchesLive(ctx, m.runner(), recorded, node.Invocation) {
 				fresh, captureErr := process.Capture(ctx, m.runner(), node.Invocation, node.Process.PID)
@@ -1041,6 +1048,10 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					// This is the safe self-halt case. The death audit proved both QMP
 					// and every recorded PID dead, so remove the bounded runtime residue
 					// before publishing a startable stopped state.
+					if !converge {
+						node.Phase = state.Stopped
+						return nil
+					}
 					if err := cleanupRuntime(node); err != nil {
 						return fmt.Errorf("clean dead private runtime for %s: %w", node.Node, err)
 					}
@@ -1049,6 +1060,9 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)
 				}
+			} else if !converge && (node.Phase == state.Stopping || node.Phase == state.Starting || node.Phase == state.Destroying) {
+				// The command holding the lock owns this transition.
+				runtimeState = "unknown"
 			} else if node.Phase == state.Stopping || node.Phase == state.Starting || node.Phase == state.Destroying {
 				// An interrupted transition (a killed CLI mid-stop/start/destroy).
 				// Prove the runtime dead before converging. A QMP-bound starting
@@ -1102,6 +1116,9 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 			SSHHost: "127.0.0.1", SSHPort: node.SSHPort, ProcessID: node.Process.PID,
 		})
 	}
+	if !converge {
+		convergenceCandidates = nil
+	}
 	for _, node := range convergenceCandidates {
 		if err := store.WriteNode(node); err != nil {
 			failures = append(failures, NodeFailure{Node: node.Node, Stage: "status", Error: err.Error()})
@@ -1119,9 +1136,7 @@ func (m Manager) statusForLocked(ctx context.Context, deploymentValue Deployment
 }
 
 func (m Manager) statusFor(ctx context.Context, deploymentValue Deployment, message string) (_ Status, returnErr error) {
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1136,7 +1151,25 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return m.statusFor(ctx, deploymentValue, "")
+	return m.statusReadOnly(ctx, deploymentValue)
+}
+
+// statusReadOnly never queues behind another farrow command: while one holds
+// the deployment, it reports the recorded state without converging it.
+func (m Manager) statusReadOnly(ctx context.Context, deploymentValue Deployment) (_ Status, returnErr error) {
+	deploymentLock, holder, err := tryDeploymentLock(deploymentValue.Root, false)
+	if err != nil {
+		return Status{}, err
+	}
+	if deploymentLock == nil {
+		status, err := m.observeStatus(ctx, deploymentValue, "", false)
+		status.Note = holder + " is running; showing recorded state"
+		return status, err
+	}
+	defer func() {
+		returnErr = lock.JoinRelease(returnErr, deploymentLock, "deployment status lock")
+	}()
+	return m.statusForLocked(ctx, deploymentValue, "")
 }
 
 func defaultCommittedNode(store state.Store, resolved spec.Resolved) (string, error) {
@@ -1176,7 +1209,7 @@ func (m Manager) Connection(ctx context.Context, requestedNode string) (Connecti
 		return Connection{}, unknownNodeError(requestedNode, deploymentState.Resolved.Nodes)
 	}
 	m.Nodes = []string{requestedNode}
-	status, err := m.statusFor(ctx, deploymentValue, "")
+	status, err := m.statusReadOnly(ctx, deploymentValue)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -1621,9 +1654,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	if err := validatePrivatePersistentDesired(deploymentValue, requested); err != nil {
 		return Status{}, err
 	}
-	allocatorContext, cancelAllocator := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelAllocator()
-	allocator, err := lock.Acquire(allocatorContext, filepath.Join(deploymentValue.Root, "locks", "allocator.lock"), false)
+	allocator, err := waitForLock(ctx, filepath.Join(deploymentValue.Root, "locks", "allocator.lock"), false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1787,9 +1818,7 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 	if err := m.ensureSSHAddressesUnused(startableDefinitions); err != nil {
 		return Status{}, err
 	}
-	lockContext, cancelLock := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelLock()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1887,9 +1916,7 @@ func (m Manager) Stop(ctx context.Context) (_ Status, returnErr error) {
 	if err != nil {
 		return Status{}, err
 	}
-	lockContext, cancelLock := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelLock()
-	deploymentLock, err := acquireDeploymentLock(lockContext, deploymentValue.Root, false)
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
 	if err != nil {
 		return Status{}, err
 	}
