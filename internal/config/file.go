@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/image"
 	"github.com/pgsty/farrow/internal/naming"
 	"github.com/pgsty/farrow/internal/network/subnet"
@@ -398,7 +399,7 @@ func (f *File) Validate() error {
 func (f File) Resolve() (spec.Resolved, error) {
 	f.defaults()
 	if err := f.Validate(); err != nil {
-		return spec.Resolved{}, err
+		return spec.Resolved{}, failure.New(failure.Usage, err)
 	}
 	resolved := spec.Resolved{Schema: 1, Name: f.Name, Image: f.Defaults.Image, Network: f.Network.Mode, SSHUser: f.SSH.User, SSHWaitTimeoutNS: int64(f.SSH.WaitTimeout)}
 	if f.Arch != "native" {

@@ -40,10 +40,25 @@ type outputContext struct {
 	columns     int
 }
 
+// commandFailure is the JSON shape of every failed command. Error is one of
+// the closed classes in internal/failure (plus remote_exit for ssh/exec).
 type commandFailure struct {
-	Error       string `json:"error"`
-	Message     string `json:"message"`
-	OperationID string `json:"operation_id,omitempty"`
+	Error       string         `json:"error"`
+	Reason      string         `json:"reason,omitempty"`
+	Message     string         `json:"message"`
+	Next        string         `json:"next,omitempty"`
+	OperationID string         `json:"operation_id,omitempty"`
+	Command     *commandDetail `json:"command,omitempty"`
+}
+
+// commandDetail describes the external program a failure came from.
+type commandDetail struct {
+	Name       string   `json:"name"`
+	Argv       []string `json:"argv"`
+	ExitStatus int      `json:"exit_status"`
+	Signal     string   `json:"signal,omitempty"`
+	TimedOut   bool     `json:"timed_out,omitempty"`
+	Stderr     string   `json:"stderr,omitempty"`
 }
 
 type outputWriter struct {
@@ -339,6 +354,7 @@ func encodeOutput(out io.Writer, value any) error {
 	default:
 		encoder := json.NewEncoder(&buffer)
 		encoder.SetIndent("", "  ")
+		encoder.SetEscapeHTML(false)
 		if err := encoder.Encode(value); err != nil {
 			return err
 		}

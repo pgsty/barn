@@ -9,13 +9,22 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/lock"
 )
 
 type NodeFailure struct {
-	Node  string `json:"node"`
-	Stage string `json:"stage"`
-	Error string `json:"error"`
+	Node   string `json:"node"`
+	Stage  string `json:"stage"`
+	Error  string `json:"error"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// failureReason is the stable reason a node outcome carries past the point
+// where its error is flattened to text.
+func failureReason(err error) string {
+	_, reason, _ := failure.Classify(err)
+	return reason
 }
 
 // PartialError reports a multi-node operation in which some nodes failed.
@@ -26,16 +35,20 @@ type PartialError struct {
 	RolledBack []string
 }
 
-// errors.Join can wrap a single failure after a successful state audit. Do
-// not discard a second (global) error while combining independent node results.
-func isolatedPartialError(err error) *PartialError {
+// IsolatedPartial returns the PartialError only when it is the whole failure.
+// errors.Join can wrap a single failure after a successful state audit; a
+// second (global) error must never be reported as a node-local partial result.
+func IsolatedPartial(err error) *PartialError {
 	if partial, ok := err.(*PartialError); ok {
 		return partial
 	}
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		if causes := joined.Unwrap(); len(causes) == 1 {
-			return isolatedPartialError(causes[0])
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		if causes := wrapped.Unwrap(); len(causes) == 1 {
+			return IsolatedPartial(causes[0])
 		}
+	case interface{ Unwrap() error }:
+		return IsolatedPartial(wrapped.Unwrap())
 	}
 	return nil
 }
@@ -112,7 +125,7 @@ func startFailures(outcomes []StartOutcome) []NodeFailure {
 		if message == "" {
 			message = "guest readiness was not confirmed"
 		}
-		failures = append(failures, NodeFailure{Node: outcome.Node, Stage: stage, Error: message})
+		failures = append(failures, NodeFailure{Node: outcome.Node, Stage: stage, Error: message, Reason: outcome.Reason})
 	}
 	return failures
 }
@@ -121,7 +134,7 @@ func createFailures(result CreateResult) []NodeFailure {
 	failed := make(map[string]NodeFailure)
 	for _, outcome := range result.Prepare {
 		if outcome.Error != "" {
-			failed[outcome.Node] = NodeFailure{Node: outcome.Node, Stage: "prepare", Error: outcome.Error}
+			failed[outcome.Node] = NodeFailure{Node: outcome.Node, Stage: "prepare", Error: outcome.Error, Reason: outcome.Reason}
 		}
 	}
 	for _, node := range result.Commit.Failed {

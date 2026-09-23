@@ -19,6 +19,7 @@ import (
 	"github.com/pgsty/farrow/internal/activity"
 	"github.com/pgsty/farrow/internal/disk"
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/lock"
 	"github.com/pgsty/farrow/internal/webclient"
@@ -30,7 +31,7 @@ const (
 )
 
 // ErrIntegrity identifies image bytes that fail verification.
-var ErrIntegrity = errors.New("image integrity check failed")
+var ErrIntegrity error = failure.New(failure.Integrity, errors.New("image integrity check failed")).Because("image_integrity")
 
 var (
 	digestPattern      = regexp.MustCompile(`^[0-9a-f]{64}$`)

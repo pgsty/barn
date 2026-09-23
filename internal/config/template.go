@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/network/subnet"
 )
 
@@ -36,7 +37,7 @@ func ValidTemplate(name string) bool {
 func Template(name, cidr string) ([]byte, error) {
 	nodes, exists := templateProfiles[name]
 	if !exists {
-		return nil, fmt.Errorf("unknown lab template %q; available: %s", name, strings.Join(TemplateNames(), ", "))
+		return nil, failure.New(failure.Usage, fmt.Errorf("unknown lab template %q; available: %s", name, strings.Join(TemplateNames(), ", ")))
 	}
 	if cidr == "" {
 		cidr = subnet.DefaultCIDR

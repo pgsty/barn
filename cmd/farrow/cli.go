@@ -224,10 +224,10 @@ func configureHelpOnly(command *cobra.Command, message string, stdout, stderr io
 		// `farrow --help` remains the deliberate, successful way to ask for help.
 		if !structuredOutput(stdout) {
 			if command.Parent() == nil {
-				return newSilentRenderedCommandError("usage", exitUsage, errors.New(message), nil, func(out, _ io.Writer) error {
+				return newCommandError(exitUsage, errors.New(message)).withText(func(out, _ io.Writer) error {
 					printWelcome(out)
 					return nil
-				})
+				}).quiet()
 			}
 			if err := command.Help(); err != nil {
 				return newRuntimeError(err)

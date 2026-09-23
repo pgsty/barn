@@ -187,27 +187,3 @@ func TestSubsecondOperationsDoNotPrintTransientProgress(t *testing.T) {
 		t.Fatal("long operations have no progress")
 	}
 }
-
-func TestCommandFailureSummaryRetainsCauseWithoutQEMUArgumentFlood(t *testing.T) {
-	message := `create root overlay: "/usr/bin/qemu-img" "create" "-blockdev" "{\"filename\":\"/long/private/path\"}" failed with exit code 1: no space left on device`
-	want := "create root overlay: qemu-img failed with exit code 1: no space left on device"
-	if got := compactCommandFailure(message); got != want {
-		t.Fatalf("summary=%q, want %q", got, want)
-	}
-	failure := privatevm.NodeFailure{Node: "meta", Stage: "prepare", Error: message}
-	var ordinary, verbose bytes.Buffer
-	printNodeFailures(&ordinary, "", []privatevm.NodeFailure{failure})
-	printNodeFailures(&outputWriter{Writer: &verbose, context: &outputContext{verbose: true}}, "", []privatevm.NodeFailure{failure})
-	if strings.Contains(ordinary.String(), "-blockdev") || !strings.Contains(verbose.String(), "-blockdev") {
-		t.Fatalf("summary/detail boundary: %s / %s", ordinary.String(), verbose.String())
-	}
-	data, err := json.Marshal(failure)
-	if err != nil || !strings.Contains(string(data), "-blockdev") {
-		t.Fatal("structured failure lost arguments")
-	}
-	for _, unchanged := range []string{`invalid size "2 GB"`, "SSH access refused", `failed command "unterminated`} {
-		if got := compactCommandFailure(unchanged); got != unchanged {
-			t.Fatalf("unrelated error changed: %q", got)
-		}
-	}
-}

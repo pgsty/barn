@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
+	"github.com/pgsty/farrow/internal/hostshare"
 	privatevm "github.com/pgsty/farrow/internal/private"
 	"github.com/pgsty/farrow/internal/state"
 )
@@ -208,7 +207,7 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	for _, failure := range failures {
 		message := strings.Join(strings.Fields(failure.Error), " ")
 		groups[message] = append(groups[message], failure.Node)
-		if strings.Contains(failure.Error, "cannot be safely opened by QEMU on macOS") {
+		if failure.Reason == hostshare.ReasonUnsupportedOnDarwin {
 			// This host capability needs a configuration/host change. Repeating
 			// up cannot recover it, and recreating a healthy root disk is not a
 			// routine retry. Keep the explicit limitation, without either hint.
@@ -230,11 +229,7 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	for _, message := range messages {
 		names := groups[message]
 		sort.Strings(names)
-		display := message
-		if !verboseOutput(out) {
-			display = compactCommandFailure(message)
-		}
-		bestEffortf(out, "  !  %s: %s\n", strings.Join(names, ", "), display)
+		bestEffortf(out, "  !  %s: %s\n", strings.Join(names, ", "), message)
 	}
 	sort.Strings(retry)
 	if len(repair) > 0 {
@@ -258,35 +253,6 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 		textField(out, 10, "rebuild", lifecycleNodeCommand("recreate", source, bootstrap, options...))
 		bestEffortln(out, "           rebuild replaces root and non-persistent disks; inspect first")
 	}
-}
-
-// Failure records retain the complete execx diagnostic for JSON and verbose
-// output. In the summary, its quoted argv obscures the actionable stderr.
-func compactCommandFailure(message string) string {
-	start := strings.IndexByte(message, '"')
-	if start < 0 {
-		return message
-	}
-	quoted, err := strconv.QuotedPrefix(message[start:])
-	if err != nil {
-		return message
-	}
-	binary, err := strconv.Unquote(quoted)
-	if err != nil || binary == "" {
-		return message
-	}
-	rest := strings.TrimSpace(message[start+len(quoted):])
-	for strings.HasPrefix(rest, "\"") {
-		argument, err := strconv.QuotedPrefix(rest)
-		if err != nil {
-			return message
-		}
-		rest = strings.TrimSpace(rest[len(argument):])
-	}
-	if !strings.HasPrefix(rest, "failed with exit code ") {
-		return message
-	}
-	return message[:start] + filepath.Base(binary) + " " + rest
 }
 
 func lifecycleRetryCommand(source string, nodes []string, options ...lifecycleRetryOptions) string {

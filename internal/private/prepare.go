@@ -116,6 +116,7 @@ type PrepareOutcome struct {
 	Node      string         `json:"node"`
 	Artifacts *NodeArtifacts `json:"artifacts,omitempty"`
 	Error     string         `json:"error,omitempty"`
+	Reason    string         `json:"reason,omitempty"`
 }
 
 func (config PrepareConfig) now() time.Time {
@@ -410,7 +411,7 @@ func PrepareSelected(ctx context.Context, config PrepareConfig, names []string, 
 				}
 				artifacts, err := PrepareNode(ctx, config, name)
 				if err != nil {
-					outcomes[index].Error = err.Error()
+					outcomes[index].Error, outcomes[index].Reason = err.Error(), failureReason(err)
 					continue
 				}
 				outcomes[index].Artifacts = &artifacts

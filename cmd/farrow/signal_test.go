@@ -31,7 +31,7 @@ func TestCancelledContextRendersOneStructuredFailure(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload) != 1 || payload["error"] != ErrCancelled.Error() {
+	if len(payload) != 2 || payload["error"] != "cancelled" || payload["message"] != "cancelled" {
 		t.Fatalf("payload=%v", payload)
 	}
 	if got := strings.TrimSpace(stderr.String()); got != "error: cancelled" {

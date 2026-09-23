@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 // ErrNoConfig marks an inventory directory with no discoverable configuration.
-var ErrNoConfig = errors.New("no inventory found; run `farrow init` to write one, or pass -f")
+var ErrNoConfig error = failure.New(failure.Usage, errors.New("no inventory found in this directory")).Because("no_inventory").Then("farrow init, or pass -f <file>")
 
 // DiscoveryNames are the configuration filenames probed in the working
 // directory, in order: an explicit farrow.yml wins over the Pigsty inventory
@@ -19,6 +21,9 @@ var DiscoveryNames = []string{"farrow.yml", "farrow.yaml", "pigsty.yml", "pigsty
 
 func readBounded(path string) ([]byte, error) {
 	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, failure.New(failure.Usage, fmt.Errorf("inventory %s does not exist", path)).Then("farrow init, or check -f")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -52,14 +57,14 @@ func LoadPath(path string) (File, error) {
 	}
 	data, err := readBounded(path)
 	if err != nil {
-		return File{}, err
+		return File{}, failure.New(failure.Usage, err)
 	}
 	if _, err := DetectFormat(data); err != nil {
-		return File{}, fmt.Errorf("%s: %w", path, err)
+		return File{}, failure.New(failure.Usage, fmt.Errorf("%s: %w", path, err))
 	}
 	file, err := ParseInventory(data)
 	if err != nil {
-		return File{}, fmt.Errorf("%s: %w", path, err)
+		return File{}, failure.New(failure.Usage, fmt.Errorf("%s: %w", path, err))
 	}
 	return file, nil
 }

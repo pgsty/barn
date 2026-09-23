@@ -17,6 +17,7 @@ import (
 	"github.com/pgsty/farrow/internal/diagnostics"
 	"github.com/pgsty/farrow/internal/disk"
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/image"
 	"github.com/pgsty/farrow/internal/lock"
 	"github.com/pgsty/farrow/internal/network/portalloc"
@@ -39,12 +40,12 @@ type NetworkPreflightFunc func(context.Context, platform.Profile, netpreflight.R
 
 type NetworkPreflightError struct{ Report netpreflight.Report }
 
-var ErrRecreateRequired = errors.New("recreate required")
+var ErrRecreateRequired error = failure.New(failure.Conflict, errors.New("recreate required")).Because("recreate_required")
 
 // ErrNodesRemoved reports nodes present in deployment state but absent from the
 // desired configuration. The absence of a node from a configuration never
 // implies destruction; removal is an explicit `farrow destroy <node> --force`.
-var ErrNodesRemoved = errors.New("inventory no longer lists existing node(s)")
+var ErrNodesRemoved error = failure.New(failure.Conflict, errors.New("inventory no longer lists existing node(s)")).Because("nodes_removed")
 
 // resolvedDiff is the node-granular classification of a desired configuration
 // against the applied deployment state.
@@ -1702,7 +1703,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 		}
 		peerStatus, peerErr := peers.startExisting(ctx, deploymentValue, deploymentState, hostProfile, backend)
 		if partialCreate {
-			if peerPartial := isolatedPartialError(peerErr); peerPartial != nil {
+			if peerPartial := IsolatedPartial(peerErr); peerPartial != nil {
 				combined := newPartialError(append(append([]NodeFailure(nil), partial.Failures...), peerPartial.Failures...), len(selected))
 				combined.RolledBack = partial.RolledBack
 				err = combined

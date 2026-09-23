@@ -697,7 +697,7 @@ func TestStructuredBusinessFailureGetsFallbackPayload(t *testing.T) {
 	}{
 		{arguments: []string{"--json", "logs"}, code: exitConflict, category: "conflict", message: "no deployment state found"},
 		{arguments: []string{"--json", "status"}, code: exitConflict, category: "conflict", message: "no deployment state found"},
-		{arguments: []string{"--json", "up"}, code: exitConflict, category: "conflict", message: "no inventory found"},
+		{arguments: []string{"--json", "up"}, code: exitUsage, category: "usage", message: "no inventory found"},
 		{arguments: []string{"--json", "validate", "-f", "missing.yml"}, code: exitUsage, category: "usage", message: "missing.yml"},
 	} {
 		var stdout bytes.Buffer

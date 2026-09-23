@@ -230,6 +230,7 @@ type StartOutcome struct {
 	Running          bool                 `json:"running"`
 	Ready            bool                 `json:"ready"`
 	Error            string               `json:"error,omitempty"`
+	Reason           string               `json:"reason,omitempty"`
 }
 
 func (config StartConfig) now() time.Time {
@@ -345,6 +346,7 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 		if hasPreflight {
 			if err := preflight.PreflightStart(node); err != nil {
 				outcomes[index].Error = fmt.Sprintf("preflight node %s before start: %v", node.Node, err)
+				outcomes[index].Reason = failureReason(err)
 				continue
 			}
 		} else if len(node.Invocation.ShareFiles()) != 0 {
@@ -392,7 +394,7 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 				if node.Phase == state.Running {
 					outcomes[index].Running = true
 				} else if err := startOne(ctx, config, store, &node); err != nil {
-					outcomes[index].Error = err.Error()
+					outcomes[index].Error, outcomes[index].Reason = err.Error(), failureReason(err)
 					reportNode(node.Node, "failed")
 					continue
 				}

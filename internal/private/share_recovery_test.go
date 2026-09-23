@@ -113,10 +113,10 @@ func TestUpAttemptsExistingPeersAfterNewNodePrepareFailure(t *testing.T) {
 
 func TestPartialResultsDoNotHideGlobalFailures(t *testing.T) {
 	partial := &PartialError{Total: 1, Failures: []NodeFailure{{Node: "meta", Stage: "prepare", Error: "missing share"}}}
-	if isolatedPartialError(errors.Join(partial, nil)) != partial {
+	if IsolatedPartial(errors.Join(partial, nil)) != partial {
 		t.Fatal("lost sole node failure")
 	}
-	if isolatedPartialError(errors.Join(partial, errors.New("state identity mismatch"))) != nil {
+	if IsolatedPartial(errors.Join(partial, errors.New("state identity mismatch"))) != nil {
 		t.Fatal("global failure hidden by node failure")
 	}
 }

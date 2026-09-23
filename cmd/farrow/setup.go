@@ -18,6 +18,7 @@ import (
 	"github.com/pgsty/farrow/internal/config"
 	"github.com/pgsty/farrow/internal/doctor"
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/hostconfig"
 	"github.com/pgsty/farrow/internal/identity"
 	"github.com/pgsty/farrow/internal/image"
@@ -208,10 +209,10 @@ func discoverSetupConfig(cwd string) (string, error) {
 func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelection, error) {
 	target := filepath.Join(cwd, "farrow.yml")
 	if filePath != "" && profileName != "" {
-		return setupSelection{}, errors.New("setup accepts either a lab template or -f, not both")
+		return setupSelection{}, failure.New(failure.Usage, errors.New("setup accepts either a lab template or -f, not both"))
 	}
 	if filePath != "" && cidr != "" {
-		return setupSelection{}, errors.New("--cidr cannot silently rebase a user configuration; edit the file as one coordinated change")
+		return setupSelection{}, failure.New(failure.Usage, errors.New("--cidr cannot change the network of an existing inventory; edit its addresses instead"))
 	}
 	if filePath != "" {
 		absolute, err := filepath.Abs(filePath)
@@ -243,7 +244,7 @@ func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelect
 		profileName = "meta"
 	}
 	if !config.ValidTemplate(profileName) {
-		return setupSelection{}, fmt.Errorf("unknown lab template %q; available: %s", profileName, strings.Join(config.TemplateNames(), ", "))
+		return setupSelection{}, failure.New(failure.Usage, fmt.Errorf("unknown lab template %q; available: %s", profileName, strings.Join(config.TemplateNames(), ", ")))
 	}
 	if discovered != "" {
 		// Repeating `farrow setup <template>` over the file it generated is
@@ -546,8 +547,7 @@ func runSetupCommands(ctx context.Context, commands []setuphost.Command, base ex
 		result, err := runner.Run(ctx, command.Binary, command.Args...)
 		progressItem.Stop(err)
 		if err != nil {
-			debugf(stderr, "setup command failed name=%s exit=%d stderr=%q", command.Name, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
-			return changed, true, fmt.Errorf("%s failed with exit code %d", command.Name, result.ExitCode)
+			return changed, true, fmt.Errorf("%s: %w", strings.ToLower(command.Name[:1])+command.Name[1:], err)
 		}
 		changed = true
 		debugf(stderr, "setup command complete name=%s duration=%s stdout=%q stderr=%q", command.Name, result.Duration.Round(time.Millisecond), strings.TrimSpace(string(result.Stdout)), strings.TrimSpace(string(result.Stderr)))
@@ -684,7 +684,7 @@ func setupHomebrewSocketVMNet(ctx context.Context, base execx.Runner, stderr io.
 		_, installErr := base.Run(ctx, brew, "install", darwinnet.SocketVMNetFormula)
 		progressItem.Stop(installErr)
 		if installErr != nil {
-			bestEffortf(stderr, "%s brew install %s failed; falling back to the digest-pinned release download\n", styled(stderr, ansiYellow, "!"), darwinnet.SocketVMNetFormula)
+			bestEffortf(stderr, "%s brew install %s failed (%v); falling back to the digest-pinned release download\n", styled(stderr, ansiYellow, "!"), darwinnet.SocketVMNetFormula, installErr)
 			return darwinnet.LocalBinaries{}, false
 		}
 		discovery, err = probe.Discover(ctx)
@@ -781,11 +781,10 @@ func ensureSetupHostsHelper(ctx context.Context, base execx.Runner, sudo *sudoSe
 		}
 	}()
 	progressItem := startProgress(ctx, stderr, "Installing the hosts helper")
-	result, installErr := root.Run(ctx, "/usr/bin/install", "-o", "root", "-g", "0", "-m", "0755", source, staged)
+	_, installErr := root.Run(ctx, "/usr/bin/install", "-o", "root", "-g", "0", "-m", "0755", source, staged)
 	progressItem.Stop(installErr)
 	if installErr != nil {
-		debugf(stderr, "hosts helper install exit=%d stderr=%q", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
-		return setupStep{}, true, fmt.Errorf("install hosts helper failed with exit code %d", result.ExitCode)
+		return setupStep{}, true, fmt.Errorf("install hosts helper: %w", installErr)
 	}
 	stagedDigest, stageErr := hostconfig.RootOwnedHelperDigest(staged)
 	if stageErr != nil || stagedDigest != digest {
@@ -794,10 +793,9 @@ func ensureSetupHostsHelper(ctx context.Context, base execx.Runner, sudo *sudoSe
 		}
 		return setupStep{}, true, fmt.Errorf("verify staged hosts helper: %w", stageErr)
 	}
-	moveResult, moveErr := root.Run(ctx, "/bin/mv", "-f", "--", staged, hostconfig.InstalledHelperPath)
+	_, moveErr := root.Run(ctx, "/bin/mv", "-f", "--", staged, hostconfig.InstalledHelperPath)
 	if moveErr != nil {
-		debugf(stderr, "hosts helper publish exit=%d stderr=%q", moveResult.ExitCode, strings.TrimSpace(string(moveResult.Stderr)))
-		return setupStep{}, true, fmt.Errorf("publish hosts helper failed with exit code %d", moveResult.ExitCode)
+		return setupStep{}, true, fmt.Errorf("publish hosts helper: %w", moveErr)
 	}
 	staged = ""
 	installedDigest, verifyErr := hostconfig.InstalledHelperDigest()
@@ -1036,15 +1034,19 @@ func failSetup(result *setupResult, code int, failure error) (commandOutcome, er
 	if errors.Is(failure, context.Canceled) {
 		return commandOutcome{}, ErrCancelled
 	}
+	boundary := newCommandError(code, failure).withOperation(result.OperationID)
 	result.Ready = false
-	result.ExitCode = code
+	result.ExitCode = boundary.code
 	result.Error = failure.Error()
 	if result.Resolution == "" {
 		result.Resolution = failure.Error()
 		result.Next = "fix the error, then rerun farrow setup"
+		if boundary.failure.Next != "" {
+			result.Next = boundary.failure.Next
+		}
 		result.NextArgv = nil
 	}
-	return commandOutcome{}, newDetailedCommandError(exitCategory(code), code, failure, result.OperationID, *result)
+	return commandOutcome{}, boundary.withPayload(*result)
 }
 
 // failSetupRendered is for blockers the stderr plan has already described: the
@@ -1155,14 +1157,10 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	if err != nil {
 		return failSetup(&result, exitRuntime, err)
 	}
-	selection, err := resolveSetupSelection(profileName, options.FilePath, options.CIDR, cwd)
+	var selection setupSelection
 	if options.Applied != nil {
-		selection, err = setupSelection{Resolved: *options.Applied, ExplicitNetwork: true}, nil
-	}
-	if err != nil {
-		if strings.Contains(err.Error(), "unknown lab template") {
-			return failSetup(&result, exitUsage, err)
-		}
+		selection = setupSelection{Resolved: *options.Applied, ExplicitNetwork: true}
+	} else if selection, err = resolveSetupSelection(profileName, options.FilePath, options.CIDR, cwd); err != nil {
 		return failSetup(&result, exitConflict, err)
 	}
 	result.Profile = selection.Profile

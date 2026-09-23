@@ -22,6 +22,7 @@ import (
 	"github.com/pgsty/farrow/internal/config"
 	"github.com/pgsty/farrow/internal/doctor"
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/hostconfig"
 	"github.com/pgsty/farrow/internal/identity"
@@ -115,17 +116,21 @@ func confirmDestructive(force, interactive bool, action string, input io.Reader,
 	if !interactive {
 		return fmt.Errorf("%s requires --force when stdin is not a TTY", action)
 	}
-	if _, err := fmt.Fprintf(output, "Confirm scoped Farrow %s by typing %q: ", action, action); err != nil {
+	if _, err := fmt.Fprintf(output, "Type %q to confirm: ", action); err != nil {
 		return fmt.Errorf("write %s confirmation prompt: %w", action, err)
 	}
 	line, err := bufio.NewReader(io.LimitReader(input, 256)).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("read %s confirmation: %w", action, err)
 	}
-	if strings.TrimSpace(line) != action {
-		return fmt.Errorf("%w: %s confirmation did not match %q", ErrCancelled, action, action)
+	switch typed := strings.TrimSpace(line); typed {
+	case action:
+		return nil
+	case "":
+		return fmt.Errorf("%w: no confirmation was entered; nothing was changed", ErrCancelled)
+	default:
+		return fmt.Errorf("%w: typed %q, expected %q; nothing was changed", ErrCancelled, typed, action)
 	}
-	return nil
 }
 
 func confirmCLIAction(force bool, action string, stderr io.Writer) error {
@@ -193,7 +198,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 	command := options.Action
 	if command == "install" || command == "uninstall" {
 		if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-			return commandOutcome{}, newDetailedCommandError("capability", exitCapability, errors.New("network install/uninstall supports native Linux and macOS"), "", nil)
+			return commandOutcome{}, newCommandError(exitCapability, errors.New("network install/uninstall supports native Linux and macOS"))
 		}
 		var layout subnet.Layout
 		vmnetMode := "host"
@@ -233,13 +238,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 				return commandOutcome{}, ErrCancelled
 			}
 			if !preflightReport.Ready {
-				err := errors.New("host network preflight is not ready")
-				return commandOutcome{}, newSilentRenderedCommandError("network_preflight", preflightReport.ExitCode, err, preflightReport, func(_ io.Writer, stderr io.Writer) error {
-					for _, finding := range preflightReport.Findings {
-						bestEffortf(stderr, "%s %s: %s\n", finding.Severity, finding.Code, finding.Evidence)
-					}
-					return nil
-				})
+				return commandOutcome{}, newCommandError(preflightReport.ExitCode, setupFindingError(preflightReport)).withPayload(preflightReport)
 			}
 		}
 		privilege := &sudoSession{base: baseRunner, stderr: stderr, scope: "network command"}
@@ -249,7 +248,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			reason = "apply the reviewed host-network plan"
 		}
 		if err := privilege.ensure(ctx, reason); err != nil {
-			return commandOutcome{}, newDetailedCommandError("capability", exitCapability, err, "", nil)
+			return commandOutcome{}, newCommandError(exitCapability, err)
 		}
 		rootRunner := setupRootRunner(baseRunner)
 		if runtime.GOOS == "darwin" {
@@ -265,7 +264,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 					if errors.Is(err, darwinnet.ErrVMNetSharingBusy) {
 						return commandOutcome{}, newConflictError(err)
 					}
-					return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+					return commandOutcome{}, newCommandError(exitRuntime, err)
 				}
 				for _, warning := range report.Warnings {
 					warningf(stderr, "%s", warning)
@@ -289,7 +288,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 				return commandOutcome{}, ErrCancelled
 			}
 			if err != nil {
-				return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+				return commandOutcome{}, newCommandError(exitRuntime, err)
 			}
 			if report.Recovered {
 				warningf(stderr, "network.json was unavailable; ownership was confirmed from the installed interface, launchd plist, and binary digests")
@@ -318,7 +317,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 				return commandOutcome{}, ErrCancelled
 			}
 			if err != nil {
-				return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+				return commandOutcome{}, newCommandError(exitRuntime, err)
 			}
 			for _, warning := range report.Warnings {
 				warningf(stderr, "%s", warning)
@@ -351,7 +350,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			return commandOutcome{}, ErrCancelled
 		}
 		if err != nil {
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+			return commandOutcome{}, newCommandError(exitRuntime, err)
 		}
 		return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 			for _, path := range report.Plan.RemoveFiles {
@@ -435,7 +434,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 		if preflightReport.ExitCode != 0 {
 			code = preflightReport.ExitCode
 		}
-		return commandOutcome{}, newSilentRenderedCommandError(exitCategory(code), code, errors.New("network status is not ready"), result, renderText)
+		return commandOutcome{}, newCommandError(code, errors.New("network status is not ready")).withPayload(result).withText(renderText).quiet()
 	}
 	return commandOutcome{payload: result, text: renderText}, nil
 }
@@ -623,11 +622,11 @@ func runPrivateSSH(parent context.Context, commandName string, args []string, re
 	}
 	sshPath, err := exec.LookPath("ssh")
 	if err != nil {
-		return commandOutcome{}, newDetailedCommandError("capability", exitCapability, err, "", nil)
+		return commandOutcome{}, newCommandError(exitCapability, err)
 	}
 	sshArgs := vm.SSHArgsForInstance(connection.User, connection.PrivateKey, connection.KnownHosts, connection.HostKeyAlias, connection.Port)
 	if sshArgs == nil {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, errors.New("resolved SSH user is unsafe"), "", nil)
+		return commandOutcome{}, newCommandError(exitIntegrity, errors.New("resolved SSH user is unsafe"))
 	}
 	if len(command) != 0 {
 		sshArgs = append(sshArgs, remoteCommandText(commandName, command))
@@ -642,7 +641,7 @@ func runPrivateSSH(parent context.Context, commandName string, args []string, re
 		var exitError *exec.ExitError
 		if errors.As(runErr, &exitError) {
 			code := exitError.ExitCode()
-			return commandOutcome{}, newRemoteExitError(code, result)
+			return commandOutcome{}, newRemoteExitError(code, fmt.Errorf("remote command exited with status %d", code), result)
 		}
 		return commandOutcome{}, newRuntimeError(runErr)
 	}
@@ -810,7 +809,7 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 		if errors.Is(err, os.ErrNotExist) {
 			return commandOutcome{}, newUsageError(err)
 		}
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+		return commandOutcome{}, newCommandError(exitUsage, err)
 	}
 	operationID, err := identity.NewUUID()
 	if err != nil {
@@ -845,31 +844,31 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 		manager := privatevm.Manager{FarrowVersion: version.Version, OperationID: operationID, Nodes: append([]string(nil), nodes...)}
 		connections, connectionErr := manager.ConnectionsLocked(ctx, deployment, deploymentLock)
 		if connectionErr != nil {
-			return commandOutcome{}, newExitError(provisionConnectionExit(connectionErr), connectionErr)
+			return commandOutcome{}, newCommandError(provisionConnectionExit(connectionErr), connectionErr)
 		}
 		for _, connection := range connections {
 			if connection.Host != "127.0.0.1" {
-				return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("refuse non-loopback provision endpoint for node %s", connection.Node), "", nil)
+				return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("refuse non-loopback provision endpoint for node %s", connection.Node))
 			}
 			targets = append(targets, provision.Target{Node: connection.Node, User: connection.User, Port: connection.Port, PrivateKey: connection.PrivateKey, KnownHosts: connection.KnownHosts, HostKeyAlias: connection.HostKeyAlias})
 			selectedNames = append(selectedNames, connection.Node)
 		}
 		recordEvent = manager.RecordEvent
 	} else {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("unsupported deployment network %q", resolved.Network), "", nil)
+		return commandOutcome{}, newCommandError(exitConflict, fmt.Errorf("unsupported deployment network %q", resolved.Network))
 	}
 
 	sshPath, err := exec.LookPath("ssh")
 	if err != nil {
-		return commandOutcome{}, newDetailedCommandError("capability", exitCapability, err, "", nil)
+		return commandOutcome{}, newCommandError(exitCapability, err)
 	}
 	sshPath, err = filepath.Abs(sshPath)
 	if err != nil {
-		return commandOutcome{}, newDetailedCommandError("capability", exitCapability, err, "", nil)
+		return commandOutcome{}, newCommandError(exitCapability, err)
 	}
 	startMessage := fmt.Sprintf("script_sha256=%s bytes=%d sudo=%t parallel=%d targets=%s", script.SHA256, script.Size, options.Sudo, options.Parallelism, strings.Join(selectedNames, ","))
 	if err := recordEvent(ctx, "provision", "info", "starting "+startMessage); err != nil {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("refuse provision without an auditable event append: %w", err), operationID, nil)
+		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("refuse provision without an auditable event append: %w", err)).withOperation(operationID)
 	}
 	debugf(stderr, "provision operation_id=%s targets=%s timeout=%s parallel=%d sudo=%t script_sha256=%s", operationID, strings.Join(selectedNames, ","), options.Timeout, options.Parallelism, options.Sudo, script.SHA256)
 	progressItem := startProgress(ctx, stderr, fmt.Sprintf("Provisioning %d node(s)", len(targets)))
@@ -908,21 +907,21 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	renderText := func(stdout, stderr io.Writer) error { printProvisionReport(stdout, stderr, report); return nil }
 	outcome := commandOutcome{payload: report, text: renderText}
 	if report.AuditError != "" {
-		return commandOutcome{}, newRenderedCommandError("integrity", exitIntegrity, errors.New(report.AuditError), operationID, report, renderText)
+		return commandOutcome{}, newCommandError(exitRuntime, errors.New(report.AuditError)).withOperation(operationID).withPayload(report).withText(renderText)
 	}
 	if report.Failed == 0 {
 		return outcome, nil
 	}
 	if report.Successful > 0 {
-		return commandOutcome{}, newSilentRenderedCommandError("partial", exitPartial, errors.New("provision partially failed"), report, renderText)
+		return commandOutcome{}, newCommandError(exitPartial, errors.New("provision partially failed")).withPayload(report).withText(renderText).quiet()
 	}
 	if len(report.Results) == 1 {
 		code := report.Results[0].ExitCode
 		if code > 0 && code != 255 {
-			return commandOutcome{}, newSilentRenderedCommandError("remote_exit", code, fmt.Errorf("remote provision exited with status %d", code), report, renderText)
+			return commandOutcome{}, newRemoteExitError(code, fmt.Errorf("remote provision exited with status %d", code), report).withText(renderText)
 		}
 	}
-	return commandOutcome{}, newSilentRenderedCommandError("runtime", exitRuntime, errors.New("provision failed"), report, renderText)
+	return commandOutcome{}, newCommandError(exitRuntime, errors.New("provision failed")).withPayload(report).withText(renderText).quiet()
 }
 
 func lifecycleReadsConfig(command string) bool {
@@ -961,9 +960,9 @@ func currentDeploymentResolved() (spec.Resolved, error) {
 
 func deploymentReadError(err error) error {
 	if errors.Is(err, os.ErrNotExist) {
-		return newConflictError(errors.New("no deployment state found; run `farrow up` first"))
+		return newCommandError(exitConflict, errNoDeployment)
 	}
-	return newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+	return newCommandError(exitIntegrity, err)
 }
 
 // catalogOrigin names where the active catalog came from in words a user
@@ -1036,11 +1035,9 @@ func (e *persistentDeleteError) Error() string { return "delete persistent disks
 func (e *persistentDeleteError) Unwrap() error { return e.err }
 
 type lifecyclePartialFailure struct {
-	Error       string                  `json:"error"`
-	Message     string                  `json:"message"`
-	OperationID string                  `json:"operation_id,omitempty"`
-	Failures    []privatevm.NodeFailure `json:"failures"`
-	RolledBack  []string                `json:"rolled_back,omitempty"`
+	commandFailure
+	Failures   []privatevm.NodeFailure `json:"failures"`
+	RolledBack []string                `json:"rolled_back,omitempty"`
 }
 
 type sshConfigReconciler interface {
@@ -1085,30 +1082,15 @@ func fullDeploymentSSHManager(manager privatevm.Manager) privatevm.Manager {
 }
 
 func classifyPrivateLifecycleError(err error, operationID string) error {
-	if errors.Is(err, privatevm.ErrRecreateRequired) {
-		return newDetailedCommandError("recreate_required", exitConflict, err, operationID, nil)
+	boundary := newCommandError(exitRuntime, err).withOperation(operationID)
+	var preflight *privatevm.NetworkPreflightError
+	if errors.As(err, &preflight) {
+		boundary.withPayload(preflight.Report)
 	}
-	if errors.Is(err, privatevm.ErrNodesRemoved) {
-		return newDetailedCommandError("nodes_removed", exitConflict, err, operationID, nil)
+	if partial := privatevm.IsolatedPartial(err); partial != nil {
+		boundary.withPayload(lifecyclePartialFailure{commandFailure: boundary.failure, Failures: partial.Failures, RolledBack: partial.RolledBack})
 	}
-	var networkPreflight *privatevm.NetworkPreflightError
-	if errors.As(err, &networkPreflight) {
-		return newDetailedCommandError("network_preflight", networkPreflight.Report.ExitCode, networkPreflight, operationID, networkPreflight.Report)
-	}
-	var capability *privatevm.CapabilityError
-	if errors.As(err, &capability) {
-		return newDetailedCommandError("capability", exitCapability, capability, operationID, nil)
-	}
-	var partial *privatevm.PartialError
-	if errors.As(err, &partial) {
-		payload := lifecyclePartialFailure{Error: "partial", Message: err.Error(), OperationID: operationID, Failures: partial.Failures, RolledBack: partial.RolledBack}
-		return newDetailedCommandError("partial", exitPartial, err, operationID, payload)
-	}
-	var deleteErr *persistentDeleteError
-	if errors.As(err, &deleteErr) {
-		return newDetailedCommandError("persistent_delete", exitIntegrity, deleteErr, operationID, nil)
-	}
-	return newDetailedCommandError("runtime", exitRuntime, err, operationID, nil)
+	return boundary
 }
 
 type lifecycleResult struct {
@@ -1222,7 +1204,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		}
 		if err := confirmCLIAction(force, "recreate", stderr); err != nil {
 			if errors.Is(err, ErrCancelled) {
-				return commandOutcome{}, ErrCancelled
+				return commandOutcome{}, err
 			}
 			return commandOutcome{}, newUsageError(err)
 		}
@@ -1246,7 +1228,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			}
 			if err := confirmCLIAction(force, "destroy", stderr); err != nil {
 				if errors.Is(err, ErrCancelled) {
-					return commandOutcome{}, ErrCancelled
+					return commandOutcome{}, err
 				}
 				return commandOutcome{}, newUsageError(err)
 			}
@@ -1334,12 +1316,10 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 				result.Failures = partial.Failures
 				result.RolledBack = partial.RolledBack
 			}
-			failure := newRenderedCommandError("partial", exitPartial, err, operationID, result, func(stdout, _ io.Writer) error {
+			return commandOutcome{}, newCommandError(exitPartial, err).withOperation(operationID).withPayload(result).withText(func(stdout, _ io.Writer) error {
 				printLifecycleResult(stdout, command, result, noWait)
 				return nil
-			})
-			failure.silent = true
-			return commandOutcome{}, failure
+			}).quiet()
 		}
 		return commandOutcome{}, classifyPrivateLifecycleError(err, operationID)
 	}
@@ -1407,22 +1387,22 @@ func runPurgeCommand(parent context.Context, stderr io.Writer) (commandOutcome, 
 		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", true, true, true, false, false, stderr)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("read deployment state for purge: %w", err), "", nil)
+		return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("read deployment state for purge: %w", err))
 	}
 
 	root, rootErr := state.ResolveDataRoot()
 	if rootErr != nil {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, rootErr, "", nil)
+		return commandOutcome{}, newCommandError(exitIntegrity, rootErr)
 	}
 	rootInfo, statErr := os.Lstat(root)
 	rootExists := statErr == nil
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("inspect deployment root for purge: %w", statErr), "", nil)
+		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("inspect deployment root for purge: %w", statErr))
 	}
 	if rootExists {
 		stat, ok := rootInfo.Sys().(*syscall.Stat_t)
 		if !ok || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o022 != 0 || int(stat.Uid) != os.Geteuid() {
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("deployment root is not a current-user directory protected from group/world writes: %s", root), "", nil)
+			return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("deployment root is not a current-user directory protected from group/world writes: %s", root))
 		}
 	} else {
 		status := privatevm.Status{Message: "no deployment to purge; image cache and host network remain installed"}
@@ -1438,10 +1418,10 @@ func runPurgeCommand(parent context.Context, stderr io.Writer) (commandOutcome, 
 	manager := privatevm.Manager{FarrowVersion: version.Version}
 	deleted, deleteErr := manager.DeletePersistent(ctx)
 	if deleteErr != nil {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("deployment state is missing; refuse unsafe residual purge: %w", deleteErr), "", nil)
+		return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("deployment state is missing; refuse unsafe residual purge: %w", deleteErr))
 	}
 	if purgeErr := purgeDeployment(ctx); purgeErr != nil {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, fmt.Errorf("purge residual deployment data: %w", purgeErr), "", nil)
+		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("purge residual deployment data: %w", purgeErr))
 	}
 
 	sshResult, sshErr := (privatevm.Manager{FarrowVersion: version.Version}).RemoveSSHConfig("farrow", "")
@@ -1526,14 +1506,15 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 		hasConfig = source != ""
 	}
 	if !hasConfig {
-		message := config.ErrNoConfig.Error()
-		if command == "up" {
-			message = "no inventory found; run `farrow setup --yes` then `farrow up`, or pass -f to use an existing inventory"
+		switch {
+		case !lifecycleReadsConfig(command):
+			return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
+		case command == "up":
+			// Only a terminal session writes the default inventory itself.
+			return commandOutcome{}, newCommandError(exitUsage, failure.WithNext(config.ErrNoConfig, "farrow setup --yes, then farrow up; or pass -f <file>"))
+		default:
+			return commandOutcome{}, newCommandError(exitUsage, config.ErrNoConfig)
 		}
-		if !lifecycleReadsConfig(command) {
-			message = "no deployment state found; run `farrow up` first"
-		}
-		return commandOutcome{}, newConflictError(errors.New(message))
 	}
 	// Selectors are checked against the same specification the engine will
 	// use, before host preflight, confirmation prompts, or any change.
@@ -1688,7 +1669,7 @@ func runSSHConfig(parent context.Context, options sshConfigOptions, nodes []stri
 	}
 	resolved, resolveErr := currentDeploymentResolved()
 	if resolveErr != nil {
-		return commandOutcome{}, newConflictError(errors.New("no deployment state found; run `farrow up` first"))
+		return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 	}
 	if resolved.Network != "private" {
 		return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
@@ -1736,7 +1717,7 @@ func classifySSHConfigFailure(result sshconfig.Result, err error) error {
 		err = fmt.Errorf("SSH config operation partially changed owned state; retry is safe (action=%s fragment=%s config=%s): %w", result.Action, result.Fragment, result.Config, err)
 		payload.Message = err.Error()
 	}
-	return newDetailedCommandError("ssh_config", exitIntegrity, err, "", payload)
+	return newCommandError(exitRuntime, err).withPayload(payload)
 }
 
 func runHosts(parent context.Context, action string, apply bool, stderr io.Writer) (commandOutcome, error) {
@@ -1752,18 +1733,18 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 		resolved, resolveErr := currentDeploymentResolved()
 		switch {
 		case errors.Is(resolveErr, os.ErrNotExist):
-			return commandOutcome{}, newConflictError(errors.New("no deployment state found; run `farrow up` first"))
+			return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 		case resolveErr != nil:
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, resolveErr, "", nil)
+			return commandOutcome{}, newCommandError(exitIntegrity, resolveErr)
 		case resolved.Network != "private":
 			return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
 		}
 		entries, err = manager.HostEntries(ctx)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return commandOutcome{}, newConflictError(errors.New("no deployment state found; run `farrow up` first"))
+				return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 			}
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+			return commandOutcome{}, newCommandError(exitIntegrity, err)
 		}
 	}
 	baseRunner := execx.OSRunner{Timeout: 30 * time.Second, OutputLimit: 1 << 20}
@@ -1772,10 +1753,10 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 		privilege := &sudoSession{base: baseRunner, stderr: stderr, scope: "hosts command"}
 		defer privilege.close()
 		if _, _, err := ensureSetupHostsHelper(ctx, baseRunner, privilege, stderr); err != nil {
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+			return commandOutcome{}, newCommandError(exitRuntime, err)
 		}
 		if err := privilege.ensure(ctx, "apply the reviewed /etc/hosts plan"); err != nil {
-			return commandOutcome{}, newDetailedCommandError("capability", exitCapability, err, "", nil)
+			return commandOutcome{}, newCommandError(exitCapability, err)
 		}
 	}
 	debugf(stderr, "hosts action=%s entries=%d apply=%t", action, len(entries), apply)
@@ -1790,7 +1771,7 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 		return commandOutcome{}, ErrCancelled
 	}
 	if err != nil {
-		return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+		return commandOutcome{}, newCommandError(exitRuntime, err)
 	}
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 		textField(stdout, 16, "action", statusValue(stdout, report.Plan.Action))
@@ -1855,7 +1836,7 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 	defer cancel()
 	resolved, resolveErr := currentDeploymentResolved()
 	if resolveErr != nil && (options.Source != "events" || !errors.Is(resolveErr, os.ErrNotExist)) {
-		return commandOutcome{}, newConflictError(errors.New("no deployment state found; run `farrow up` first"))
+		return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 	}
 	if resolveErr == nil && resolved.Network != "private" {
 		return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
@@ -2174,9 +2155,6 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return commandOutcome{}, ErrCancelled
 		}
 		if err != nil {
-			if errors.Is(err, image.ErrIntegrity) {
-				return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
-			}
 			return commandOutcome{}, newRuntimeError(err)
 		}
 		printImageStatusWarning(stderr, info.Entry)
@@ -2196,7 +2174,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if options.Action == "repo-scan" {
 			report, scanErr := image.ScanRepository(root)
 			if scanErr != nil {
-				return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, scanErr, "", nil)
+				return commandOutcome{}, newCommandError(exitRuntime, scanErr)
 			}
 			return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 				textField(stdout, 12, "root", report.Root)
@@ -2209,7 +2187,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		qemuImg, err := exec.LookPath("qemu-img")
 		if err != nil {
-			return commandOutcome{}, newDetailedCommandError("capability", exitCapability, fmt.Errorf("repository %s requires qemu-img: %w", strings.TrimPrefix(options.Action, "repo-"), err), "", nil)
+			return commandOutcome{}, newCommandError(exitCapability, fmt.Errorf("repository %s requires qemu-img: %w", strings.TrimPrefix(options.Action, "repo-"), err))
 		}
 		ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
 		defer cancel()
@@ -2221,7 +2199,11 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			result, err = builder.Verify(ctx, root)
 		}
 		if err != nil {
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+			fallback := exitRuntime
+			if options.Action == "repo-verify" {
+				fallback = exitIntegrity
+			}
+			return commandOutcome{}, newCommandError(fallback, err)
 		}
 		return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
 			textField(stdout, 12, "catalog", result.Path)
@@ -2249,7 +2231,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return commandOutcome{}, ErrCancelled
 		}
 		if err != nil {
-			return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
+			return commandOutcome{}, newCommandError(exitRuntime, err)
 		}
 		return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 			if len(report.Items) == 0 {
@@ -2342,9 +2324,6 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return commandOutcome{}, ErrCancelled
 		}
 		if err != nil {
-			if errors.Is(err, image.ErrIntegrity) {
-				return commandOutcome{}, newDetailedCommandError("integrity", exitIntegrity, err, "", nil)
-			}
 			return commandOutcome{}, newRuntimeError(err)
 		}
 		result := struct {
@@ -2403,7 +2382,7 @@ func runDoctor(parent context.Context, stderr io.Writer) (commandOutcome, error)
 		return nil
 	}
 	if report.HasErrors() {
-		return commandOutcome{}, newSilentRenderedCommandError("capability", exitCapability, errors.New("host compute capability is not ready"), report, renderText)
+		return commandOutcome{}, newCommandError(exitCapability, errors.New("host compute capability is not ready")).withPayload(report).withText(renderText).quiet()
 	}
 	return commandOutcome{payload: report, text: renderText}, nil
 }

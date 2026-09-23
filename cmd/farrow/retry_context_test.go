@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/farrow/internal/hostshare"
 	privatevm "github.com/pgsty/farrow/internal/private"
 )
 
@@ -26,7 +27,7 @@ func TestScopedRetryPreservesInventoryRepositoryAndFlags(t *testing.T) {
 
 func TestUnrecoverableShareCapabilityDoesNotSuggestBlindRetry(t *testing.T) {
 	var out bytes.Buffer
-	printNodeFailures(&out, "lab.yml", []privatevm.NodeFailure{{Node: "meta", Stage: "start", Error: "host share cannot be safely opened by QEMU on macOS; preserve needed data"}})
+	printNodeFailures(&out, "lab.yml", []privatevm.NodeFailure{{Node: "meta", Stage: "start", Error: "host share cannot be safely opened by QEMU on macOS; preserve needed data", Reason: hostshare.ReasonUnsupportedOnDarwin}})
 	if strings.Contains(out.String(), "farrow up") || strings.Contains(out.String(), "farrow recreate") || !strings.Contains(out.String(), "preserve needed data") {
 		t.Fatalf("unsafe or ineffective retry: %s", &out)
 	}

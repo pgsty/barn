@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const defaultOutputLimit = 1 << 20
@@ -42,23 +46,107 @@ type OSRunner struct {
 }
 
 // CommandError preserves controlled stderr and the exit code without exposing
-// an unbounded command output.
+// an unbounded command output. Its message names the program, not the argv;
+// callers that need the full invocation read Binary and Args.
 type CommandError struct {
 	Binary   string
 	Args     []string
 	ExitCode int
+	Signal   string
+	Timeout  time.Duration // non-zero when the runner's own timeout expired
 	Stderr   string
 	Cause    error
 }
 
 func (e *CommandError) Error() string {
-	if e.Stderr == "" {
-		return fmt.Sprintf("%s failed with exit code %d: %v", Display(e.Binary, e.Args...), e.ExitCode, e.Cause)
+	var message string
+	switch {
+	case e.Timeout > 0:
+		message = fmt.Sprintf("%s timed out after %s", e.Name(), e.Timeout)
+	case e.Signal != "":
+		message = fmt.Sprintf("%s was killed by %s", e.Name(), e.Signal)
+	case e.ExitCode >= 0:
+		message = fmt.Sprintf("%s exited with status %d", e.Name(), e.ExitCode)
+	default:
+		message = fmt.Sprintf("%s failed: %v", e.Name(), e.Cause)
 	}
-	return fmt.Sprintf("%s failed with exit code %d: %s", Display(e.Binary, e.Args...), e.ExitCode, e.Stderr)
+	if lines := e.StderrTail(1); len(lines) != 0 {
+		message += ": " + lines[0]
+	}
+	return message
 }
 
 func (e *CommandError) Unwrap() error { return e.Cause }
+
+// Name is the program the user would recognize: the binary's base name, or the
+// program run through sudo.
+func (e *CommandError) Name() string {
+	name := filepath.Base(e.Binary)
+	if name != "sudo" {
+		return name
+	}
+	for index, arg := range e.Args {
+		if arg == "--" && index+1 < len(e.Args) {
+			return filepath.Base(e.Args[index+1]) + " (via sudo)"
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return filepath.Base(arg) + " (via sudo)"
+		}
+	}
+	return name
+}
+
+// StderrTail returns up to limit last non-empty stderr lines with control
+// characters removed and each line bounded, for display under an error.
+func (e *CommandError) StderrTail(limit int) []string {
+	var lines []string
+	for _, line := range strings.Split(e.Stderr, "\n") {
+		line = strings.TrimSpace(strings.Map(func(r rune) rune {
+			if r == '\t' {
+				return ' '
+			}
+			if r < 0x20 || r == 0x7f {
+				return -1
+			}
+			return r
+		}, stripANSI(line)))
+		if line == "" {
+			continue
+		}
+		if len(line) > maxStderrLine {
+			line = line[:maxStderrLine] + "…"
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return lines
+}
+
+const maxStderrLine = 240
+
+func stripANSI(value string) string {
+	if !strings.Contains(value, "\x1b") {
+		return value
+	}
+	var out strings.Builder
+	for index := 0; index < len(value); index++ {
+		if value[index] != 0x1b {
+			out.WriteByte(value[index])
+			continue
+		}
+		// Skip ESC [ ... final byte (CSI) or a lone two-byte escape.
+		index++
+		if index < len(value) && value[index] == '[' {
+			for index+1 < len(value) && (value[index+1] < 0x40 || value[index+1] > 0x7e) {
+				index++
+			}
+			index++
+		}
+	}
+	return out.String()
+}
 
 // Run executes binary with args as an argv slice. It never invokes a shell.
 func (r OSRunner) Run(ctx context.Context, binary string, args ...string) (Result, error) {
@@ -81,6 +169,7 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, args
 	if binary == "" {
 		return Result{}, errors.New("external command binary is empty")
 	}
+	parent := ctx
 	if r.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.Timeout)
@@ -111,17 +200,25 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, args
 	}
 
 	result.ExitCode = -1
+	commandErr := &CommandError{
+		Binary: binary,
+		Args:   append([]string(nil), args...),
+		Stderr: strings.TrimSpace(string(result.Stderr)),
+		Cause:  err,
+	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		result.ExitCode = exitErr.ExitCode()
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			commandErr.Signal = unix.SignalName(status.Signal())
+		}
 	}
-	return result, &CommandError{
-		Binary:   binary,
-		Args:     append([]string(nil), args...),
-		ExitCode: result.ExitCode,
-		Stderr:   strings.TrimSpace(string(result.Stderr)),
-		Cause:    err,
+	if r.Timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+		commandErr.Timeout = r.Timeout
+		commandErr.Signal = ""
 	}
+	commandErr.ExitCode = result.ExitCode
+	return result, commandErr
 }
 
 // Display returns a human-readable representation only. The returned string

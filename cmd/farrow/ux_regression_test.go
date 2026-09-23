@@ -85,7 +85,7 @@ func TestUnattendedFirstUpOffersCompleteSetupRecipe(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("FARROW_HOME", t.TempDir())
 	var out, errOut bytes.Buffer
-	if code := run([]string{"up"}, &out, &errOut); code != exitConflict || !strings.Contains(errOut.String(), "farrow setup --yes") {
+	if code := run([]string{"up"}, &out, &errOut); code != exitUsage || !strings.Contains(errOut.String(), "farrow setup --yes") {
 		t.Fatalf("incomplete first-use guidance: code=%d, %s", code, errOut.String())
 	}
 	if _, err := os.Stat("farrow.yml"); !os.IsNotExist(err) {

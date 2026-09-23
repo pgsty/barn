@@ -19,7 +19,7 @@ func TestSetupFailureIsTraceableWithoutDeployment(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
 	t.Setenv("FARROW_HOME", root)
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"setup", "-f", filepath.Join(t.TempDir(), "missing-sensitive-input.yml"), "--json"}, &stdout, &stderr); code != exitConflict {
+	if code := run([]string{"setup", "-f", filepath.Join(t.TempDir(), "missing-sensitive-input.yml"), "--json"}, &stdout, &stderr); code != exitUsage {
 		t.Fatalf("code=%d output=%s %s", code, &stdout, &stderr)
 	}
 	var setup setupResult

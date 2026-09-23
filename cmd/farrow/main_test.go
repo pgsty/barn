@@ -156,10 +156,10 @@ func TestDestructiveConfirmationTTYAndNonTTY(t *testing.T) {
 	if err := confirmDestructive(false, true, "destroy", strings.NewReader("destroy\n"), &prompt); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt.String(), `typing "destroy"`) {
+	if prompt.String() != `Type "destroy" to confirm: ` {
 		t.Fatalf("prompt = %q", prompt.String())
 	}
-	if err := confirmDestructive(false, true, "destroy", strings.NewReader("no\n"), io.Discard); !errors.Is(err, ErrCancelled) {
+	if err := confirmDestructive(false, true, "destroy", strings.NewReader("destory\n"), io.Discard); !errors.Is(err, ErrCancelled) || !strings.Contains(err.Error(), `typed "destory", expected "destroy"; nothing was changed`) {
 		t.Fatalf("mismatched interactive confirmation error = %v, want ErrCancelled", err)
 	}
 	if err := confirmDestructive(false, false, "destroy", strings.NewReader("destroy\n"), io.Discard); err == nil || !strings.Contains(err.Error(), "requires --force") {
@@ -188,7 +188,7 @@ func TestRollbackFlagScope(t *testing.T) {
 	}
 	for _, command := range []string{"up", "reload"} {
 		var stdout, stderr bytes.Buffer
-		if code := run([]string{command, "--rollback"}, &stdout, &stderr); code != exitConflict || !strings.Contains(stderr.String(), "no inventory found") {
+		if code := run([]string{command, "--rollback"}, &stdout, &stderr); code != exitUsage || !strings.Contains(stderr.String(), "no inventory found") {
 			t.Fatalf("configless %s code=%d stdout=%q stderr=%q", command, code, stdout.String(), stderr.String())
 		}
 	}
@@ -214,7 +214,7 @@ func TestProvisionRejectsUnsafeInputBeforeDeploymentAccess(t *testing.T) {
 		{name: "missing script file", options: provisionOptions{ScriptPath: filepath.Join(root, "missing.sh"), Parallelism: 1, Timeout: time.Hour}, code: exitUsage, want: "inspect provision script"},
 		{name: "invalid parallelism", options: provisionOptions{ScriptPath: scriptPath, Parallelism: 0, Timeout: time.Hour}, code: exitUsage, want: "parallelism must be"},
 		{name: "invalid timeout", options: provisionOptions{ScriptPath: scriptPath, Parallelism: 1, Timeout: 25 * time.Hour}, code: exitUsage, want: "no more than 24h"},
-		{name: "symlink script", options: provisionOptions{ScriptPath: symlinkPath, Parallelism: 1, Timeout: time.Hour}, code: exitIntegrity, want: "non-symlink"},
+		{name: "symlink script", options: provisionOptions{ScriptPath: symlinkPath, Parallelism: 1, Timeout: time.Hour}, code: exitUsage, want: "non-symlink"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -963,7 +963,7 @@ func TestLegacyDeploymentDiagnosticsDistinguishExistingState(t *testing.T) {
 
 func TestMissingDeploymentDiagnosticsRemainDistinctFromLegacyState(t *testing.T) {
 	t.Setenv("FARROW_HOME", t.TempDir())
-	const missingMessage = "no deployment state found; run `farrow up` first"
+	const missingMessage = "no deployment state found"
 	for _, command := range []string{"logs", "ssh-config", "status", "ssh"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer

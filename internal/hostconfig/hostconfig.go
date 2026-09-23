@@ -389,9 +389,8 @@ func (e Executor) Execute(ctx context.Context, action string, entries []Entry, a
 	if err := staging.Close(); err != nil {
 		return Report{}, err
 	}
-	result, err := e.Root.Run(ctx, helper, "--target", target, "--staging", stagingPath, "--action", action, "--before-sha256", plan.BeforeSHA256, "--after-sha256", plan.AfterSHA256)
-	if err != nil {
-		return Report{}, fmt.Errorf("privileged hosts apply failed: %w: %s", err, strings.TrimSpace(string(result.Stderr)))
+	if _, err := e.Root.Run(ctx, helper, "--target", target, "--staging", stagingPath, "--action", action, "--before-sha256", plan.BeforeSHA256, "--after-sha256", plan.AfterSHA256); err != nil {
+		return Report{}, fmt.Errorf("update %s: %w", target, err)
 	}
 	actual, _, err := secureRead(target, maxHostsBytes)
 	if err != nil {

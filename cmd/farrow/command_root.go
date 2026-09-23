@@ -5,12 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
+	privatevm "github.com/pgsty/farrow/internal/private"
 )
 
 // ErrCancelled is the one command-layer cancellation identity.
 var ErrCancelled = errors.New("cancelled")
+
+// errNoDeployment is every applied-state command run before the first up.
+var errNoDeployment error = failure.New(failure.Conflict, errors.New("no deployment state found")).Because("no_deployment").Then("farrow up")
 
 type commandOutcome struct {
 	payload  any
@@ -48,54 +57,112 @@ func (err *commandBoundaryError) setOperationID(id string) {
 	}
 }
 
-type usageError struct{ *commandBoundaryError }
-type conflictError struct{ *commandBoundaryError }
-
-func newCommandBoundaryError(category string, code int, err error) *commandBoundaryError {
-	return &commandBoundaryError{failure: commandFailure{Error: category, Message: err.Error()}, code: code, cause: err}
-}
-
-func newDetailedCommandError(category string, code int, err error, operationID string, payload any) *commandBoundaryError {
+// newCommandError is the one way a command reports failure. A class carried
+// by err (see internal/failure) wins; fallback applies only when err is
+// unclassified, so inner packages decide what they know for certain.
+func newCommandError(fallback int, err error) *commandBoundaryError {
+	code, reason, next := classifyError(err, fallback)
 	return &commandBoundaryError{
-		failure: commandFailure{Error: category, Message: err.Error(), OperationID: operationID},
-		code:    code, cause: err, payload: payload,
+		failure: commandFailure{Error: exitCategory(code), Reason: reason, Message: err.Error(), Next: next, Command: commandDetailOf(err)},
+		code:    code, cause: err,
 	}
 }
 
-func newRenderedCommandError(category string, code int, err error, operationID string, payload any, text func(io.Writer, io.Writer) error) *commandBoundaryError {
-	boundary := newDetailedCommandError(category, code, err, operationID, payload)
-	boundary.text = text
-	return boundary
+func (err *commandBoundaryError) withOperation(id string) *commandBoundaryError {
+	err.setOperationID(id)
+	return err
 }
 
-func newSilentRenderedCommandError(category string, code int, err error, payload any, text func(io.Writer, io.Writer) error) *commandBoundaryError {
-	boundary := newRenderedCommandError(category, code, err, "", payload, text)
-	boundary.silent = true
-	return boundary
+func (err *commandBoundaryError) withPayload(payload any) *commandBoundaryError {
+	err.payload = payload
+	return err
 }
 
-func newUsageError(err error) error {
-	return &usageError{newCommandBoundaryError("usage", exitUsage, err)}
+// withText renders the failure's own stdout text; the error line still goes
+// to stderr unless quiet is also set.
+func (err *commandBoundaryError) withText(text func(io.Writer, io.Writer) error) *commandBoundaryError {
+	err.text = text
+	return err
 }
 
-func newConflictError(err error) error {
-	return &conflictError{newCommandBoundaryError("conflict", exitConflict, err)}
+func (err *commandBoundaryError) quiet() *commandBoundaryError {
+	err.silent = true
+	return err
 }
 
-func newRuntimeError(err error) error {
-	return newCommandBoundaryError("runtime", exitRuntime, err)
+func newUsageError(err error) error      { return newCommandError(exitUsage, err) }
+func newConflictError(err error) error   { return newCommandError(exitConflict, err) }
+func newRuntimeError(err error) error    { return newCommandError(exitRuntime, err) }
+func newCapabilityError(err error) error { return newCommandError(exitCapability, err) }
+func newIntegrityError(err error) error  { return newCommandError(exitIntegrity, err) }
+
+// newRemoteExitError passes a guest program's own exit status through; the
+// guest already printed its output, so Farrow adds no error line.
+func newRemoteExitError(code int, err error, payload any) *commandBoundaryError {
+	return (&commandBoundaryError{failure: commandFailure{Error: "remote_exit", Message: err.Error()}, code: code, cause: err, payload: payload}).quiet()
 }
 
-func newExitError(code int, err error) error {
-	return newCommandBoundaryError(exitCategory(code), code, err)
+// classifyError maps an error to an exit code, a stable reason, and a next
+// action. Only error identity is consulted, never message text.
+func classifyError(err error, fallback int) (code int, reason, next string) {
+	class, reason, next := failure.Classify(err)
+	if class != "" {
+		return classExit(class), reason, next
+	}
+	var preflight *privatevm.NetworkPreflightError
+	var capability *privatevm.CapabilityError
+	switch {
+	case errors.Is(err, ErrCancelled) || errors.Is(err, context.Canceled):
+		return exitCancelled, "", next
+	case errors.As(err, &preflight):
+		return preflight.Report.ExitCode, "network_preflight", next
+	case privatevm.IsolatedPartial(err) != nil:
+		return exitPartial, "", next
+	case errors.As(err, &capability):
+		return exitCapability, "", next
+	case errors.Is(err, syscall.ENOSPC):
+		return exitResource, "disk_full", next
+	}
+	return fallback, "", next
 }
 
-func newRemoteExitError(code int, result remoteCommandResult) error {
-	err := fmt.Errorf("remote command exited with status %d", code)
-	boundary := newDetailedCommandError("remote_exit", code, err, "", result)
-	boundary.silent = true
-	return boundary
+func classExit(class failure.Class) int {
+	switch class {
+	case failure.Usage:
+		return exitUsage
+	case failure.Capability:
+		return exitCapability
+	case failure.Conflict:
+		return exitConflict
+	case failure.Partial:
+		return exitPartial
+	case failure.Resource:
+		return exitResource
+	case failure.Integrity:
+		return exitIntegrity
+	case failure.Cancelled:
+		return exitCancelled
+	default:
+		return exitRuntime
+	}
 }
+
+// commandDetailOf exposes the external program behind a failure, if any.
+func commandDetailOf(err error) *commandDetail {
+	var commandErr *execx.CommandError
+	if !errors.As(err, &commandErr) {
+		return nil
+	}
+	detail := &commandDetail{
+		Name: commandErr.Name(), Argv: append([]string{commandErr.Binary}, commandErr.Args...),
+		ExitStatus: commandErr.ExitCode, Signal: commandErr.Signal, TimedOut: commandErr.Timeout > 0,
+		Stderr: strings.Join(commandErr.StderrTail(stderrTailLines), "\n"),
+	}
+	return detail
+}
+
+// stderrTailLines bounds the external stderr shown under an error.
+const stderrTailLines = 8
 
 type commandOutcomeCollector struct {
 	value *commandOutcome
@@ -345,11 +412,11 @@ func executeCLI(ctx context.Context, arguments []string, stdout, stderr io.Write
 	root := newRootCommand(stdout, stderr)
 	root.SetArgs(arguments)
 	if errors.Is(ctx.Err(), context.Canceled) {
-		return reportCancelled(stdout, stderr)
+		return reportCancelled(nil, stdout, stderr)
 	}
 	executed, err := root.ExecuteContextC(ctx)
 	if errors.Is(ctx.Err(), context.Canceled) {
-		return reportCancelled(stdout, stderr)
+		return reportCancelled(err, stdout, stderr)
 	}
 	if writeErr := outputWriteError(stdout); writeErr != nil {
 		errorf(stderr, "write command output: %v", writeErr)
@@ -362,7 +429,7 @@ func executeCLI(ctx context.Context, arguments []string, stdout, stderr io.Write
 		executed = root
 	}
 	if errors.Is(err, ErrCancelled) {
-		return reportCancelled(stdout, stderr)
+		return reportCancelled(err, stdout, stderr)
 	}
 	var typed typedCommandError
 	if errors.As(err, &typed) {
@@ -399,20 +466,39 @@ func renderTypedCommandError(typed typedCommandError, stdout, stderr io.Writer) 
 		}
 	}
 	if boundary, ok := typed.(*commandBoundaryError); !ok || !boundary.silent {
-		errorf(stderr, "%s", failure.Message)
+		printFailure(stderr, failure)
 	}
 	return typed.exitCode()
 }
 
-func reportCancelled(stdout, stderr io.Writer) int {
+// printFailure is the one text shape of a failed command: the error line, the
+// failing program's stderr tail, the full argv under --verbose, and next.
+func printFailure(stderr io.Writer, failure commandFailure) {
+	errorf(stderr, "%s", failure.Message)
+	if failure.Command != nil {
+		if lines := strings.Split(failure.Command.Stderr, "\n"); failure.Command.Stderr != "" && len(lines) > 1 {
+			for _, line := range lines {
+				bestEffortf(stderr, "  %s\n", line)
+			}
+		}
+		debugf(stderr, "command: %s", execx.Display(failure.Command.Argv[0], failure.Command.Argv[1:]...))
+	}
+	if failure.Next != "" {
+		bestEffortf(stderr, "%s %s\n", styled(stderr, ansiDim, "next:"), failure.Next)
+	}
+}
+
+func reportCancelled(err error, stdout, stderr io.Writer) int {
+	message := ErrCancelled.Error()
+	if err != nil && errors.Is(err, ErrCancelled) {
+		message = err.Error()
+	}
 	if structuredOutput(stdout) && !structuredPayloadWritten(stdout) {
-		if code := encodeJSON(stdout, stderr, struct {
-			Error string `json:"error"`
-		}{Error: ErrCancelled.Error()}); code != exitOK {
+		if code := encodeJSON(stdout, stderr, commandFailure{Error: "cancelled", Message: message}); code != exitOK {
 			return code
 		}
 	}
-	bestEffortf(stderr, "%s %s\n", styled(stderr, ansiRed, "error:"), ErrCancelled.Error())
+	bestEffortf(stderr, "%s %s\n", styled(stderr, ansiRed, "error:"), message)
 	return exitCancelled
 }
 
@@ -427,7 +513,7 @@ func exitCategory(code int) string {
 	case exitPartial:
 		return "partial"
 	case exitResource:
-		return "resource_conflict"
+		return "resource"
 	case exitIntegrity:
 		return "integrity"
 	case exitCancelled:
