@@ -1118,10 +1118,10 @@ func classifyPrivateLifecycleError(err error, operationID string) error {
 	boundary := newCommandError(exitRuntime, err).withOperation(operationID)
 	var preflight *privatevm.NetworkPreflightError
 	if errors.As(err, &preflight) {
-		boundary.withPayload(preflight.Report)
+		boundary = boundary.withPayload(preflight.Report)
 	}
 	if partial := privatevm.IsolatedPartial(err); partial != nil {
-		boundary.withPayload(lifecyclePartialFailure{commandFailure: boundary.failure, Failures: partial.Failures, RolledBack: partial.RolledBack})
+		boundary = boundary.withPayload(lifecyclePartialFailure{commandFailure: boundary.failure, Failures: partial.Failures, RolledBack: partial.RolledBack})
 	}
 	return boundary
 }

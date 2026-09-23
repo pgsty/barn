@@ -94,7 +94,6 @@ func newUsageError(err error) error      { return newCommandError(exitUsage, err
 func newConflictError(err error) error   { return newCommandError(exitConflict, err) }
 func newRuntimeError(err error) error    { return newCommandError(exitRuntime, err) }
 func newCapabilityError(err error) error { return newCommandError(exitCapability, err) }
-func newIntegrityError(err error) error  { return newCommandError(exitIntegrity, err) }
 
 // newRemoteExitError passes a guest program's own exit status through; the
 // guest already printed its output, so Farrow adds no error line.
