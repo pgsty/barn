@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 )
 
@@ -67,6 +68,9 @@ type Report struct {
 type Executor struct {
 	Root   execx.Runner
 	Target string
+	// Reviewed, when set, is the plan the user confirmed; apply stops if the
+	// hosts file no longer yields exactly that plan.
+	Reviewed *Plan
 }
 
 type ownedBlock struct {
@@ -237,7 +241,7 @@ func validateNoHostConflicts(before []byte, entries []Entry) error {
 		for _, name := range entry.Names {
 			for address := range mappings[name] {
 				if address != entry.Address {
-					return fmt.Errorf("hosts name %q already maps to %s outside the farrow block", name, address)
+					return failure.New(failure.Conflict, fmt.Errorf("/etc/hosts already maps %s to %s outside the Farrow block", name, address)).Because("hosts_name_taken").Then(fmt.Sprintf("remove or rename the %s %s line in /etc/hosts, then retry", address, name))
 				}
 			}
 		}
@@ -360,6 +364,9 @@ func (e Executor) Execute(ctx context.Context, action string, entries []Entry, a
 	report := Report{Plan: plan}
 	if !apply || !plan.Changed {
 		return report, nil
+	}
+	if e.Reviewed != nil && (e.Reviewed.BeforeSHA256 != plan.BeforeSHA256 || e.Reviewed.AfterSHA256 != plan.AfterSHA256) {
+		return Report{}, errors.New("the hosts file changed after the plan was made; rerun the command to review a fresh plan")
 	}
 	if e.Root == nil {
 		return Report{}, errors.New("hosts apply requires a privileged runner")
@@ -574,7 +581,7 @@ func atomicReplace(target string, data []byte, mode os.FileMode, uid, gid int, e
 		return err
 	}
 	if digest(current) != expectedBefore {
-		return errors.New("hosts target changed after review; refusing stale plan")
+		return errors.New("the hosts file changed after the plan was made; rerun the command to review a fresh plan")
 	}
 	if err := os.Rename(tempPath, target); err != nil {
 		return err
@@ -604,7 +611,7 @@ func ApplyHelper(target, staging, action, beforeSHA256, afterSHA256 string, requ
 		return errors.New("hosts target ownership, links, mode, or privilege is unsafe")
 	}
 	if digest(before) != beforeSHA256 {
-		return errors.New("hosts target changed after review; refusing stale plan")
+		return errors.New("the hosts file changed after the plan was made; rerun the command to review a fresh plan")
 	}
 	after, stagingInfo, err := secureRead(staging, maxHostsBytes)
 	if err != nil {

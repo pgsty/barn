@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -161,7 +160,7 @@ func reconcileGeneratedTarget(selection setupSelection) (setupSelection, error) 
 		return selection, err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return selection, fmt.Errorf("refuse setup config target that is not a regular file: %s", selection.ConfigPath)
+		return selection, fmt.Errorf("%s is not a regular file; setup will not write through it", selection.ConfigPath)
 	}
 	existingFile, existingResolved, err := loadSetupFile(selection.ConfigPath)
 	if err != nil {
@@ -292,7 +291,7 @@ func setupAddresses(selection setupSelection) []string {
 
 func inspectSetupNetwork(ctx context.Context, selection setupSelection, runner execx.Runner) (netpreflight.Report, error) {
 	if selection.Resolved.Private == nil {
-		return netpreflight.Report{}, errors.New("private setup has no private network configuration")
+		return netpreflight.Report{}, errors.New("the inventory has no Farrow network")
 	}
 	layout, err := subnet.Parse(selection.Resolved.Private.CIDR)
 	if err != nil {
@@ -397,7 +396,7 @@ func setupFindingError(report netpreflight.Report) error {
 		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
-		lines = append(lines, "the fixed-IP network is not ready")
+		lines = append(lines, "the Farrow network is not ready")
 	}
 	return errors.New(strings.Join(lines, "\n"))
 }
@@ -416,29 +415,7 @@ func confirmSetup(yes bool, mutating bool, stdin io.Reader, stderr io.Writer) er
 	if !ok || !term.IsTerminal(int(terminal.Fd())) {
 		return errSetupNeedsYes
 	}
-	if _, err := fmt.Fprint(stderr, "Continue with this setup? [Y/n] "); err != nil {
-		return fmt.Errorf("write setup confirmation prompt: %w", err)
-	}
-	return readSetupConfirmation(stdin)
-}
-
-// readSetupConfirmation applies the [Y/n] default only to an answered prompt.
-// End-of-input (Ctrl-D, a closed pipe) is a cancellation: nobody pressed
-// Enter, so nothing was agreed to.
-func readSetupConfirmation(stdin io.Reader) error {
-	line, err := bufio.NewReader(io.LimitReader(stdin, 64)).ReadString('\n')
-	if errors.Is(err, io.EOF) {
-		return fmt.Errorf("%w: no setup confirmation was entered", ErrCancelled)
-	}
-	if err != nil {
-		return err
-	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "", "y", "yes":
-		return nil
-	default:
-		return ErrCancelled
-	}
+	return confirmPlan("Continue with this setup? [Y/n] ", true, stdin, stderr)
 }
 
 // sudoSession asks for the user's password at most once per command.
@@ -478,14 +455,14 @@ func (session *sudoSession) ensure(ctx context.Context, reason string) error {
 		command.Stdout = rawWriter(session.stderr)
 		command.Stderr = rawWriter(session.stderr)
 		if err := command.Run(); err != nil {
-			return fmt.Errorf("acquire sudo credential: %w", err)
+			return failure.New(failure.Capability, fmt.Errorf("sudo authentication failed: %w", err)).Because("sudo_unavailable")
 		}
 	} else if _, err := session.base.Run(ctx, sudo, "-n", "-v"); err != nil {
 		// `sudo -n -v` can still demand authentication under a NOPASSWD: ALL
 		// policy because it validates a timestamp without running a command.
 		// Prove the command path separately before rejecting automation hosts.
 		if _, commandErr := session.base.Run(ctx, sudo, "-n", "--", "/usr/bin/true"); commandErr != nil {
-			return errors.New("non-interactive sudo access is unavailable; use a terminal or configure a suitable NOPASSWD policy")
+			return failure.New(failure.Capability, errors.New("sudo needs a password, but stdin is not a terminal")).Because("sudo_unavailable").Then("rerun in a terminal, or allow passwordless sudo for this user")
 		}
 	}
 	keeperContext, cancel := context.WithCancel(ctx)
@@ -573,12 +550,12 @@ func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflig
 		tickf(stderr, "Network %s is already installed", report.CIDR)
 		return setupStep{Name: "network", Status: "ready", Detail: report.CIDR}, false, nil
 	}
-	networkReason := "install the host-global " + report.CIDR + " network (root-owned socket_vmnet service)"
+	networkReason := "install the Farrow network " + report.CIDR + " (root-owned socket_vmnet service)"
 	if report.CanRepair() {
-		networkReason = "restore the installed " + report.CIDR + " Farrow network"
+		networkReason = "restore the Farrow network " + report.CIDR
 	}
 	if runtime.GOOS != "darwin" {
-		networkReason = "install the host-global " + report.CIDR + " network (root-owned farrow0 bridge)"
+		networkReason = "install the Farrow network " + report.CIDR + " (root-owned farrow0 bridge)"
 	}
 	if runtime.GOOS != "darwin" || report.CanRepair() {
 		if err := sudo.ensure(ctx, networkReason); err != nil {
@@ -587,7 +564,7 @@ func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflig
 	}
 	if runtime.GOOS == "darwin" {
 		if report.CanRepair() {
-			progressItem := startProgress(ctx, stderr, "Restoring the private network")
+			progressItem := startProgress(ctx, stderr, "Restoring the Farrow network")
 			defer progressItem.Stop(nil)
 			executor := darwinnet.Executor{User: base, Root: setupRootRunner(base)}
 			if err := executor.Repair(ctx, mode, report.CIDR, networkRepairNeedsRestart(report)); err != nil {
@@ -604,7 +581,7 @@ func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflig
 		return setupStep{}, false, err
 	}
 	executor := linuxnet.Executor{User: base, Root: setupRootRunner(base)}
-	progressItem := startProgress(ctx, stderr, "Installing the fixed-IP network")
+	progressItem := startProgress(ctx, stderr, "Installing the Farrow network")
 	installReport, err := executor.InstallConfig(ctx, linuxConfig, true)
 	progressItem.Stop(err)
 	if err != nil {
@@ -634,7 +611,7 @@ func installSetupDarwinNetwork(ctx context.Context, mode, repo, cidr string, bas
 			if err := authorize(); err != nil {
 				return setupStep{}, false, err
 			}
-			progressItem := startProgress(ctx, stderr, "Installing the fixed-IP network (socket_vmnet from Homebrew, root-owned copy)")
+			progressItem := startProgress(ctx, stderr, "Installing the Farrow network (socket_vmnet from Homebrew, root-owned copy)")
 			installReport, err := executor.InstallFromHomebrew(ctx, binaries, interfaceID, runtime.GOARCH, mode, cidr, true)
 			progressItem.Stop(err)
 			if err != nil {
@@ -655,7 +632,7 @@ func installSetupDarwinNetwork(ctx context.Context, mode, repo, cidr string, bas
 	if err := authorize(); err != nil {
 		return setupStep{}, false, err
 	}
-	progressItem := startProgress(ctx, stderr, "Installing the fixed-IP network")
+	progressItem := startProgress(ctx, stderr, "Installing the Farrow network")
 	installReport, err := executor.InstallModeNetwork(ctx, download.Path, interfaceID, runtime.GOARCH, mode, cidr, true)
 	progressItem.Stop(err)
 	if err != nil {
@@ -763,7 +740,7 @@ func ensureSetupHostsHelper(ctx context.Context, base execx.Runner, sudo *sudoSe
 		}
 		statistics, ok := info.Sys().(*syscall.Stat_t)
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !ok || statistics.Uid != 0 || statistics.Gid != 0 || info.Mode().Perm()&0o022 != 0 {
-			return setupStep{}, false, fmt.Errorf("refuse unsafe privileged helper directory: %s", directory)
+			return setupStep{}, false, fmt.Errorf("will not install the hosts helper: %s must be a root-owned directory writable only by root", directory)
 		}
 	}
 	root := setupRootRunner(base)
@@ -830,9 +807,9 @@ func verifySetup(ctx context.Context, private bool) ([]doctor.Check, error) {
 	errorsFound := make([]string, 0)
 	for _, check := range report.Checks {
 		if check.Status == doctor.Error && !setupCheckIgnored(check.Name, private) {
-			line := check.Name + ": " + check.Evidence
+			line := check.Evidence
 			if check.Fix != "" {
-				line += "; " + check.Fix
+				line += "; fix: " + check.Fix
 			}
 			errorsFound = append(errorsFound, line)
 		}
@@ -1308,10 +1285,7 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	if installErr != nil {
 		result.MutationUncertain = result.MutationUncertain || uncertain
 		result.Steps = append(result.Steps, setupStep{Name: "network", Status: "failed"})
-		if errors.Is(installErr, darwinnet.ErrVMNetSharingBusy) {
-			return failSetup(&result, exitConflict, installErr)
-		}
-		return failSetup(&result, exitIntegrity, installErr)
+		return failSetup(&result, exitRuntime, installErr)
 	}
 	result.Steps = append(result.Steps, step)
 	result.Changed = result.Changed || step.Changed
@@ -1321,16 +1295,16 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		if finalErr == nil {
 			finalErr = setupFindingError(finalReport)
 		}
-		return failSetup(&result, exitIntegrity, fmt.Errorf("fixed-IP network verification failed: %w", finalErr))
+		return failSetup(&result, exitRuntime, fmt.Errorf("verify the Farrow network: %w", finalErr))
 	}
 	result.Network = &finalReport
 	result.Steps = append(result.Steps, setupStep{Name: "hosts-helper", Status: "on-demand"}, setupStep{Name: "verify", Status: "ready"})
 	if selection.Publish {
 		if len(bytes.TrimSpace(selection.ConfigData)) == 0 {
-			return failSetup(&result, exitIntegrity, errors.New("generated setup configuration is empty"))
+			return failSetup(&result, exitRuntime, errors.New("generated setup configuration is empty"))
 		}
 		if err := publishSetupConfig(selection); err != nil {
-			code := exitIntegrity
+			code := exitRuntime
 			if errors.Is(err, os.ErrExist) {
 				code = exitConflict
 			}

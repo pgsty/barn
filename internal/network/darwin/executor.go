@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/network/subnet"
 )
 
@@ -32,7 +33,7 @@ type Executor struct {
 	StagingParent string
 }
 
-var ErrVMNetSharingBusy = errors.New("VMNET_SHARING_SERVICE_BUSY (1009)")
+var ErrVMNetSharingBusy error = failure.New(failure.Resource, errors.New("macOS vmnet is busy: another sharing service holds the requested subnet (Internet Sharing, Docker Desktop, UTM, or another VM app)")).Because("vmnet_busy").Then("quit that app, or choose another /24 with farrow setup -c <cidr>")
 
 type InstallReport struct {
 	Action   string            `json:"action"`
@@ -103,7 +104,7 @@ func (e Executor) readInstalled(ctx context.Context) (InstallPlan, bool, error) 
 		return InstallPlan{}, false, nil
 	}
 	if present != len(paths) {
-		return InstallPlan{}, false, fmt.Errorf("partial Darwin private network installation: %d/%d required paths", present, len(paths))
+		return InstallPlan{}, false, fmt.Errorf("the Farrow network is partially installed: %d of %d required files are present", present, len(paths))
 	}
 	stateResult, err := e.Root.Run(ctx, "/bin/cat", StatePath)
 	if err != nil {
@@ -329,7 +330,7 @@ func (e Executor) planInstall(ctx context.Context, origin installOrigin, interfa
 	}
 	for _, path := range []string{StateDir, InterfaceMarkerDir, LogDir, LeaseRoot, PlistPath, SocketPath, PIDPath} {
 		if _, err := os.Lstat(path); err == nil {
-			return InstallReport{}, fmt.Errorf("refuse adoption of existing unowned Darwin network target: %s", path)
+			return InstallReport{}, fmt.Errorf("will not overwrite %s: it exists and Farrow did not create it", path)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return InstallReport{}, err
 		}
@@ -351,7 +352,7 @@ func (e Executor) validateSharedInstallRoot(ctx context.Context) error {
 		return err
 	}
 	if len(entries) != 1 || entries[0] != "libexec" {
-		return errors.New("refuse fresh Darwin network install into a non-empty shared /opt/farrow root")
+		return errors.New("will not install into /opt/farrow: it already contains files Farrow did not create")
 	}
 	libexec := filepath.Join(InstallRoot, "libexec")
 	if err := e.rootStat(ctx, libexec, "root", "wheel", "755", "Directory"); err != nil {
@@ -362,7 +363,7 @@ func (e Executor) validateSharedInstallRoot(ctx context.Context) error {
 		return err
 	}
 	if len(entries) != 1 || entries[0] != filepath.Base(HostsHelperPath) {
-		return errors.New("refuse fresh Darwin network install with unknown shared libexec entries")
+		return errors.New("will not install into /opt/farrow/libexec: it contains files Farrow did not create")
 	}
 	return e.rootStat(ctx, HostsHelperPath, "root", "wheel", "755", "Regular File")
 }
@@ -481,7 +482,7 @@ func (e Executor) waitSocket(ctx context.Context) error {
 		}
 		logResult, _ := e.Root.Run(ctx, "/usr/bin/tail", "-n", "80", filepath.Join(LogDir, "stderr.log"))
 		if strings.Contains(string(logResult.Stdout), "[1009]") {
-			return fmt.Errorf("%w: another sharing service conflicts with the requested subnet", ErrVMNetSharingBusy)
+			return ErrVMNetSharingBusy
 		}
 		select {
 		case <-ctx.Done():
@@ -489,7 +490,7 @@ func (e Executor) waitSocket(ctx context.Context) error {
 		case <-time.After(time.Second):
 		}
 	}
-	return errors.New("socket_vmnet launchd socket did not become ready")
+	return errors.New("socket_vmnet did not open its socket within 30s; see " + filepath.Join(LogDir, "stderr.log"))
 }
 
 func (e Executor) Install(ctx context.Context, archive, interfaceID, arch string, apply bool) (InstallReport, error) {
@@ -711,7 +712,7 @@ func (e Executor) PlanUninstall(ctx context.Context) (UninstallReport, error) {
 		recovered = true
 	}
 	if !installed {
-		return UninstallReport{}, errors.New("darwin private network is not installed")
+		return UninstallReport{}, errors.New("the Farrow network is not installed")
 	}
 	processes, err := e.User.Run(ctx, "/bin/ps", "-axo", "comm=,command=")
 	if err != nil {
@@ -719,7 +720,7 @@ func (e Executor) PlanUninstall(ctx context.Context) (UninstallReport, error) {
 	}
 	for _, line := range strings.Split(string(processes.Stdout), "\n") {
 		if strings.Contains(line, "qemu-system") && strings.Contains(line, SocketPath) {
-			return UninstallReport{}, errors.New("refuse darwin network uninstall while QEMU uses socket_vmnet")
+			return UninstallReport{}, failure.New(failure.Conflict, errors.New("will not remove the Farrow network while VMs are using it")).Then("stop the VMs that use it (farrow stop for Farrow nodes), then retry")
 		}
 	}
 	hostsHelperPresent := false
@@ -752,7 +753,7 @@ func (e Executor) PlanUninstall(ctx context.Context) (UninstallReport, error) {
 		}
 		for _, entry := range entries {
 			if _, ok := allowed[entry]; !ok {
-				return UninstallReport{}, fmt.Errorf("refuse uninstall with unexpected entry %s/%s", directory, entry)
+				return UninstallReport{}, fmt.Errorf("will not remove %s: it contains %s, which Farrow did not create", directory, entry)
 			}
 		}
 	}
@@ -791,7 +792,7 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (UninstallReport, e
 	}
 	if e.InUse != nil {
 		if err := e.InUse(ctx); err != nil {
-			return report, fmt.Errorf("refuse darwin network uninstall: %w", err)
+			return report, fmt.Errorf("will not remove the Farrow network: %w", err)
 		}
 	}
 	if _, err := e.PlanUninstall(ctx); err != nil {

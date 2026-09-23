@@ -102,9 +102,9 @@ func (p Probe) lookPath(name string) (string, error) {
 
 func qemuInstallFix(goos string) string {
 	if goos == "darwin" {
-		return "brew install qemu"
+		return "run farrow setup (or brew install qemu)"
 	}
-	return "install the distribution QEMU system and qemu-utils/qemu-img packages"
+	return "run farrow setup (or install the distribution QEMU and qemu-img packages)"
 }
 
 func combined(result execx.Result) string {
@@ -149,9 +149,9 @@ func (p Probe) Run(ctx context.Context) Report {
 		qemuVersion := ""
 		result, versionErr := p.runner().Run(ctx, qemuPath, "--version")
 		if versionErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: versionErr.Error()})
+			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: versionErr.Error(), Fix: qemuInstallFix(profile.OS)})
 		} else if version, parseErr := platform.ParseQEMUVersion(combined(result)); parseErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: parseErr.Error()})
+			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: parseErr.Error(), Fix: qemuInstallFix(profile.OS)})
 		} else if !version.AtLeast(profile.MinimumQEMU) {
 			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: version.String() + " is below " + profile.MinimumQEMU.String(), Fix: qemuInstallFix(profile.OS)})
 		} else {
@@ -179,7 +179,7 @@ func (p Probe) Run(ctx context.Context) Report {
 	} else {
 		result, versionErr := p.runner().Run(ctx, qemuImgPath, "--version")
 		if versionErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "qemu-img", Status: Error, Evidence: versionErr.Error()})
+			report.Checks = append(report.Checks, Check{Name: "qemu-img", Status: Error, Evidence: versionErr.Error(), Fix: qemuInstallFix(profile.OS)})
 		} else {
 			report.Checks = append(report.Checks, Check{Name: "qemu-img", Status: OK, Evidence: qemuImgPath + ": " + strings.Split(combined(result), "\n")[0]})
 		}

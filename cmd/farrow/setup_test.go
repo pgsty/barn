@@ -183,10 +183,10 @@ func TestSetupWithoutTerminalNeedsYesAsAUsageError(t *testing.T) {
 	}
 }
 
-func TestSetupConfirmationTreatsEndOfInputAsCancellation(t *testing.T) {
+func TestConfirmationTreatsEndOfInputAsCancellation(t *testing.T) {
 	t.Parallel()
 	for input, accepted := range map[string]bool{"\n": true, "y\n": true, "YES\n": true, "n\n": false, "no\n": false, "": false, "y": false} {
-		err := readSetupConfirmation(strings.NewReader(input))
+		err := confirmPlan("? ", true, strings.NewReader(input), io.Discard)
 		if accepted && err != nil {
 			t.Errorf("input %q rejected: %v", input, err)
 		}
@@ -197,8 +197,11 @@ func TestSetupConfirmationTreatsEndOfInputAsCancellation(t *testing.T) {
 			t.Errorf("input %q error = %v, want ErrCancelled", input, err)
 		}
 	}
-	if err := readSetupConfirmation(strings.NewReader("")); !strings.Contains(err.Error(), "no setup confirmation was entered") {
+	if err := confirmPlan("? ", true, strings.NewReader(""), io.Discard); !strings.Contains(err.Error(), "no answer was entered") {
 		t.Fatalf("EOF err = %v, want a specific cancellation reason", err)
+	}
+	if err := confirmPlan("? ", false, strings.NewReader("\n"), io.Discard); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("[y/N] default accepted: %v", err)
 	}
 }
 

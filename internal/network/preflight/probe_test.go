@@ -123,7 +123,7 @@ func TestActiveNetworkSharingAndLinuxFamily(t *testing.T) {
 		}
 	}
 	conflict, problem := (Probe{Runner: sharingRunner{}}).darwinSharingConflict(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: subnet.Default()}, Installation{Status: "absent"})
-	if !strings.Contains(conflict, "1009") || !strings.Contains(conflict, "10.10.10.0/24") {
+	if !strings.Contains(conflict, "Internet Sharing") || !strings.Contains(conflict, "10.10.10.0/24") {
 		t.Fatalf("sharing conflict=%q", conflict)
 	}
 	if problem != "" {
@@ -136,7 +136,7 @@ func TestActiveNetworkSharingAndLinuxFamily(t *testing.T) {
 
 func TestActiveNetworkSharingUnknownSubnetFailsClosed(t *testing.T) {
 	conflict, problem := (Probe{Runner: unreadableSharingRunner{}}).darwinSharingConflict(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: subnet.Default()}, Installation{Status: "absent"})
-	if conflict != "" || !strings.Contains(problem, "active") || !strings.Contains(problem, "unknown") {
+	if conflict != "" || !strings.Contains(problem, "active") || !strings.Contains(problem, "could not be read") {
 		t.Fatalf("conflict=%q problem=%q", conflict, problem)
 	}
 	report := Evaluate(Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: subnet.Default()}, Snapshot{Installation: Installation{Status: "absent"}, Problems: []string{problem}})

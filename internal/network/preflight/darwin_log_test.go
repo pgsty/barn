@@ -135,7 +135,7 @@ func TestDarwinLogPermissionsPreserveNetworkOwnership(t *testing.T) {
 		{name: "launchd 0744", info: darwinFileInfo{mode: os.ModeDir | 0o744}, code: "installation.log_directory", evidence: "mode 0744; expected 0755", fix: "sudo chmod 0755 " + darwinnet.LogDir, repairable: true},
 		{name: "missing log directory", code: "installation.log_directory", evidence: "is missing", fix: "sudo install -d", repairable: true},
 		{name: "already correct", info: darwinFileInfo{mode: os.ModeDir | 0o755}},
-		{name: "unsafe symlink", info: darwinFileInfo{mode: os.ModeSymlink | 0o755}, code: "installation.log_directory_unsafe", evidence: "automatic repair refused", fix: "ls -ld"},
+		{name: "unsafe symlink", info: darwinFileInfo{mode: os.ModeSymlink | 0o755}, code: "installation.log_directory_unsafe", evidence: "will not repair it automatically", fix: "ls -ld"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			probe, runner := installedDarwinProbe(t, test.info)

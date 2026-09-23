@@ -74,7 +74,7 @@ func TestInactiveNetworkdRejectsUnprovenAndNetdevActivation(t *testing.T) {
 	facts := debianFacts()
 	facts.NetworkdActive = false
 	facts.NetworkdUnits = networkdFixture("disabled", "inactive")
-	if _, err := NewInstallPlan(facts, testConfig()); err == nil || !strings.Contains(err.Error(), "pre-mutation activation safety proof") {
+	if _, err := NewInstallPlan(facts, testConfig()); err == nil || !strings.Contains(err.Error(), "cannot prove that starting it leaves existing links untouched") {
 		t.Fatalf("inactive networkd without discovery proof was accepted: %v", err)
 	}
 
