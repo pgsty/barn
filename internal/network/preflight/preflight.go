@@ -156,7 +156,7 @@ func Evaluate(request Request, snapshot Snapshot) Report {
 		add(&report, Finding{Code: "probe.incomplete", Severity: Error, Class: Capability, Evidence: problem, Fix: "install the missing route and interface tools, then retry"})
 	}
 	if snapshot.SharingBusy != "" {
-		add(&report, Finding{Code: "vmnet.sharing_service_busy", Severity: Error, Class: Resource, Evidence: snapshot.SharingBusy, Fix: "stop the VM or sharing service that holds it, or pick another /24 for the lab"})
+		add(&report, Finding{Code: "vmnet.sharing_service_busy", Severity: Error, Class: Resource, Evidence: snapshot.SharingBusy, Fix: "quit the app that holds it (Internet Sharing, Docker Desktop, UTM, or another VM app), or choose another /24 with farrow setup -c <cidr>, or edit the inventory addresses"})
 	}
 	installed := snapshot.Installation.Status != "" && snapshot.Installation.Status != "absent"
 	installedExact := installed && snapshot.Installation.CIDR == request.Layout.CIDR()
@@ -164,15 +164,15 @@ func Evaluate(request Request, snapshot Snapshot) Report {
 		add(&report, Finding{Code: "installation.integrity", Severity: Error, Class: Integrity, Evidence: snapshot.Installation.Problem, Fix: "run farrow network status to inspect the installed network before reinstalling it"})
 	} else if installed {
 		if snapshot.Installation.CIDR != request.Layout.CIDR() {
-			add(&report, Finding{Code: "installation.network_mismatch", Severity: Error, Class: State, Evidence: fmt.Sprintf("the installed network is %s but the inventory wants %s", snapshot.Installation.CIDR, request.Layout.CIDR()), Fix: "stop the deployment, run farrow network uninstall, then farrow setup"})
+			add(&report, Finding{Code: "installation.network_mismatch", Severity: Error, Class: State, Evidence: fmt.Sprintf("the installed network is %s but the inventory wants %s", snapshot.Installation.CIDR, request.Layout.CIDR()), Fix: fmt.Sprintf("change the inventory addresses to the installed %s, or stop the deployment, run farrow network uninstall, then farrow setup", snapshot.Installation.CIDR)})
 		}
 		if snapshot.Installation.CIDR == request.Layout.CIDR() && !snapshot.Installation.Healthy {
 			add(&report, Finding{Code: "installation.not_ready", Severity: Error, Class: Capability, Evidence: snapshot.Installation.Problem, Fix: "run farrow setup again to repair the network"})
 		}
 	} else if request.Purpose == Use {
-		add(&report, Finding{Code: "installation.absent", Severity: Error, Class: Capability, Evidence: "the fixed-IP network is not installed", Fix: "run farrow setup"})
+		add(&report, Finding{Code: "installation.absent", Severity: Error, Class: Capability, Evidence: "the Farrow network is not installed", Fix: "run farrow setup"})
 	} else if request.Purpose == Inspect {
-		add(&report, Finding{Code: "installation.absent", Severity: Warning, Evidence: "the fixed-IP network is not installed"})
+		add(&report, Finding{Code: "installation.absent", Severity: Warning, Evidence: "the Farrow network is not installed"})
 	}
 
 	exactOwnedRoute := false
@@ -194,7 +194,7 @@ func Evaluate(request Request, snapshot Snapshot) Report {
 		}
 		owned := localHostRoute || connected
 		if !owned {
-			add(&report, Finding{Code: "route.overlap", Severity: Error, Class: Resource, Subject: route.Interface, Evidence: route.Evidence, Fix: "remove the conflicting VPN or VM route, or pick another /24 for the lab"})
+			add(&report, Finding{Code: "route.overlap", Severity: Error, Class: Resource, Subject: route.Interface, Evidence: route.Evidence, Fix: "remove the conflicting VPN or VM route, or choose another /24 with farrow setup -c <cidr>, or edit the inventory addresses"})
 		}
 	}
 	if installedExact && !exactOwnedRoute {
@@ -207,7 +207,7 @@ func Evaluate(request Request, snapshot Snapshot) Report {
 		host, _ := netip.ParseAddr(request.Layout.HostAddress())
 		owned := installedExact && snapshot.Installation.Interface != "" && address.Interface == snapshot.Installation.Interface && address.Address == host && address.Prefix.Bits() == request.Layout.Prefix().Bits() && address.Prefix.Masked() == request.Layout.Prefix()
 		if !owned {
-			add(&report, Finding{Code: "interface.overlap", Severity: Error, Class: Resource, Subject: address.Interface, Evidence: address.Evidence, Fix: "remove the conflicting virtual or VPN interface, or pick another /24 for the lab"})
+			add(&report, Finding{Code: "interface.overlap", Severity: Error, Class: Resource, Subject: address.Interface, Evidence: address.Evidence, Fix: "remove the conflicting virtual or VPN interface, or choose another /24 with farrow setup -c <cidr>, or edit the inventory addresses"})
 		}
 	}
 	for _, address := range request.Addresses {

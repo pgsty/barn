@@ -48,26 +48,26 @@ func (p Probe) deploymentChecks() []Check {
 	case errors.Is(stateErr, os.ErrNotExist):
 		checks = append(checks, Check{Name: "deployment", Status: OK, Evidence: "no deployment state yet; farrow up creates it"})
 	case stateErr != nil:
-		checks = append(checks, Check{Name: "deployment", Status: Error, Evidence: stateErr.Error(), Fix: "do not hand-edit state; `farrow destroy --force` and `farrow up` recreate it"})
+		checks = append(checks, Check{Name: "deployment", Status: Error, Evidence: stateErr.Error(), Fix: "restore state.json from a backup; to start over, move " + dataRoot + " aside (node disks stay in it), then run farrow up"})
 	default:
 		checks = append(checks, Check{Name: "deployment", Status: OK, Evidence: fmt.Sprintf("%s (%d node(s))", deployment.Resolved.Name, len(deployment.Resolved.Nodes))})
 		for _, definition := range deployment.Resolved.Nodes {
 			node, nodeErr := store.ReadNode(definition.Name)
 			checkName := "node-state/" + definition.Name
 			if nodeErr != nil {
-				checks = append(checks, Check{Name: checkName, Status: Error, Evidence: nodeErr.Error(), Fix: "recreate the node with farrow recreate --force " + definition.Name})
+				checks = append(checks, Check{Name: checkName, Status: Error, Evidence: nodeErr.Error(), Fix: "restore the node state from a backup, or run farrow recreate --force " + definition.Name + " (replaces its root disk; persistent data disks stay)"})
 				continue
 			}
 			checks = append(checks, Check{Name: checkName, Status: OK, Evidence: fmt.Sprintf("%s, ssh 127.0.0.1:%d", node.Phase, node.SSHPort)})
 			if nodeDir, pathErr := store.NodeDir(definition.Name); pathErr != nil {
 				checks = append(checks, Check{Name: "transaction/" + definition.Name, Status: Error, Evidence: pathErr.Error()})
 			} else if info, journalErr := os.Lstat(filepath.Join(nodeDir, "private-prepare.json")); journalErr == nil {
-				status := Warn
-				evidence := "pending private prepare journal"
+				check := Check{Name: "transaction/" + definition.Name, Status: Warn, Evidence: "an interrupted create of this node is pending", Fix: "run farrow up; it finishes or rolls back the interrupted create"}
 				if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
-					status, evidence = Error, "private prepare journal is unsafe"
+					journal := filepath.Join(nodeDir, "private-prepare.json")
+					check = Check{Name: check.Name, Status: Error, Evidence: journal + " is not a regular mode-0600 file", Fix: "inspect " + journal + "; Farrow will not read it until it is a regular file with mode 0600"}
 				}
-				checks = append(checks, Check{Name: "transaction/" + definition.Name, Status: status, Evidence: evidence, Fix: "recreate the node with farrow recreate --force " + definition.Name})
+				checks = append(checks, check)
 			} else if !errors.Is(journalErr, os.ErrNotExist) {
 				checks = append(checks, Check{Name: "transaction/" + definition.Name, Status: Error, Evidence: journalErr.Error()})
 			}

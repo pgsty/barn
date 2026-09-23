@@ -16,10 +16,10 @@ type Layout struct {
 func Parse(cidr string) (Layout, error) {
 	prefix, err := netip.ParsePrefix(cidr)
 	if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 24 || prefix != prefix.Masked() {
-		return Layout{}, fmt.Errorf("private network must be a canonical IPv4 /24: %q", cidr)
+		return Layout{}, fmt.Errorf("the Farrow network must be a canonical IPv4 /24 such as 10.10.10.0/24, got %q", cidr)
 	}
 	if !prefix.Addr().IsPrivate() {
-		return Layout{}, fmt.Errorf("private network must use RFC1918 address space: %q", cidr)
+		return Layout{}, fmt.Errorf("the Farrow network must be private (RFC1918: 10/8, 172.16/12, or 192.168/16), got %q", cidr)
 	}
 	return Layout{prefix: prefix}, nil
 }
@@ -112,5 +112,5 @@ func (l Layout) Warning() string {
 	if l.IsDefault() {
 		return ""
 	}
-	return fmt.Sprintf("non-default host-global private subnet %s selected; host=%s DHCP-end=%s static=%s-%s; every node address and the installed network must use this same layout", l.CIDR(), l.HostAddress(), l.DHCPEnd(), l.StaticStart(), l.StaticEnd())
+	return fmt.Sprintf("using the non-default Farrow network %s (host %s, DHCP up to %s, nodes %s-%s); the installed network and every node address must use it", l.CIDR(), l.HostAddress(), l.DHCPEnd(), l.StaticStart(), l.StaticEnd())
 }

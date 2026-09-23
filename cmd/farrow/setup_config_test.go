@@ -39,6 +39,23 @@ func TestFreshUntouchedInitCanUseAnAvailableNetwork(t *testing.T) {
 	if err != nil || !bytes.Equal(backup, original) {
 		t.Fatalf("original not preserved: %s %v", backup, err)
 	}
+	// Restoring the untouched default and rebasing again reuses the identical
+	// backup instead of failing; a different backup is still never replaced.
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSetupConfig(selection); err != nil {
+		t.Fatalf("repeated rebase: %v", err)
+	}
+	if err := os.WriteFile(path+".before-network-change", []byte("user notes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSetupConfig(selection); err == nil {
+		t.Fatal("a different existing backup was overwritten")
+	}
 }
 
 func TestSetupPreservesExplicitCustomAndConcurrentlyEditedInventory(t *testing.T) {

@@ -254,7 +254,7 @@ func (p Probe) darwinSharingConflict(ctx context.Context, request Request, insta
 		logResult, err := p.Runner.Run(ctx, "/usr/bin/tail", "-n", "80", darwinnet.LogDir+"/stderr.log")
 		logText := string(logResult.Stdout) + string(logResult.Stderr)
 		if err == nil && (strings.Contains(logText, "[1009]") || strings.Contains(logText, "VMNET_SHARING_SERVICE_BUSY")) {
-			return "socket_vmnet reported VMNET_SHARING_SERVICE_BUSY (1009) for the requested subnet", ""
+			return "macOS vmnet reported the requested subnet busy: another sharing service holds it", ""
 		}
 	}
 	sharing, err := p.Runner.Run(ctx, "/bin/launchctl", "print", "system/com.apple.NetworkSharing")
@@ -269,19 +269,19 @@ func (p Probe) darwinSharingConflict(ctx context.Context, request Request, insta
 		if readErr == nil {
 			readErr = maskErr
 		}
-		return "", fmt.Sprintf("com.apple.NetworkSharing is active but its vmnet host/mask could not be read; subnet ownership is unknown: %v", readErr)
+		return "", fmt.Sprintf("macOS Internet Sharing is active, but the subnet it uses could not be read: %v", readErr)
 	}
 	if strings.TrimSpace(string(maskResult.Stdout)) != "255.255.255.0" {
-		return "", "com.apple.NetworkSharing is active but its vmnet mask is not a parseable /24; subnet ownership is unknown"
+		return "", "macOS Internet Sharing is active, but the subnet it uses is not a /24 Farrow can check"
 	}
 	layout, err := subnet.FromHostAddress(strings.TrimSpace(string(hostResult.Stdout)))
 	if err != nil {
-		return "", "com.apple.NetworkSharing is active but its vmnet host address is invalid; subnet ownership is unknown"
+		return "", "macOS Internet Sharing is active, but the subnet it uses could not be parsed"
 	}
 	if layout.CIDR() != request.Layout.CIDR() {
 		return "", ""
 	}
-	return fmt.Sprintf("com.apple.NetworkSharing is active and com.apple.vmnet.plist claims %s; socket_vmnet may return VMNET_SHARING_SERVICE_BUSY (1009)", layout.CIDR()), ""
+	return fmt.Sprintf("macOS Internet Sharing is active and uses %s", layout.CIDR()), ""
 }
 
 func plistArguments(data []byte) (mode, interfaceID, gateway, dhcp string, err error) {

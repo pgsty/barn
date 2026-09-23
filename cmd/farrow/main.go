@@ -288,7 +288,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 		defer cancel()
 		if command == "install" {
 			addresses := withoutRecordedAddresses(layout.StaticAddresses())
-			preflightProgress := startProgress(ctx, stderr, "Validating the fixed-IP network plan")
+			preflightProgress := startProgress(ctx, stderr, "Checking the Farrow network plan")
 			preflightReport := netpreflight.Run(ctx, netpreflight.Request{OS: runtime.GOOS, Arch: runtime.GOARCH, Purpose: netpreflight.Install, Layout: layout, Addresses: addresses}, netpreflight.Probe{Runner: baseRunner})
 			preflightProgress.Stop(nil)
 			if errors.Is(parent.Err(), context.Canceled) {
@@ -297,132 +297,95 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			if !preflightReport.Ready {
 				return commandOutcome{}, newCommandError(preflightReport.ExitCode, setupFindingError(preflightReport)).withPayload(preflightReport)
 			}
+			// A fresh macOS install needs a socket_vmnet source and a new
+			// interface UUID, which only setup supplies. Say so before sudo.
+			absent := preflightReport.Installation.Status == "" || preflightReport.Installation.Status == "absent"
+			if runtime.GOOS == "darwin" && absent && (options.Archive == "" || options.InterfaceID == "") {
+				return commandOutcome{}, newCommandError(exitCapability, errNetworkNotInstalled)
+			}
+		}
+		// A terminal without --yes reviews the plan and confirms once; a pipe
+		// without --yes only prints the plan.
+		confirm := !options.Apply && interactiveTextSession(stderr) && !structuredOutput(stderr)
+		next := ""
+		if !confirm {
+			next = "farrow network " + command + " --yes"
+			if options.Archive != "" || options.InterfaceID != "" {
+				next += " with the same --archive and --interface-id"
+			}
 		}
 		privilege := &sudoSession{base: baseRunner, stderr: stderr, scope: "network command"}
 		defer privilege.close()
-		reason := "read the protected host-network ownership state for the plan"
-		if options.Apply {
-			reason = "apply the reviewed host-network plan"
+		reason := "read the root-owned Farrow network state for the plan"
+		if options.Apply || confirm {
+			reason = map[string]string{"install": "install", "uninstall": "remove"}[command] + " the Farrow network"
 		}
 		if err := privilege.ensure(ctx, reason); err != nil {
 			return commandOutcome{}, newCommandError(exitCapability, err)
 		}
 		rootRunner := setupRootRunner(baseRunner)
-		if runtime.GOOS == "darwin" {
-			executor := darwinnet.Executor{User: baseRunner, Root: rootRunner, InUse: deploymentInUse}
+		message := map[string]string{"install": "Installing the Farrow network", "uninstall": "Removing the Farrow network"}[command]
+		run := func(apply bool) (commandOutcome, bool, error) {
+			// In a confirmed run, warnings belong to the applied result only.
+			warn := apply || !confirm
+			if runtime.GOOS == "darwin" {
+				executor := darwinnet.Executor{User: baseRunner, Root: rootRunner, InUse: deploymentInUse}
+				if command == "install" {
+					return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+						report, err := installDarwinNetwork(ctx, executor, options.Archive, options.InterfaceID, runtime.GOARCH, vmnetMode, layout.CIDR(), apply)
+						if err == nil && warn {
+							for _, warning := range report.Warnings {
+								warningf(stderr, "%s", warning)
+							}
+						}
+						return darwinInstallOutcome(report, next), report.Action != "none" && !report.Applied, err
+					})
+				}
+				return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+					report, err := executor.Uninstall(ctx, apply)
+					if err == nil && warn && report.Recovered {
+						warningf(stderr, "network.json was unavailable; ownership was confirmed from the installed interface, launchd plist, and binary digests")
+					}
+					return networkRemovalOutcome(report, report.RemoveFiles, report.RemoveDirs, report.Applied, next), !report.Applied, err
+				})
+			}
+			executor := linuxnet.Executor{User: baseRunner, Root: rootRunner, InUse: deploymentInUse}
 			if command == "install" {
-				progressItem := startProgress(ctx, stderr, "Installing the Darwin fixed-IP network")
-				report, err := installDarwinNetwork(ctx, executor, options.Archive, options.InterfaceID, runtime.GOARCH, vmnetMode, layout.CIDR(), options.Apply)
-				progressItem.Stop(err)
-				if errors.Is(parent.Err(), context.Canceled) {
-					return commandOutcome{}, ErrCancelled
+				linuxConfig, configErr := linuxnet.ConfigForCIDR(layout.CIDR())
+				if configErr != nil {
+					return commandOutcome{}, false, newUsageError(configErr)
 				}
-				if err != nil {
-					if errors.Is(err, darwinnet.ErrVMNetSharingBusy) {
-						return commandOutcome{}, newConflictError(err)
+				return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+					report, err := executor.InstallConfig(ctx, linuxConfig, apply)
+					if err == nil && warn {
+						for _, warning := range report.Warnings {
+							warningf(stderr, "%s", warning)
+						}
 					}
-					return commandOutcome{}, newCommandError(exitRuntime, err)
-				}
-				for _, warning := range report.Warnings {
-					warningf(stderr, "%s", warning)
-				}
-				return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-					bestEffortf(stdout, "action: %s\napplied: %t\n", report.Action, report.Applied)
-					for _, path := range sortedMapKeys(report.Targets) {
-						bestEffortf(stdout, "%s %s\n", path, report.Targets[path])
-					}
-					if !report.Applied && report.Action != "none" {
-						bestEffortln(stdout, "rerun with --yes using the same --archive and --interface-id; Farrow will request sudo when needed")
-						return nil
-					}
-					return nil
-				}}, nil
+					return linuxInstallOutcome(report, layout.CIDR(), next), !report.Applied, err
+				})
 			}
-			progressItem := startProgress(ctx, stderr, "Removing the Darwin fixed-IP network")
-			report, err := executor.Uninstall(ctx, options.Apply)
-			progressItem.Stop(err)
-			if errors.Is(parent.Err(), context.Canceled) {
-				return commandOutcome{}, ErrCancelled
-			}
-			if err != nil {
-				return commandOutcome{}, newCommandError(exitRuntime, err)
-			}
-			if report.Recovered {
-				warningf(stderr, "network.json was unavailable; ownership was confirmed from the installed interface, launchd plist, and binary digests")
-			}
-			return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-				for _, path := range report.RemoveFiles {
-					bestEffortf(stdout, "remove file %s\n", path)
-				}
-				for _, path := range report.RemoveDirs {
-					bestEffortf(stdout, "rmdir %s\n", path)
-				}
-				bestEffortf(stdout, "applied: %t\n", report.Applied)
-				return nil
-			}}, nil
+			return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+				report, err := executor.Uninstall(ctx, apply)
+				return networkRemovalOutcome(report, report.Plan.RemoveFiles, report.Plan.RemoveDirectories, report.Applied, next), !report.Applied, err
+			})
 		}
-		executor := linuxnet.Executor{User: baseRunner, Root: rootRunner, InUse: deploymentInUse}
-		if command == "install" {
-			linuxConfig, configErr := linuxnet.ConfigForCIDR(layout.CIDR())
-			if configErr != nil {
-				return commandOutcome{}, newUsageError(configErr)
-			}
-			progressItem := startProgress(ctx, stderr, "Installing the Linux fixed-IP network")
-			report, err := executor.InstallConfig(ctx, linuxConfig, options.Apply)
-			progressItem.Stop(err)
-			if errors.Is(parent.Err(), context.Canceled) {
-				return commandOutcome{}, ErrCancelled
-			}
-			if err != nil {
-				return commandOutcome{}, newCommandError(exitRuntime, err)
-			}
-			for _, warning := range report.Warnings {
-				warningf(stderr, "%s", warning)
-			}
-			return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-				for _, directory := range report.Plan.Directories {
-					bestEffortf(stdout, "directory %s %s %s\n", directory.Path, directory.Owner, directory.Mode)
-				}
-				for _, file := range report.Plan.Files {
-					bestEffortf(stdout, "file %s %s %s\n", file.Path, file.Owner, file.Mode)
-				}
-				for _, phase := range report.Plan.Phases {
-					bestEffortf(stdout, "phase %s\n", phase.Name)
-					for _, action := range phase.Commands {
-						bestEffortf(stdout, "  %s\n", execx.Display(action.Binary, action.Args...))
-					}
-				}
-				bestEffortf(stdout, "applied: %t\n", report.Applied)
-				if !report.Applied {
-					bestEffortln(stdout, "rerun with --yes after reviewing this exact plan; Farrow will request sudo when needed")
-					return nil
-				}
-				return nil
-			}}, nil
+		outcome, pending, err := run(options.Apply)
+		if err != nil || !confirm || !pending {
+			return outcome, err
 		}
-		progressItem := startProgress(ctx, stderr, "Removing the Linux fixed-IP network")
-		report, err := executor.Uninstall(ctx, options.Apply)
-		progressItem.Stop(err)
-		if errors.Is(parent.Err(), context.Canceled) {
-			return commandOutcome{}, ErrCancelled
+		if err := outcome.text(stderr, stderr); err != nil {
+			return commandOutcome{}, newRuntimeError(err)
 		}
-		if err != nil {
-			return commandOutcome{}, newCommandError(exitRuntime, err)
+		question, defaultYes := "Install the Farrow network? [Y/n] ", true
+		if command == "uninstall" {
+			question, defaultYes = "Remove the Farrow network? [y/N] ", false
 		}
-		return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-			for _, path := range report.Plan.RemoveFiles {
-				bestEffortf(stdout, "remove file %s\n", path)
-			}
-			for _, directory := range report.Plan.RemoveDirectories {
-				bestEffortf(stdout, "rmdir %s\n", directory)
-			}
-			bestEffortf(stdout, "applied: %t\n", report.Applied)
-			if !report.Applied {
-				bestEffortln(stdout, "rerun with --yes after reviewing this exact plan; Farrow will request sudo when needed")
-				return nil
-			}
-			return nil
-		}}, nil
+		if err := confirmPlan(question, defaultYes, os.Stdin, stderr); err != nil {
+			return commandOutcome{}, err
+		}
+		outcome, _, err = run(true)
+		return outcome, err
 	}
 	if command != "status" {
 		return commandOutcome{}, newUsageError(fmt.Errorf("unknown network action %q", command))
@@ -482,7 +445,11 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			bestEffortf(stdout, "[%s] %s\n", finding.Severity, line)
 		}
 		for _, check := range checks {
-			bestEffortf(stdout, "[%s] %s: %s\n", check.Status, check.Name, check.Evidence)
+			line := check.Evidence
+			if check.Status == doctor.Error && check.Fix != "" {
+				line += "; fix: " + check.Fix
+			}
+			bestEffortf(stdout, "[%s] %s\n", check.Status, line)
 		}
 		return nil
 	}
@@ -1833,24 +1800,49 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 		}
 	}
 	baseRunner := execx.OSRunner{Timeout: 30 * time.Second, OutputLimit: 1 << 20}
-	rootRunner := setupRootRunner(baseRunner)
-	if apply {
-		privilege := &sudoSession{base: baseRunner, stderr: stderr, scope: "hosts command"}
-		defer privilege.close()
-		if _, _, err := ensureSetupHostsHelper(ctx, baseRunner, privilege, stderr); err != nil {
-			return commandOutcome{}, newCommandError(exitRuntime, err)
+	executor := hostconfig.Executor{Root: setupRootRunner(baseRunner)}
+	debugf(stderr, "hosts action=%s entries=%d apply=%t", action, len(entries), apply)
+	// Reading /etc/hosts needs no privilege: plan first, and on a terminal
+	// without --yes show the plan and ask once.
+	confirm := !apply && interactiveTextSession(stderr) && !structuredOutput(stderr)
+	next := ""
+	if !confirm {
+		next = "farrow hosts " + action + " --yes"
+	}
+	report, err := executor.Execute(ctx, action, entries, false)
+	if err != nil {
+		return commandOutcome{}, newCommandError(exitRuntime, err)
+	}
+	if !report.Plan.Changed || !apply && !confirm {
+		return hostsOutcome(report, next), nil
+	}
+	if confirm {
+		if err := hostsOutcome(report, "").text(stderr, stderr); err != nil {
+			return commandOutcome{}, newRuntimeError(err)
 		}
-		if err := privilege.ensure(ctx, "apply the reviewed /etc/hosts plan"); err != nil {
-			return commandOutcome{}, newCommandError(exitCapability, err)
+		question, defaultYes := "Apply this /etc/hosts change? [Y/n] ", true
+		if action == hostconfig.ActionUninstall {
+			question, defaultYes = "Remove the Farrow block from /etc/hosts? [y/N] ", false
+		}
+		if err := confirmPlan(question, defaultYes, os.Stdin, stderr); err != nil {
+			return commandOutcome{}, err
 		}
 	}
-	debugf(stderr, "hosts action=%s entries=%d apply=%t", action, len(entries), apply)
+	privilege := &sudoSession{base: baseRunner, stderr: stderr, scope: "hosts command"}
+	defer privilege.close()
+	if _, _, err := ensureSetupHostsHelper(ctx, baseRunner, privilege, stderr); err != nil {
+		return commandOutcome{}, newCommandError(exitRuntime, err)
+	}
+	if err := privilege.ensure(ctx, "apply the reviewed /etc/hosts plan"); err != nil {
+		return commandOutcome{}, newCommandError(exitCapability, err)
+	}
 	progressMessage := "Installing deployment host entries"
 	if action == hostconfig.ActionUninstall {
 		progressMessage = "Removing deployment host entries"
 	}
 	progressItem := startProgress(ctx, stderr, progressMessage)
-	report, err := (hostconfig.Executor{Root: rootRunner}).Execute(ctx, action, entries, apply)
+	executor.Reviewed = &report.Plan
+	report, err = executor.Execute(ctx, action, entries, true)
 	progressItem.Stop(err)
 	if errors.Is(parent.Err(), context.Canceled) {
 		return commandOutcome{}, ErrCancelled
@@ -1858,24 +1850,7 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 	if err != nil {
 		return commandOutcome{}, newCommandError(exitRuntime, err)
 	}
-	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-		textField(stdout, 16, "action", statusValue(stdout, report.Plan.Action))
-		textField(stdout, 16, "target", report.Plan.Target)
-		textField(stdout, 16, "changed", report.Plan.Changed)
-		textField(stdout, 16, "applied", report.Applied)
-		textField(stdout, 16, "before sha256", report.Plan.BeforeSHA256)
-		textField(stdout, 16, "after sha256", report.Plan.AfterSHA256)
-		textField(stdout, 16, "helper", report.Plan.HelperPath)
-		textField(stdout, 16, "helper sha256", report.Plan.HelperSHA256)
-		for _, line := range report.Plan.Lines {
-			bestEffortln(stdout, line)
-		}
-		if report.Plan.Changed && !report.Applied {
-			bestEffortln(stdout, "rerun with --yes to apply this plan; Farrow will request sudo when needed")
-			return nil
-		}
-		return nil
-	}}, nil
+	return hostsOutcome(report, ""), nil
 }
 
 type logResult struct {
@@ -2471,7 +2446,7 @@ func runDoctor(parent context.Context, stderr io.Writer) (commandOutcome, error)
 			bestEffortf(stdout, "host compute capability is ready\n")
 		}
 		if !report.NetworkReady() {
-			bestEffortf(stdout, "the host-global network is not ready; run `farrow setup` to prepare it\n")
+			bestEffortf(stdout, "the Farrow network is not ready; run farrow setup to prepare it\n")
 		}
 		return nil
 	}

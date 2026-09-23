@@ -153,7 +153,7 @@ before applying it.`,
 		command := &cobra.Command{
 			Use:     action,
 			Short:   short,
-			Long:    short + " through the digest-matched helper.\nWithout --yes, print the exact privileged plan and change nothing.",
+			Long:    short + " through the digest-matched helper.\nOn a terminal, show the exact change and ask before applying it; --yes applies\nwithout asking, and without a terminal the command only prints the plan.",
 			Example: example,
 			Args:    cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {

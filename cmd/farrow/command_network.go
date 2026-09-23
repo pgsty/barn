@@ -12,10 +12,11 @@ import (
 func newNetworkCommand(stdout, stderr io.Writer) *cobra.Command {
 	parent := subcommandGroup(
 		"network",
-		"Inspect and manage the host-global fixed-IP network",
-		`Inspect, install, or remove the one host-global fixed-IP network used by the
-Farrow deployment. Mutating commands print their privileged plan and require
---yes before applying it.`,
+		"Inspect and manage the Farrow network",
+		`Inspect, install, or remove the one host-wide Farrow network that gives
+nodes their fixed IPs. On a terminal, install and uninstall show their
+privileged plan and ask before applying it; --yes applies without asking, and
+without a terminal they only print the plan.`,
 		`  farrow network status
   farrow network install
   farrow network install --yes
@@ -43,7 +44,7 @@ read-only preflight findings used before lifecycle mutation.`,
 			return collectCommandOutcome(command.Context(), outcome)
 		},
 	}
-	status.Flags().StringVarP(&statusOptions.CIDR, "cidr", "c", "", "expected host-global RFC1918 IPv4 /24")
+	status.Flags().StringVarP(&statusOptions.CIDR, "cidr", "c", "", "expected network: an RFC1918 IPv4 /24")
 	noFileCompletions(status, "cidr")
 	parent.AddCommand(status)
 
@@ -51,11 +52,12 @@ read-only preflight findings used before lifecycle mutation.`,
 	install := &cobra.Command{
 		Use:     "install",
 		Aliases: []string{"i"},
-		Short:   "Install the host-global fixed-IP network",
-		Long: `Plan or install the platform-native fixed-IP backend. On macOS this is
-socket_vmnet in host or shared mode; on Linux it is the selected bridge or
-network-manager backend. Without --yes the command is a read-only plan.`,
-		Example: `  farrow network install                    # print the privileged plan
+		Short:   "Install or check the Farrow network",
+		Long: `Plan or install the platform-native network backend. On macOS this is
+socket_vmnet in host or shared mode; on Linux it is the farrow0 bridge through
+the active network manager. A fresh macOS host installs it with farrow setup,
+which also fetches socket_vmnet.`,
+		Example: `  farrow network install                    # review the plan, then confirm
   farrow network install --yes              # apply the default 10.10.10.0/24 plan
   farrow network install --mode shared --yes # macOS shared vmnet mode`,
 		Args: cobra.NoArgs,
@@ -79,7 +81,7 @@ network-manager backend. Without --yes the command is a read-only plan.`,
 			return collectCommandOutcome(command.Context(), outcome)
 		},
 	}
-	install.Flags().StringVarP(&installOptions.CIDR, "cidr", "c", installOptions.CIDR, "host-global RFC1918 IPv4 /24")
+	install.Flags().StringVarP(&installOptions.CIDR, "cidr", "c", installOptions.CIDR, "network: an RFC1918 IPv4 /24")
 	install.Flags().StringVarP(&installOptions.Mode, "mode", "m", installOptions.Mode, "macOS vmnet mode: host or shared")
 	install.Flags().StringVarP(&installOptions.Archive, "archive", "a", "", "macOS: pinned socket_vmnet archive")
 	install.Flags().StringVarP(&installOptions.InterfaceID, "interface-id", "i", "", "macOS: persistent vmnet UUID")
@@ -94,10 +96,10 @@ network-manager backend. Without --yes the command is a read-only plan.`,
 		Aliases: []string{"u"},
 		Short:   "Remove Farrow-owned host networking",
 		Long: `Plan or remove only Farrow-owned network state and restore recorded host
-settings. The operation refuses while any deployment node is live and changes
-nothing without --yes.`,
-		Example: `  farrow network uninstall       # inspect the removal plan
-  farrow network uninstall --yes # apply after the deployment is stopped`,
+settings. It stops while any node is running. On a terminal it asks before
+removing; --yes removes without asking.`,
+		Example: `  farrow network uninstall       # review the removal plan, then confirm
+  farrow network uninstall --yes # remove after the deployment is stopped`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			outcome, err := runNetwork(command.Context(), uninstallOptions, stderr)

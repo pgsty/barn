@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
 	"github.com/pgsty/farrow/internal/webclient"
@@ -168,7 +169,7 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 			return result, errors.New("FARROW_VMNET_ARCHIVE must be an absolute path")
 		}
 		if err := verify(sources.Archive, arch); err != nil {
-			return result, fmt.Errorf("FARROW_VMNET_ARCHIVE %s does not match the pinned socket_vmnet v%s archive: %w", sources.Archive, release.Version, err)
+			return result, failure.New(failure.Integrity, fmt.Errorf("FARROW_VMNET_ARCHIVE %s does not match the pinned socket_vmnet v%s archive: %w", sources.Archive, release.Version, err))
 		}
 		if err := publishVerifiedCopy(sources.Archive, cacheDirectory, target, arch, verify); err != nil {
 			return result, err
@@ -184,7 +185,7 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 			candidate := filepath.Join(sources.Repo, "socket_vmnet", release.ArchiveName)
 			if _, statErr := os.Lstat(candidate); statErr == nil {
 				if err := verify(candidate, arch); err != nil {
-					return result, fmt.Errorf("repository copy %s does not match the pinned socket_vmnet v%s archive: %w", candidate, release.Version, err)
+					return result, failure.New(failure.Integrity, fmt.Errorf("repository copy %s does not match the pinned socket_vmnet v%s archive: %w", candidate, release.Version, err))
 				}
 				if err := publishVerifiedCopy(candidate, cacheDirectory, target, arch, verify); err != nil {
 					return result, err
@@ -210,7 +211,8 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 	// 3. The embedded upstream URL.
 	fetched, err := fetchBoundedArchive(ctx, client, release.URL, release, cacheDirectory, target, arch, sources.Progress, verify)
 	if err != nil {
-		return result, fmt.Errorf("%w\nany mirror works — the SHA-256 is pinned in the binary: place %s under <your-repo>/socket_vmnet/ and set FARROW_REPO, or download it once by hand and set FARROW_VMNET_ARCHIVE=/absolute/path/to/%s", err, release.ArchiveName, release.ArchiveName)
+		// Any mirror works: the SHA-256 is pinned in the binary.
+		return result, failure.WithNext(err, fmt.Sprintf("put %s under <repo>/socket_vmnet/ and pass --repo, or download it by hand and set FARROW_VMNET_ARCHIVE=/absolute/path/to/%s", release.ArchiveName, release.ArchiveName))
 	}
 	return fetched, nil
 }
@@ -395,7 +397,7 @@ func fetchBoundedArchiveAttempt(ctx context.Context, client HTTPDoer, fetchURL s
 		return result, err
 	}
 	if err := verify(temporaryPath, arch); err != nil {
-		return result, &archiveVerificationError{fmt.Errorf("downloaded copy from %s does not match the pinned socket_vmnet v%s archive: %w", parsed.Host, release.Version, err)}
+		return result, failure.New(failure.Integrity, &archiveVerificationError{fmt.Errorf("downloaded copy from %s does not match the pinned socket_vmnet v%s archive: %w", parsed.Host, release.Version, err)})
 	}
 	if err := os.Rename(temporaryPath, target); err != nil {
 		return result, err

@@ -45,7 +45,7 @@ type UninstallReport struct {
 
 // ErrInstallRolledBack means installation failed after mutation began, but
 // the executor verified that its owned host changes were removed/restored.
-var ErrInstallRolledBack = errors.New("linux network installation failed and was rolled back")
+var ErrInstallRolledBack = errors.New("installing the Farrow network failed and was rolled back")
 
 func (e Executor) validate() error {
 	if e.User == nil || e.Root == nil {
@@ -147,7 +147,7 @@ func waitQMPIdentity(ctx context.Context, client *qmp.Client, socket, name, uuid
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	return errors.New("helper attach smoke QMP identity timeout")
+	return errors.New("the test VM did not answer on QMP")
 }
 
 func readSmokePID(path string) (int, error) {
@@ -157,7 +157,7 @@ func readSmokePID(path string) (int, error) {
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || pid <= 0 {
-		return 0, errors.New("helper attach smoke pidfile is invalid")
+		return 0, errors.New("the test VM wrote an invalid pidfile")
 	}
 	return pid, nil
 }
@@ -165,7 +165,7 @@ func readSmokePID(path string) (int, error) {
 func (e Executor) helperAttachSmoke(ctx context.Context, helper string) (returnErr error) {
 	profile, err := platform.Native()
 	if err != nil || profile.OS != "linux" {
-		return errors.New("helper attach smoke requires native Linux")
+		return errors.New("the bridge attach test requires native Linux")
 	}
 	qemuPath, err := platform.FindQEMUBinary(profile, e.lookPath)
 	if err != nil {
@@ -211,7 +211,7 @@ func (e Executor) helperAttachSmoke(ctx context.Context, helper string) (returnE
 				time.Sleep(100 * time.Millisecond)
 			}
 			if process.Alive(pid) && returnErr == nil {
-				returnErr = errors.New("helper attach smoke cleanup could not verify QEMU exit")
+				returnErr = errors.New("could not confirm that the test VM exited")
 				return
 			}
 		}
@@ -236,11 +236,11 @@ func (e Executor) helperAttachSmoke(ctx context.Context, helper string) (returnE
 	}
 	identityValue, err := process.Capture(ctx, e.User, invocation, pid)
 	if err != nil || !process.MatchesLive(ctx, e.User, identityValue, invocation) {
-		return errors.New("helper attach smoke process identity mismatch")
+		return errors.New("could not verify the test VM process")
 	}
 	members, err := e.User.Run(ctx, "/usr/sbin/ip", "-o", "link", "show", "master", BridgeName)
 	if err != nil || !strings.Contains(string(members.Stdout), "tap") {
-		return errors.New("helper attach smoke created no farrow0 tap member")
+		return errors.New("qemu-bridge-helper attached no tap device to farrow0")
 	}
 	if err := client.Quit(ctx, qmpPath); err != nil {
 		return err
@@ -250,7 +250,7 @@ func (e Executor) helperAttachSmoke(ctx context.Context, helper string) (returnE
 		time.Sleep(100 * time.Millisecond)
 	}
 	if process.Alive(pid) {
-		return errors.New("helper attach smoke QEMU did not exit after QMP quit")
+		return errors.New("the test VM did not exit after QMP quit")
 	}
 	pid = 0
 	return nil
@@ -317,7 +317,7 @@ func (e Executor) InstallConfig(ctx context.Context, config Config, apply bool) 
 		return e.rollbackInstall(report, err)
 	}
 	if err := e.helperAttachSmoke(ctx, plan.Manifest.HelperPath); err != nil {
-		return e.rollbackInstall(report, err)
+		return e.rollbackInstall(report, fmt.Errorf("test that a non-root VM can attach to farrow0: %w", err))
 	}
 	if err := e.runInstallPhases(ctx, plan.Phases, true, config); err != nil {
 		return e.rollbackInstall(report, err)
@@ -326,7 +326,7 @@ func (e Executor) InstallConfig(ctx context.Context, config Config, apply bool) 
 	// this also exercises repeated reload/reconfigure without recapturing state.
 	report.Applied = true
 	report.Checks["bridge"] = "farrow0 " + config.HostAddress + "/24"
-	report.Checks["helper-attach"] = "non-root QEMU QMP smoke passed"
+	report.Checks["helper-attach"] = "a non-root test VM attached to farrow0"
 	return report, nil
 }
 
@@ -338,9 +338,9 @@ func (e Executor) rollbackInstall(report InstallReport, installErr error) (Insta
 		if rollbackErr == nil {
 			rollbackErr = errors.New("rollback did not report an applied uninstall")
 		}
-		return report, fmt.Errorf("%w; automatic rollback failed: %v", installErr, rollbackErr)
+		return report, fmt.Errorf("%w; automatic rollback also failed: %v", installErr, rollbackErr)
 	}
-	return report, fmt.Errorf("%w: %v", ErrInstallRolledBack, installErr)
+	return report, fmt.Errorf("%w: %w", ErrInstallRolledBack, installErr)
 }
 
 func (e Executor) currentUninstallFacts(ctx context.Context, manifest Manifest) (UninstallFacts, error) {
@@ -379,7 +379,7 @@ func (e Executor) PlanUninstall(ctx context.Context) (UninstallPlan, Manifest, e
 		return UninstallPlan{}, Manifest{}, err
 	}
 	if facts.ExistingManifest == nil {
-		return UninstallPlan{}, Manifest{}, errors.New("linux private network is not installed")
+		return UninstallPlan{}, Manifest{}, errors.New("the Farrow network is not installed")
 	}
 	manifest := *facts.ExistingManifest
 	uninstallFacts, err := e.currentUninstallFacts(ctx, manifest)
@@ -425,7 +425,7 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 	}
 	if e.InUse != nil {
 		if err := e.InUse(ctx); err != nil {
-			return report, fmt.Errorf("refuse linux network uninstall: %w", err)
+			return report, fmt.Errorf("will not remove the Farrow network: %w", err)
 		}
 	}
 	// Re-run all ownership/member/hash checks immediately before mutation.

@@ -83,7 +83,7 @@ func TestNetworkManagerBackendFirewalldZoneAndExistingConnection(t *testing.T) {
 	// An unowned existing connection is never adopted.
 	foreign := nmFacts()
 	foreign.NMConnectionExists = true
-	if _, err := NewInstallPlan(foreign, testConfig()); err == nil || !strings.Contains(err.Error(), "unowned farrow0 NetworkManager connection") {
+	if _, err := NewInstallPlan(foreign, testConfig()); err == nil || !strings.Contains(err.Error(), "NetworkManager connection that Farrow did not create") {
 		t.Fatalf("foreign connection adoption error = %v", err)
 	}
 }

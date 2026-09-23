@@ -39,11 +39,11 @@ func unixMode(info os.FileInfo) uint32 {
 func helperCheck(pathname string, family linuxnet.Family) Check {
 	info, err := os.Lstat(pathname)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return Check{Name: "bridge-helper", Status: Error, Evidence: "qemu-bridge-helper is missing or unsafe", Fix: "install the distribution QEMU bridge helper; do not substitute an arbitrary executable"}
+		return Check{Name: "bridge-helper", Status: Error, Evidence: pathname + " is missing or not a regular file", Fix: "reinstall the distribution QEMU packages; Farrow uses only the distribution's qemu-bridge-helper"}
 	}
 	statistics, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || statistics.Uid != 0 {
-		return Check{Name: "bridge-helper", Status: Error, Evidence: pathname + " is not root-owned", Fix: "restore the distribution package helper ownership"}
+		return Check{Name: "bridge-helper", Status: Error, Evidence: pathname + " is not root-owned", Fix: "reinstall the distribution QEMU packages to restore its ownership"}
 	}
 	mode := unixMode(info)
 	groupName := strconv.FormatUint(uint64(statistics.Gid), 10)
@@ -62,14 +62,14 @@ func helperCheck(pathname string, family linuxnet.Family) Check {
 		if group, lookupErr := user.LookupGroupId(primaryGroup); lookupErr == nil {
 			primaryGroup = group.Name
 		}
-		return Check{Name: "bridge-helper", Status: Warn, Evidence: fmt.Sprintf("%s root:%s mode=%04o requires reversible dpkg-statoverride", pathname, groupName, mode), Fix: fmt.Sprintf("network install must prove no non-Farrow override before applying root:%s 4750", primaryGroup)}
+		return Check{Name: "bridge-helper", Status: Warn, Evidence: fmt.Sprintf("%s root:%s mode=%04o is not yet usable by this user", pathname, groupName, mode), Fix: fmt.Sprintf("run farrow setup; it sets root:%s mode 4750 with dpkg-statoverride and uninstall restores it", primaryGroup)}
 	case linuxnet.RPM:
 		if mode == 0o4755 {
 			return Check{Name: "bridge-helper", Status: Warn, Evidence: fmt.Sprintf("%s root:%s mode=4755 permits every local user to request an allowed bridge attach", pathname, groupName)}
 		}
-		return Check{Name: "bridge-helper", Status: Error, Evidence: fmt.Sprintf("unsupported RPM helper mode %04o", mode), Fix: "restore the distribution helper; Farrow does not mutate RPM helper permissions"}
+		return Check{Name: "bridge-helper", Status: Error, Evidence: fmt.Sprintf("%s has mode %04o; RPM-family hosts need the packaged mode 4755", pathname, mode), Fix: "reinstall the distribution QEMU packages; Farrow does not change helper permissions on RPM-family hosts"}
 	default:
-		return Check{Name: "bridge-helper", Status: Error, Evidence: "unsupported Linux distribution family for private helper policy"}
+		return Check{Name: "bridge-helper", Status: Error, Evidence: "this Linux distribution is outside the Debian/Ubuntu and RHEL/Fedora families", Fix: "use a Debian/Ubuntu or RHEL/Fedora-family host"}
 	}
 }
 
@@ -86,19 +86,19 @@ func (p Probe) linuxPrivateChecks(ctx context.Context) []Check {
 	checks := make([]Check, 0, 5)
 	osRelease, err := os.ReadFile("/etc/os-release")
 	if err != nil || len(osRelease) > 64<<10 {
-		checks = append(checks, Check{Name: "linux-family", Status: Error, Evidence: "cannot read bounded /etc/os-release"})
+		checks = append(checks, Check{Name: "linux-family", Status: Error, Evidence: "cannot read /etc/os-release", Fix: "make /etc/os-release a readable file under 64 KiB"})
 		return checks
 	}
 	family := parseLinuxFamily(string(osRelease))
 	if family == "" {
-		checks = append(checks, Check{Name: "linux-family", Status: Error, Evidence: "distribution is outside Debian/RPM v1 support boundary"})
+		checks = append(checks, Check{Name: "linux-family", Status: Error, Evidence: "this Linux distribution is outside the Debian/Ubuntu and RHEL/Fedora families", Fix: "use a Debian/Ubuntu or RHEL/Fedora-family host"})
 	} else {
 		checks = append(checks, Check{Name: "linux-family", Status: OK, Evidence: string(family)})
 	}
 
 	systemctl, systemctlErr := p.lookPath("systemctl")
 	if systemctlErr != nil {
-		checks = append(checks, Check{Name: "linux-network-owner", Status: Error, Evidence: "systemctl not found", Fix: "Linux private networking requires systemd"})
+		checks = append(checks, Check{Name: "linux-network-owner", Status: Error, Evidence: "systemctl not found; the Farrow network on Linux needs systemd", Fix: "use a systemd-based host"})
 	} else {
 		serviceActive := func(name string) bool {
 			result, runErr := p.runner().Run(ctx, systemctl, "is-active", name)
@@ -122,7 +122,7 @@ func (p Probe) linuxPrivateChecks(ctx context.Context) []Check {
 		}
 	}
 	if helperPath == "" {
-		checks = append(checks, Check{Name: "bridge-helper", Status: Error, Evidence: "no supported qemu-bridge-helper path found"})
+		checks = append(checks, Check{Name: "bridge-helper", Status: Error, Evidence: "qemu-bridge-helper was not found in /usr/lib/qemu or /usr/libexec", Fix: "run farrow setup, or reinstall the distribution QEMU packages"})
 	} else {
 		checks = append(checks, helperCheck(helperPath, family))
 	}
@@ -137,16 +137,16 @@ func (p Probe) linuxPrivateChecks(ctx context.Context) []Check {
 		stateProtected = true
 	}
 	if ipErr != nil {
-		checks = append(checks, Check{Name: "private-bridge", Status: Error, Evidence: "ip command not found"})
+		checks = append(checks, Check{Name: "private-bridge", Status: Error, Evidence: "the ip command was not found", Fix: "install iproute2"})
 	} else {
 		bridgeResult, bridgeErr := p.runner().Run(ctx, ipBinary, "-json", "link", "show", "dev", linuxnet.BridgeName)
 		bridgeExists := bridgeErr == nil && len(strings.TrimSpace(string(bridgeResult.Stdout))) > 2
 		if bridgeExists && !stateExists {
-			checks = append(checks, Check{Name: "private-bridge", Status: Error, Evidence: "farrow0 exists without the root-owned Farrow manifest", Fix: "do not adopt or overwrite the existing bridge"})
+			checks = append(checks, Check{Name: "private-bridge", Status: Error, Evidence: "a farrow0 bridge exists that Farrow did not create", Fix: "Farrow will not take it over; if nothing uses it, remove it (sudo ip link delete farrow0), then run farrow setup"})
 		} else if bridgeExists && stateProtected {
-			checks = append(checks, Check{Name: "private-bridge", Status: Warn, Evidence: "farrow0 exists and its mode-0700 ownership state is intentionally not inspectable by this user", Fix: "run the same read-only status command as root to verify network.json metadata"})
+			checks = append(checks, Check{Name: "private-bridge", Status: Warn, Evidence: "farrow0 exists; its root-only ownership record is verified by farrow setup and farrow network commands"})
 		} else if bridgeExists {
-			checks = append(checks, Check{Name: "private-bridge", Status: OK, Evidence: "farrow0 and ownership manifest exist; install/status must verify exact metadata"})
+			checks = append(checks, Check{Name: "private-bridge", Status: OK, Evidence: "farrow0 and its ownership record exist"})
 		} else {
 			checks = append(checks, Check{Name: "private-bridge", Status: OK, Evidence: "farrow0 is absent"})
 		}

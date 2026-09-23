@@ -158,7 +158,7 @@ func TestEmitPrivatePendingNetworkDoesNotClaimUserNAT(t *testing.T) {
 	var stderr bytes.Buffer
 	result := setupResult{
 		Schema: 1, OS: "darwin", Arch: "arm64", Profile: "full",
-		DryRun: true, NetworkCIDR: "10.10.10.0/24", NetworkMode: "host", Next: "farrow up",
+		NetworkCIDR: "10.10.10.0/24", NetworkMode: "host", Next: "farrow up",
 	}
 	outcome := setupOutcome(result)
 	if code := renderCommandOutcome(&outcome, &stdout, &stderr); code != exitOK {
@@ -166,6 +166,18 @@ func TestEmitPrivatePendingNetworkDoesNotClaimUserNAT(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "user NAT") || !strings.Contains(stdout.String(), "pending dependencies") {
 		t.Fatalf("output=%q", stdout.String())
+	}
+}
+
+func TestSetupDryRunPrintsThePlanOnce(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	outcome := setupOutcome(setupResult{Schema: 1, OS: "darwin", Arch: "arm64", DryRun: true, NetworkCIDR: "10.10.10.0/24", Next: "farrow up"})
+	if code := renderCommandOutcome(&outcome, &stdout, &stderr); code != exitOK {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if got := stdout.String(); strings.Contains(got, "10.10.10.0/24") || !strings.Contains(got, "farrow up") {
+		t.Fatalf("dry-run stdout repeats the plan or lacks next: %q", got)
 	}
 }
 
@@ -183,10 +195,10 @@ func TestSetupWithoutTerminalNeedsYesAsAUsageError(t *testing.T) {
 	}
 }
 
-func TestSetupConfirmationTreatsEndOfInputAsCancellation(t *testing.T) {
+func TestConfirmationTreatsEndOfInputAsCancellation(t *testing.T) {
 	t.Parallel()
 	for input, accepted := range map[string]bool{"\n": true, "y\n": true, "YES\n": true, "n\n": false, "no\n": false, "": false, "y": false} {
-		err := readSetupConfirmation(strings.NewReader(input))
+		err := confirmPlan("? ", true, strings.NewReader(input), io.Discard)
 		if accepted && err != nil {
 			t.Errorf("input %q rejected: %v", input, err)
 		}
@@ -197,8 +209,11 @@ func TestSetupConfirmationTreatsEndOfInputAsCancellation(t *testing.T) {
 			t.Errorf("input %q error = %v, want ErrCancelled", input, err)
 		}
 	}
-	if err := readSetupConfirmation(strings.NewReader("")); !strings.Contains(err.Error(), "no setup confirmation was entered") {
+	if err := confirmPlan("? ", true, strings.NewReader(""), io.Discard); !strings.Contains(err.Error(), "no answer was entered") {
 		t.Fatalf("EOF err = %v, want a specific cancellation reason", err)
+	}
+	if err := confirmPlan("? ", false, strings.NewReader("\n"), io.Discard); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("[y/N] default accepted: %v", err)
 	}
 }
 

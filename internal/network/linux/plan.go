@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/network/subnet"
 )
 
@@ -231,7 +232,7 @@ func validateConfig(config Config) error {
 		return err
 	}
 	if config.HostAddress != layout.HostAddress() || config.DHCPEnd != layout.DHCPEnd() {
-		return fmt.Errorf("linux private network %s requires host %s and DHCP end %s", layout.CIDR(), layout.HostAddress(), layout.DHCPEnd())
+		return fmt.Errorf("the Farrow network %s requires host %s and DHCP end %s", layout.CIDR(), layout.HostAddress(), layout.DHCPEnd())
 	}
 	return nil
 }
@@ -257,7 +258,7 @@ func validateNetworkdUnits(units map[string]UnitState) error {
 
 func validateNetworkdActivationSafety(safety *NetworkdActivationSafety) error {
 	if safety == nil || !safety.Checked {
-		return errors.New("refuse to start inactive systemd-networkd without a pre-mutation activation safety proof")
+		return errors.New("will not start the inactive systemd-networkd: Farrow cannot prove that starting it leaves existing links untouched")
 	}
 	if len(safety.Links) == 0 {
 		return errors.New("networkd activation safety proof contains no link inventory")
@@ -284,7 +285,7 @@ func validateNetworkdActivationSafety(safety *NetworkdActivationSafety) error {
 			return errors.New("networkd activation safety proof contains an invalid configuration identity")
 		}
 		if configuration.Kind == "netdev" {
-			return fmt.Errorf("refuse to start inactive systemd-networkd: %s may create or change a virtual link", configuration.Path)
+			return fmt.Errorf("will not start the inactive systemd-networkd: %s may create or change a virtual link", configuration.Path)
 		}
 		for _, patterns := range [][]string{configuration.MatchNames, configuration.MatchTypes} {
 			for _, pattern := range patterns {
@@ -295,7 +296,7 @@ func validateNetworkdActivationSafety(safety *NetworkdActivationSafety) error {
 		}
 		for _, link := range safety.Links {
 			if configurationCouldMatch(configuration, link) {
-				return fmt.Errorf("refuse to start inactive systemd-networkd: %s could affect link %s", configuration.Path, link.Name)
+				return fmt.Errorf("will not start the inactive systemd-networkd: %s could affect link %s", configuration.Path, link.Name)
 			}
 		}
 	}
@@ -305,9 +306,9 @@ func validateNetworkdActivationSafety(safety *NetworkdActivationSafety) error {
 			return errors.New("networkd activation safety proof contains an incomplete conflict")
 		}
 		if conflict.Link != "" {
-			return fmt.Errorf("refuse to start inactive systemd-networkd: %s could affect link %s: %s", conflict.Path, conflict.Link, conflict.Reason)
+			return fmt.Errorf("will not start the inactive systemd-networkd: %s could affect link %s: %s", conflict.Path, conflict.Link, conflict.Reason)
 		}
-		return fmt.Errorf("refuse to start inactive systemd-networkd: %s: %s", conflict.Path, conflict.Reason)
+		return fmt.Errorf("will not start the inactive systemd-networkd: %s: %s", conflict.Path, conflict.Reason)
 	}
 	return nil
 }
@@ -359,7 +360,7 @@ func ReconcileBridgeConf(existing string, install bool) (string, error) {
 	for _, line := range strings.Split(existing, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 && fields[0] == "allow" && fields[1] == BridgeName {
-			return "", errors.New("refuse adoption of unmarked allow farrow0 bridge rule")
+			return "", errors.New("will not take over an existing \"allow farrow0\" bridge rule that Farrow did not write")
 		}
 	}
 	result := existing
@@ -392,7 +393,7 @@ func validateHelper(facts Facts) (*Override, []Command, []string, error) {
 		desired := &Override{Owner: "root", Group: facts.AccessGroup, Mode: "4750"}
 		if helper.Override != nil {
 			if facts.ExistingManifest == nil || facts.ExistingManifest.AppliedOverride == nil || *helper.Override != *facts.ExistingManifest.AppliedOverride {
-				return nil, nil, nil, errors.New("refuse Debian helper mutation with a non-Farrow dpkg-statoverride")
+				return nil, nil, nil, errors.New("will not change qemu-bridge-helper permissions: a dpkg-statoverride that Farrow did not write already exists")
 			}
 			if helper.Override.Group != facts.AccessGroup {
 				return nil, nil, nil, fmt.Errorf("qemu-bridge-helper is scoped to group %s, but this user requires group %s; uninstall the Farrow network as its owner before switching users", helper.Override.Group, facts.AccessGroup)
@@ -489,10 +490,10 @@ func newNetworkManagerInstallPlan(facts Facts, config Config) (Plan, error) {
 		return Plan{}, err
 	}
 	if facts.BridgeExists && !facts.BridgeOwned {
-		return Plan{}, errors.New("refuse adoption of existing unowned farrow0 bridge")
+		return Plan{}, errors.New("will not take over an existing farrow0 bridge that Farrow did not create")
 	}
 	if facts.NMConnectionExists && facts.ExistingManifest == nil {
-		return Plan{}, errors.New("refuse adoption of an existing unowned farrow0 NetworkManager connection")
+		return Plan{}, errors.New("will not take over an existing farrow0 NetworkManager connection that Farrow did not create")
 	}
 	bridgeConf, err := ReconcileBridgeConf(facts.BridgeConf, true)
 	if err != nil {
@@ -588,7 +589,7 @@ func NewInstallPlan(facts Facts, config Config) (Plan, error) {
 		return Plan{}, err
 	}
 	if facts.BridgeExists && !facts.BridgeOwned {
-		return Plan{}, errors.New("refuse adoption of existing unowned farrow0 bridge")
+		return Plan{}, errors.New("will not take over an existing farrow0 bridge that Farrow did not create")
 	}
 	serviceState := facts.NetworkdUnits["systemd-networkd.service"]
 	if serviceState.ActiveState != "active" {
@@ -792,7 +793,7 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 		return UninstallPlan{}, err
 	}
 	if len(facts.BridgeMembers) > 0 {
-		return UninstallPlan{}, fmt.Errorf("refuse Linux network uninstall while farrow0 has members: %v", facts.BridgeMembers)
+		return UninstallPlan{}, failure.New(failure.Conflict, fmt.Errorf("will not remove the Farrow network while farrow0 still has members: %s", strings.Join(facts.BridgeMembers, ", "))).Then("stop the VMs that use it (farrow stop for Farrow nodes), then retry")
 	}
 	for pathname, expectedDigest := range manifest.Files {
 		content, ok := facts.CurrentFiles[pathname]

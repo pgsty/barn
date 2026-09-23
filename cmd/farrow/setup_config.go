@@ -59,8 +59,12 @@ func publishSetupConfig(selection setupSelection) error {
 		return fmt.Errorf("%s changed during setup; its content was preserved", selection.ConfigPath)
 	}
 	backup := selection.ConfigPath + ".before-network-change"
-	if err := fsutil.AtomicCreate(backup, current, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("preserve original inventory at %s: %w", backup, err)
+	// An earlier rebase of this same default template already kept it; any
+	// other existing backup is never overwritten.
+	if !sameRegularFile(backup, current) {
+		if err := fsutil.AtomicCreate(backup, current, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("preserve original inventory at %s: %w", backup, err)
+		}
 	}
 	current, err = os.ReadFile(selection.ConfigPath)
 	if err != nil {
@@ -70,4 +74,14 @@ func publishSetupConfig(selection setupSelection) error {
 		return fmt.Errorf("%s changed during setup; its content was preserved", selection.ConfigPath)
 	}
 	return fsutil.AtomicWrite(selection.ConfigPath, selection.ConfigData, info.Mode().Perm())
+}
+
+// sameRegularFile reports whether path is a regular file holding exactly data.
+func sameRegularFile(path string, data []byte) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
+		return false
+	}
+	current, err := os.ReadFile(path)
+	return err == nil && bytes.Equal(current, data)
 }
