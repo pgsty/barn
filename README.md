@@ -85,6 +85,9 @@ guest helpers in place. Running VMs keep their process and root disk; healthy
 setup stages are skipped. `--no-wait` skips these guest checks as well as waiting
 for readiness. No separate repair command is needed.
 
+Each node gets a 128 GiB `/data` disk unless `vm_disks` says otherwise;
+`vm_disks: []` gives a node none. `farrow plan` lists every node's data disks.
+
 Data disks are disposable test storage. Working filesystems are reused. If a
 configured data disk has no recognizable filesystem, or cannot mount and a
 filesystem check confirms damage, `up` resets it to an empty filesystem and
@@ -216,19 +219,33 @@ quoted spaces and empty values. Use `sh -c 'script'` for shell expressions.
 The single-string shorthand (`farrow exec meta -- 'uptime; id'`) and ordinary
 `farrow ssh` shell semantics remain available.
 
-### Exit codes
+### Exit codes and errors
 
-| Code | Meaning |
-|---|---|
-| 0 | success |
-| 1 | runtime failure |
-| 2 | usage error |
-| 3 | missing host capability |
-| 4 | state conflict (no deployment, wrong phase) |
-| 5 | partial completion across nodes |
-| 6 | resource conflict (address or port in use) |
-| 7 | integrity failure (digest, signature, or state mismatch) |
-| 130 | cancelled: interrupted by `SIGINT`/`SIGTERM`, or a confirmation was declined |
+| Code | `error` | Meaning |
+|---|---|---|
+| 0 | | success |
+| 1 | `runtime` | the operation ran and failed (a tool, download, or guest failed) |
+| 2 | `usage` | the command line or inventory is wrong |
+| 3 | `capability` | the host lacks a tool, the Farrow network, or a privilege |
+| 4 | `conflict` | the deployment's current state forbids it, or another farrow command holds it |
+| 5 | `partial` | some nodes succeeded and some failed |
+| 6 | `resource` | a host address, port, subnet, or disk is taken |
+| 7 | `integrity` | a verified digest, signature, identity, or ownership did not match |
+| 130 | `cancelled` | interrupted by `SIGINT`/`SIGTERM`, or a confirmation was declined |
+
+A failure prints `error: <message>` on stderr, the failing program's last
+stderr lines when an external tool failed, and a `next:` line when there is
+one clear thing to do. With `--json`, stdout carries the same failure:
+
+```json
+{"error": "conflict", "reason": "node_not_running", "message": "node meta is not running",
+ "next": "farrow start meta", "operation_id": "…"}
+```
+
+`reason` is a stable identifier for automation and is present only where it
+matters. `command` (`name`, `argv`, `exit_status`, `signal`, `timed_out`,
+`stderr`) describes an external program that failed. Lifecycle and setup
+failures keep their full result document, as before.
 
 `ssh`, `exec`, and a single-node `provision` pass the guest command's own exit
 status through unchanged, so their non-zero codes are the remote program's,
@@ -239,10 +256,13 @@ the table.
 
 Everything Farrow owns lives under `$FARROW_HOME` (default `~/.farrow`): the
 applied deployment, per-node state and journals, the verified image cache, and
-the signed catalog. Applied-state commands therefore work from any directory,
-and removing that one tree removes Farrow's footprint apart from the host
-network and the hosts-file entries, which have their own `uninstall` and
-`remove` commands.
+the signed catalog. Applied-state commands therefore work from any directory.
+Outside that tree Farrow writes only three marked things: the host network
+(`farrow network uninstall`), the hosts-file block (`farrow hosts uninstall`),
+and `~/.ssh/farrow_config` with one `Include` line in `~/.ssh/config`
+(`farrow ssh-config --remove`). When `~/.ssh/config` is a symlink or hard link,
+as dotfile managers create, Farrow leaves it alone and asks you to add the
+`Include` line once.
 
 The image catalog ships inside each Farrow release, and Farrow never refreshes
 it implicitly. `farrow update` fetches the configured repository's catalog;

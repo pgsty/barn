@@ -6,6 +6,78 @@ Notable user-visible changes. This project follows
 
 ## [Unreleased]
 
+Farrow 0.9.0 candidate: one error model, recoverable interrupted operations,
+and messages that say what went wrong and what to do.
+
+### Changed
+
+- Every failure has one shape: `error: <message>`, the failing program's last
+  stderr lines when an external tool failed, and a `next:` line when there is
+  one clear action. External failures name the program (`apt-get exited with
+  status 100: …`, `brew timed out after 20m0s`) instead of dropping its stderr
+  or printing its full argv; the argv is shown with `--verbose`.
+- Exit codes keep their numbers with sharper meanings: `integrity` (7) now means
+  only a failed digest, identity, or ownership check, and unclassified failures
+  are `runtime` (1). Notable moves: no inventory for `up`/`plan` 4→2; unknown
+  image, channel, or version 1→2 (and `validate` now reports it); import name
+  collision 7→2; missing QEMU from image commands 1→3; node not running 1→4;
+  setup and network download, sudo, and launchd failures 7→1/3; hosts name
+  taken 7→4; vmnet busy 4→6.
+- **JSON:** failures carry `error` from a closed set (`runtime`, `usage`,
+  `capability`, `conflict`, `partial`, `resource`, `integrity`, `cancelled`,
+  plus `remote_exit` for ssh/exec), an optional stable `reason`, `next`, and
+  `command` for an external program. `recreate_required`, `nodes_removed`,
+  `network_preflight`, and `persistent_delete` moved from `error` to `reason`,
+  and `resource_conflict` is now `resource`. JSON output no longer escapes
+  `<`, `>`, and `&`.
+- A second farrow command waits up to 10 minutes behind a running one and says
+  which (`farrow up (pid 4821, running 2m10s)`); on timeout it exits 4 with
+  reason `deployment_busy`. `status`, `ssh`, `exec`, `ssh-config`, and `hosts`
+  do not wait: they show the recorded state with a `note:`.
+- `network` and `hosts` install/uninstall ask for confirmation on a terminal
+  (`[Y/n]` for install, `[y/N]` for uninstall). `hosts` plans without sudo, and
+  `network install` on a Mac without a Farrow network points to `farrow setup`
+  before any sudo prompt. Setup's plan states when it will use sudo and where socket_vmnet
+  comes from, and says so when it switches to another /24.
+- `plan` lists each node's data disks, including the implicit 128 GiB `/data`.
+  Sizes drop a trailing `.0` and use TiB from 1024 GiB.
+- `logs --source events|qemu` prints one readable line per record; the QEMU
+  argv appears only with `--verbose`.
+- Bare `farrow` and `destroy` without a deployment succeed. `--version` is
+  accepted. `-f` completes YAML files only.
+- Inventory errors state the rule, value, and line (`line 3: host 10.10.10.10
+  vm_mem = 10: must be at least 512 MiB …`), suggest the nearest `vm_*` key,
+  and explain reserved addresses and paths. macOS warns about `vm_shares` at
+  `validate` and `plan`. Share host paths are stored with symlinks resolved.
+
+### Removed
+
+- The `rm` alias for `purge`. Two letters no longer discard a lab.
+
+### Fixed
+
+- A node whose recorded QEMU PID now belongs to an unrelated process (typically
+  after a host reboot) is recognized as stopped instead of blocking every
+  command with advice to stop that process by hand.
+- An interrupted `stop` whose VM kept running resumes as running; interrupted
+  transitions name the finishing command instead of looping on `farrow status`.
+  `destroy` settles interrupted transitions itself.
+- A failed first `up` recovers after the inventory is edited; unfinished node
+  directories are rolled back by their journaled artifacts, not their old spec.
+- A destroy interrupted after preserving a persistent disk can be retried.
+- A guest error whose last stderr line contains a tab or escape sequence is
+  reported with its stage and detail instead of an unreadable marker.
+- `ssh` and `exec` refuse a near-miss node name (`did you mean pg-meta-1?`)
+  instead of running it as a command on the default node.
+- A mistyped destroy/recreate confirmation says what was typed and that nothing
+  changed.
+- A symlinked or hard-linked `~/.ssh/config` (dotfile managers) is never edited;
+  Farrow publishes its fragment and asks once for the `Include` line.
+- Doctor no longer recommends `destroy --force` for unreadable state or
+  `recreate --force` for an unfinished create; `farrow up` finishes the latter.
+- `install.sh` reports an unreachable GitHub as a network failure instead of
+  "no stable release is published".
+
 ## [0.8.0] - 2026-09-21
 
 ### Changed

@@ -135,14 +135,42 @@ The code aims to read as one voice. Match what is already there.
   it. If a line looks arbitrary, the comment says what would break otherwise.
 - **Names are words, not abbreviations.** `resolved`, `candidate`, `imageRecord`
   — not `res`, `c`, `img`.
-- **Errors are lowercase, specific, and actionable.** Say what was wrong and
-  what to do: `hosts target changed after review; refusing stale plan`.
+- **Errors follow one shape.** See [Errors](#errors).
 - **No map iteration reaching output.** Sort keys. Identical input must produce
   identical output and identical errors.
 - **Fail closed.** When identity, ownership, or a digest cannot be proven,
   refuse rather than proceed.
 - **No compatibility shims for formats that were never released.** Farrow reads
   exactly one catalog schema and one inventory format.
+
+## Errors
+
+Every failure a user sees passes through one renderer: `error: <message>`, the
+failing program's stderr tail, and an optional `next:` line. Keep messages in
+that shape:
+
+1. Lowercase, no final period, one line. Extra context goes in `next`, never
+   after `\n\n`.
+2. Name the object, then the problem: `inventory farrow.yml: …`,
+   `node meta: …`. Quote user-typed values with `%q`; print paths bare.
+3. Give a next action only when there is one real thing to do, via
+   `failure.New(...).Then(...)` or `failure.WithNext`. A destructive next action
+   says what it deletes.
+4. Never surface a bare OS or exec error. Say what Farrow was doing, in the
+   user's words; turn not-found, lookup, and deadline errors into sentences.
+5. Wrap external command failures with `%w`. `execx.CommandError` already names
+   the program and carries its stderr; do not restate either.
+6. Classify with `internal/failure` where the fact is known. The exit code, the
+   JSON `error`, and hints depend on error identity, never on message text.
+7. Unclassified is `runtime`. `integrity` means a verified digest, identity, or
+   ownership did not match — nothing else.
+8. Use the documentation's words: inventory, node, deployment, Farrow network.
+   Never show private, v1, manifest, contract, proof, or check codes.
+9. Say "will not X: reason" or state the problem; do not write "refuse X".
+10. Anything that waits longer than a second says what it is waiting for.
+
+`cmd/farrow/error_contract_test.go` pins the exit code, JSON, and text of the
+common failures; change it together with the message.
 
 ## Tests
 
