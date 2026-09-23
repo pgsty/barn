@@ -261,7 +261,7 @@ func InstallMany(home string, entries []Entry) (Result, error) {
 		return Result{}, err
 	}
 	if fragmentExists && !markerOwned(existingFragment) {
-		return Result{}, errors.New("refuse overwrite of SSH fragment without exact Farrow ownership markers")
+		return Result{}, errors.New("will not overwrite the SSH fragment: it lacks Farrow's markers")
 	}
 	quotedFragment, err := openssh.QuoteConfigValue(fragment)
 	if err != nil {
@@ -295,10 +295,10 @@ func InstallMany(home string, entries []Entry) (Result, error) {
 	markerCount := strings.Count(configText, includeMarker)
 	blockCount := strings.Count(configText, block)
 	if markerCount > 1 || blockCount > 1 || markerCount != blockCount {
-		return Result{}, errors.New("refuse adoption of malformed Farrow SSH Include block")
+		return Result{}, errors.New("will not change ~/.ssh/config: its Farrow Include block is malformed")
 	}
 	if strings.Contains(configText, includeLine) && blockCount == 0 {
-		return Result{}, errors.New("refuse adoption of unmarked matching SSH Include")
+		return Result{}, errors.New("will not adopt an Include of the Farrow fragment that Farrow did not mark")
 	}
 	fragmentChanged := !fragmentExists || string(existingFragment) != content
 	canonicalConfig := installGlobalBlock(configText, block)
@@ -350,16 +350,16 @@ func Remove(home, name string) (Result, error) {
 		return Result{}, err
 	}
 	if fragmentExists && !markerOwned(fragmentData) {
-		return Result{}, errors.New("refuse removal of SSH fragment without exact Farrow ownership markers")
+		return Result{}, errors.New("will not remove the SSH fragment: it lacks Farrow's markers")
 	}
 	configText := string(config)
 	if strings.Contains(configText, includeLine) && !strings.Contains(configText, block) {
-		return Result{}, errors.New("refuse removal while an unmarked matching SSH Include remains")
+		return Result{}, errors.New("will not remove the fragment while an unmarked Include of it remains in ~/.ssh/config")
 	}
 	changed := false
 	if configExists && strings.Contains(configText, includeMarker) {
 		if strings.Count(configText, includeMarker) != 1 || strings.Count(configText, block) != 1 {
-			return Result{}, errors.New("refuse removal of malformed Farrow SSH Include block")
+			return Result{}, errors.New("will not change ~/.ssh/config: its Farrow Include block is malformed")
 		}
 		updated := strings.Replace(configText, block, "", 1)
 		if err := fsutil.AtomicWrite(configPath, []byte(updated), 0o600); err != nil {

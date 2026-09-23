@@ -403,7 +403,8 @@ func TestSetupPlanShowsProxyNamesWithoutValues(t *testing.T) {
 	} {
 		t.Setenv(name, "")
 	}
-	t.Setenv("HTTPS_PROXY", "http://user:secret@127.0.0.1:9443")
+	// Distinctive fragments: a random temp-dir name must not match them.
+	t.Setenv("HTTPS_PROXY", "http://proxyuser:proxysecret@198.51.100.7:39443")
 	selection, err := resolveSetupSelection("meta", "", "", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -422,7 +423,7 @@ func TestSetupPlanShowsProxyNamesWithoutValues(t *testing.T) {
 	if !strings.Contains(got, "proxy environment: HTTPS_PROXY (values hidden)") {
 		t.Fatalf("setup plan omitted proxy evidence: %q", got)
 	}
-	for _, secret := range []string{"user", "secret", "127.0.0.1", "9443"} {
+	for _, secret := range []string{"proxyuser", "proxysecret", "198.51.100.7", "39443"} {
 		if strings.Contains(got, secret) {
 			t.Fatalf("setup plan exposed proxy value fragment %q: %q", secret, got)
 		}

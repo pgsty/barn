@@ -109,7 +109,7 @@ func StrictInterfaceMarker(data []byte) (InterfaceMarker, error) {
 		layoutErr != nil || marker.HostAddress != layout.HostAddress() ||
 		!bsdInterfacePattern.MatchString(marker.BSDName) ||
 		!validProvenance(marker.Source, marker.SocketSHA256, marker.ClientSHA256) {
-		return InterfaceMarker{}, errors.New("darwin interface marker contract is invalid")
+		return InterfaceMarker{}, errors.New("the recorded macOS network interface marker is invalid")
 	}
 	canonical, err := marshalInterfaceMarker(marker)
 	if err != nil || !bytes.Equal(data, canonical) {
@@ -134,7 +134,7 @@ func StrictNetworkState(data []byte) (NetworkState, error) {
 	}
 	layout, layoutErr := subnet.Parse(state.CIDR)
 	if state.Schema != 1 || state.Release != ReleaseVersion || (state.Arch != "arm64" && state.Arch != "amd64") || (state.Mode != "host" && state.Mode != "shared") || layoutErr != nil || state.HostAddress != layout.HostAddress() || state.DHCPEnd != layout.DHCPEnd() || !uuidPattern.MatchString(state.InterfaceID) {
-		return NetworkState{}, errors.New("darwin network state contract is invalid")
+		return NetworkState{}, errors.New("the recorded macOS network state is invalid")
 	}
 	if !validProvenance(state.Source, state.SocketSHA256, state.ClientSHA256) {
 		return NetworkState{}, errors.New("darwin network state binary provenance is invalid")

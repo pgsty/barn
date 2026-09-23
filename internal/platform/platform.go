@@ -214,7 +214,7 @@ func Native() (Profile, error) { return Resolve(runtime.GOOS, runtime.GOARCH) }
 func Resolve(goos, goarch string) (Profile, error) {
 	profile, ok := profiles[goos+"/"+goarch]
 	if !ok {
-		return Profile{}, fmt.Errorf("unsupported host %s/%s: Farrow v1 supports native darwin/linux arm64/amd64 only", goos, goarch)
+		return Profile{}, fmt.Errorf("unsupported host %s/%s: Farrow runs natively on macOS and Linux, arm64 or amd64", goos, goarch)
 	}
 	return profile, nil
 }

@@ -30,7 +30,7 @@ func run(args []string) error {
 	}
 	nativeTarget, err := hostconfig.NativePath()
 	if err != nil || *target != nativeTarget || !filepath.IsAbs(*staging) {
-		return fmt.Errorf("refuse helper for a non-native target or relative staging path")
+		return errors.New("will not run for a non-native target or a relative staging path")
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("farrow-hosts-helper must run as root")

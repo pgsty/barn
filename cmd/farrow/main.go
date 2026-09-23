@@ -878,7 +878,7 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 		}
 		for _, connection := range connections {
 			if connection.Host != "127.0.0.1" {
-				return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("refuse non-loopback provision endpoint for node %s", connection.Node))
+				return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("will not provision node %s: its SSH endpoint is not on loopback", connection.Node))
 			}
 			targets = append(targets, provision.Target{Node: connection.Node, User: connection.User, Port: connection.Port, PrivateKey: connection.PrivateKey, KnownHosts: connection.KnownHosts, HostKeyAlias: connection.HostKeyAlias})
 			selectedNames = append(selectedNames, connection.Node)
@@ -898,7 +898,7 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	}
 	startMessage := fmt.Sprintf("script_sha256=%s bytes=%d sudo=%t parallel=%d targets=%s", script.SHA256, script.Size, options.Sudo, options.Parallelism, strings.Join(selectedNames, ","))
 	if err := recordEvent(ctx, "provision", "info", "starting "+startMessage); err != nil {
-		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("refuse provision without an auditable event append: %w", err)).withOperation(operationID)
+		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("will not provision without recording it in the event log: %w", err)).withOperation(operationID)
 	}
 	debugf(stderr, "provision operation_id=%s targets=%s timeout=%s parallel=%d sudo=%t script_sha256=%s", operationID, strings.Join(selectedNames, ","), options.Timeout, options.Parallelism, options.Sudo, script.SHA256)
 	progressItem := startProgress(ctx, stderr, fmt.Sprintf("Provisioning %d node(s)", len(targets)))

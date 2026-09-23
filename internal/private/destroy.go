@@ -73,7 +73,7 @@ func privateNodeTargets(deploymentValue Deployment, node state.NodeState) (strin
 	for _, entry := range entries {
 		path := filepath.Join(nodeDir, entry.Name())
 		if _, ok := expected[path]; !ok {
-			return "", nil, fmt.Errorf("refuse private destroy with unexpected node artifact %s", path)
+			return "", nil, fmt.Errorf("will not destroy: unexpected file %s in the node directory", path)
 		}
 		if err := ownedRegularWithin(nodeDir, path); err != nil {
 			return "", nil, err
@@ -223,7 +223,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		}
 		identityValue := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
 		if process.MatchesLive(ctx, m.runner(), identityValue, node.Invocation) || process.Alive(node.Process.PID) {
-			return Status{}, fmt.Errorf("refuse private destroy while node %s process is live", node.Node)
+			return Status{}, fmt.Errorf("will not destroy node %s while its QEMU process is running", node.Node)
 		}
 		if err := checkRuntimeUnused(node); err != nil {
 			return Status{}, err

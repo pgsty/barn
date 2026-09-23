@@ -12,6 +12,7 @@ import (
 
 	"github.com/pgsty/farrow/internal/activity"
 	"github.com/pgsty/farrow/internal/cloudinit"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/process"
 	"github.com/pgsty/farrow/internal/runtimepath"
 	"github.com/pgsty/farrow/internal/spec"
@@ -253,7 +254,7 @@ func setupRuntime(path string) error {
 		return err
 	}
 	if len(entries) != 0 {
-		return errors.New("runtime directory is not empty; run farrow status to converge it, then retry")
+		return failure.WithNext(errors.New("the node runtime directory is not empty"), "farrow status, then retry")
 	}
 	return nil
 }

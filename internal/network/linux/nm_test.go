@@ -144,7 +144,7 @@ func TestBackendSwitchRequiresUninstall(t *testing.T) {
 	nmHost.Helper = debianFacts().Helper
 	nmHost.AccessGroup = debianFacts().AccessGroup
 	nmHost.ExistingManifest = &networkdPlan.Manifest
-	if _, err := NewInstallPlan(nmHost, testConfig()); err == nil || !strings.Contains(err.Error(), "systemd-networkd backend") {
+	if _, err := NewInstallPlan(nmHost, testConfig()); err == nil || !strings.Contains(err.Error(), "installed with systemd-networkd") {
 		t.Fatalf("backend switch error = %v", err)
 	}
 	// NM manifest + networkd now the owner → networkd backend refuses.
@@ -156,7 +156,7 @@ func TestBackendSwitchRequiresUninstall(t *testing.T) {
 	networkdHost.Family = RPM
 	networkdHost.Helper = nmFacts().Helper
 	networkdHost.ExistingManifest = &nmPlan.Manifest
-	if _, err := NewInstallPlan(networkdHost, testConfig()); err == nil || !strings.Contains(err.Error(), "NetworkManager backend") {
+	if _, err := NewInstallPlan(networkdHost, testConfig()); err == nil || !strings.Contains(err.Error(), "installed with NetworkManager") {
 		t.Fatalf("backend switch error = %v", err)
 	}
 	// A ready NM install replans idempotently over its own manifest.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/process"
 	"github.com/pgsty/farrow/internal/runtimepath"
 	"github.com/pgsty/farrow/internal/state"
@@ -126,7 +127,7 @@ func loadStoppableNodes(store state.Store, names []string) ([]state.NodeState, e
 			// identity is complete; a dead or identity-less transition is
 			// converged by `farrow status` first.
 			if !completeProcess(node.Process) {
-				return nil, fmt.Errorf("node %s was interrupted mid-%s without a complete process identity; run `farrow status` to converge it", name, node.Phase)
+				return nil, failure.WithNext(fmt.Errorf("node %s was interrupted while %s and its process cannot be identified", name, node.Phase), "farrow status, then retry")
 			}
 		case state.Stopped, state.Prepared:
 			if node.Process.PID != 0 {

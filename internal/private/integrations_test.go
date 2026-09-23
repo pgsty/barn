@@ -87,7 +87,7 @@ func TestPrivateSSHConfigSkipsDesiredNodesWithoutCommittedState(t *testing.T) {
 	if !strings.Contains(string(fragment), "farrow-meta meta") || strings.Contains(string(fragment), "node-1") {
 		t.Fatalf("partial deployment SSH fragment:\n%s", fragment)
 	}
-	if _, err := (Manager{FarrowVersion: "test", Nodes: []string{"node-1"}}).InstallSSHConfig(context.Background(), "farrow", t.TempDir()); err == nil || !strings.Contains(err.Error(), "no committed state") {
+	if _, err := (Manager{FarrowVersion: "test", Nodes: []string{"node-1"}}).InstallSSHConfig(context.Background(), "farrow", t.TempDir()); err == nil || !strings.Contains(err.Error(), "has not been created") {
 		t.Fatalf("explicit missing-node SSH config error = %v", err)
 	}
 }

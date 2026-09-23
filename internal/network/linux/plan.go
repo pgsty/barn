@@ -523,7 +523,7 @@ func newNetworkManagerInstallPlan(facts Facts, config Config) (Plan, error) {
 		}
 		existing := facts.ExistingManifest
 		if ManifestBackend(*existing) != BackendNetworkManager {
-			return Plan{}, errors.New("existing Linux network was installed with the systemd-networkd backend; run `farrow network uninstall --yes` before switching backends")
+			return Plan{}, failure.WithNext(errors.New("the Farrow network was installed with systemd-networkd; remove it before switching backends"), "farrow network uninstall --yes")
 		}
 		if existing.Family != facts.Family || existing.CIDR != config.CIDR || existing.HostAddress != config.HostAddress || existing.DHCPEnd != config.DHCPEnd || existing.HelperPath != facts.Helper.Path {
 			return Plan{}, errors.New("existing Linux network manifest does not match requested install")
@@ -577,7 +577,7 @@ func NewInstallPlan(facts Facts, config Config) (Plan, error) {
 		return Plan{}, err
 	}
 	if !facts.Systemd {
-		return Plan{}, errors.New("linux private v1 requires systemd")
+		return Plan{}, errors.New("the Farrow network on Linux requires systemd")
 	}
 	if facts.NetworkManagerActive {
 		return newNetworkManagerInstallPlan(facts, config)
@@ -624,7 +624,7 @@ func NewInstallPlan(facts Facts, config Config) (Plan, error) {
 		}
 		existing := facts.ExistingManifest
 		if ManifestBackend(*existing) != BackendNetworkd {
-			return Plan{}, errors.New("existing Linux network was installed with the NetworkManager backend; run `farrow network uninstall --yes` before switching backends")
+			return Plan{}, failure.WithNext(errors.New("the Farrow network was installed with NetworkManager; remove it before switching backends"), "farrow network uninstall --yes")
 		}
 		if existing.Family != facts.Family || existing.CIDR != config.CIDR || existing.HostAddress != config.HostAddress || existing.DHCPEnd != config.DHCPEnd || existing.HelperPath != facts.Helper.Path || existing.NetworkManager {
 			return Plan{}, errors.New("existing Linux network manifest does not match requested install")

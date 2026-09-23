@@ -85,7 +85,7 @@ func ensureDeploymentState(store state.Store, desired state.DeploymentState) err
 		return nil
 	}
 	if !additiveResolvedChange(store, existing.Resolved, desired.Resolved) {
-		return errors.New("refuse private state commit over different resolved deployment state")
+		return errors.New("will not commit node state over a different deployment state")
 	}
 	return store.WriteDeployment(desired)
 }
@@ -166,7 +166,7 @@ func CommitPrepared(deploymentValue Deployment, config PrepareConfig, outcomes [
 		}
 		if existing, readErr := store.ReadNode(nodeState.Node); readErr == nil {
 			if existing.VMUUID != nodeState.VMUUID || existing.SpecHash != nodeState.SpecHash || !reflect.DeepEqual(existing.Invocation, nodeState.Invocation) {
-				return result, fmt.Errorf("refuse overwrite of different private node state %s", nodeState.Node)
+				return result, fmt.Errorf("will not overwrite different node state for %s", nodeState.Node)
 			}
 		} else if errors.Is(readErr, os.ErrNotExist) {
 			if err := store.WriteNode(nodeState); err != nil {

@@ -60,10 +60,10 @@ func RollbackPrepared(deploymentValue Deployment, node string, apply bool) (Roll
 		return result, errors.New("rollback journal identity differs from the node")
 	}
 	if journal.StateCommitted {
-		return result, errors.New("refuse rollback after private node state commit")
+		return result, errors.New("will not roll back: the node state is already committed")
 	}
 	if _, err := os.Lstat(filepath.Join(nodeDir, "state.json")); err == nil {
-		return result, errors.New("refuse rollback while private node state exists")
+		return result, errors.New("will not roll back while node state exists")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return result, err
 	}
@@ -76,7 +76,7 @@ func RollbackPrepared(deploymentValue Deployment, node string, apply bool) (Roll
 			continue
 		}
 		if _, err := os.Lstat(runtimePath); err == nil {
-			return result, fmt.Errorf("refuse offline rollback while runtime artifact exists: %s", runtimePath)
+			return result, fmt.Errorf("will not roll back while runtime file %s exists", runtimePath)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return result, err
 		}

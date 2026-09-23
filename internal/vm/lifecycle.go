@@ -297,7 +297,7 @@ func (l Lifecycle) abortStarted(ctx context.Context, socket, name, uuid string, 
 		return l.stopWithSignals(ctx, *identity, invocation, errors.New("QMP disappeared after start compensation quit"))
 	}
 	if errors.Is(qmpErr, ErrQMPIdentityMismatch) {
-		return fmt.Errorf("refuse start compensation with mismatched QMP identity: %w", qmpErr)
+		return fmt.Errorf("will not clean up the failed start: QMP identity does not match: %w", qmpErr)
 	}
 	if identity == nil {
 		return nil
@@ -335,7 +335,7 @@ func (l Lifecycle) AbortIdentity(ctx context.Context, socket, name, uuid string,
 		return err
 	}
 	if identity.ArgvHash != process.ExpectedArgvHash(invocation) {
-		return errors.New("refuse start compensation for a process outside the persisted invocation")
+		return errors.New("will not clean up the failed start: the process is not the recorded QEMU invocation")
 	}
 	abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultStartAbortTimeout)
 	defer cancel()
@@ -348,12 +348,12 @@ func (l Lifecycle) Stop(ctx context.Context, socket, name, uuid string, identity
 	}
 	if err := l.ValidateIdentity(ctx, socket, name, uuid); err != nil {
 		if errors.Is(err, ErrQMPIdentityMismatch) {
-			return fmt.Errorf("refuse stop with mismatched QMP identity: %w", err)
+			return fmt.Errorf("will not stop: QMP identity does not match: %w", err)
 		}
 		return l.stopWithSignals(ctx, identity, invocation, fmt.Errorf("QMP identity unavailable: %w", err))
 	}
 	if !l.matchesLive(ctx, identity, invocation) {
-		return errors.New("refuse powerdown without matching process identity")
+		return errors.New("will not power down: the process identity does not match")
 	}
 	if err := l.QMP.Powerdown(ctx, socket); err != nil {
 		return l.handleQMPFailure(ctx, socket, name, uuid, identity, invocation, "QMP powerdown failed", err)
@@ -413,7 +413,7 @@ func (l Lifecycle) stopWithSignals(ctx context.Context, identity process.Identit
 		return err
 	}
 	if identity.PID <= 0 || identity.Executable == "" || identity.Started == "" || identity.ArgvHash == "" || invocation.Binary == "" {
-		return fmt.Errorf("refuse signal fallback with incomplete process identity or invocation (%v)", reason)
+		return fmt.Errorf("will not signal QEMU: its recorded process identity or invocation is incomplete (%v)", reason)
 	}
 	if !l.alive(identity.PID) {
 		return nil
@@ -424,7 +424,7 @@ func (l Lifecycle) stopWithSignals(ctx context.Context, identity process.Identit
 			// or reuse): the recorded QEMU has already exited. Never signal it.
 			return nil
 		}
-		return fmt.Errorf("refuse signal fallback without matching process identity (%v)", reason)
+		return fmt.Errorf("will not signal QEMU: the process identity does not match (%v)", reason)
 	}
 	if err := l.signal(identity.PID, syscall.SIGTERM); err != nil {
 		if !l.alive(identity.PID) {
@@ -446,7 +446,7 @@ func (l Lifecycle) stopWithSignals(ctx context.Context, identity process.Identit
 		return err
 	}
 	if !l.matchesLive(ctx, identity, invocation) {
-		return fmt.Errorf("refuse SIGKILL because QEMU process identity changed after SIGTERM (%v)", reason)
+		return fmt.Errorf("will not send SIGKILL: the QEMU process identity changed after SIGTERM (%v)", reason)
 	}
 	if err := l.signal(identity.PID, syscall.SIGKILL); err != nil {
 		if !l.alive(identity.PID) {

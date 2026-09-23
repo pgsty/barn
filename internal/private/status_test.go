@@ -162,7 +162,7 @@ func TestStatusMigratesMatchingLegacyIdentityBeforeRuntimeError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, statusErr := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
-	if statusErr == nil || !strings.Contains(statusErr.Error(), "QMP is unavailable") {
+	if statusErr == nil || !strings.Contains(statusErr.Error(), "QMP socket does not answer") {
 		t.Fatalf("status error = %v", statusErr)
 	}
 	migrated, err := store.ReadNode("meta")

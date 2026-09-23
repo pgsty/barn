@@ -185,7 +185,7 @@ func (m Manager) Grow(ctx context.Context, path string, targetSize int64, allowB
 		return Info{}, false, err
 	}
 	if before.VirtualSize > targetSize {
-		return Info{}, false, fmt.Errorf("refuse runtime disk shrink from %d to %d", before.VirtualSize, targetSize)
+		return Info{}, false, fmt.Errorf("will not shrink a disk from %d to %d bytes", before.VirtualSize, targetSize)
 	}
 	if before.VirtualSize == targetSize {
 		return before, false, nil

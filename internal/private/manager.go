@@ -446,7 +446,7 @@ func committedNodeNames(store state.Store, resolved spec.Resolved, names []strin
 		} else if missingPath(err) && !explicit {
 			continue
 		} else if missingPath(err) {
-			return nil, fmt.Errorf("node %s has no committed state; run `farrow up %s` first", name, name)
+			return nil, failure.New(failure.Conflict, fmt.Errorf("node %s has not been created", name)).Then("farrow up "+name)
 		} else {
 			return nil, err
 		}
@@ -1027,7 +1027,7 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 				case errors.Is(qmpErr, vm.ErrQMPIdentityMismatch):
 					return fmt.Errorf("node %s has mismatched QMP identity; recreate --force it: %w", node.Node, qmpErr)
 				case processMatches:
-					return fmt.Errorf("node %s process identity matches but QMP is unavailable; inspect its logs, then run `farrow stop` to converge it (shutdown uses verified process signals, not guest powerdown)", node.Node)
+					return failure.WithNext(fmt.Errorf("node %s QEMU is running but its QMP socket does not answer", node.Node), "farrow stop "+node.Node+" (it stops the verified process by signal)")
 				case node.Runtime.Directory == "" || node.Runtime.QMP == "" || node.Runtime.PIDFile == "":
 					return fmt.Errorf("node %s is recorded running with incomplete runtime identity; recreate is required", node.Node)
 				case !completeProcess(node.Process):
@@ -1362,10 +1362,10 @@ func (m Manager) RecordEvent(ctx context.Context, action, level, message string)
 // explicit recreate/destroy paths instead of acting on them.
 func refuseDrift(diff resolvedDiff) error {
 	if diff.EnvelopeChanged {
-		return fmt.Errorf("%w: deployment-level settings changed; run `farrow plan`, then `farrow recreate`", ErrRecreateRequired)
+		return failure.WithNext(fmt.Errorf("%w: deployment-level settings changed", ErrRecreateRequired), "farrow plan, then farrow recreate")
 	}
 	if len(diff.Removed) != 0 {
-		return fmt.Errorf("%w: %s; Farrow never destroys from absence; run `farrow destroy %s` to remove them, or add them back to the inventory", ErrNodesRemoved, strings.Join(diff.Removed, ", "), strings.Join(diff.Removed, " "))
+		return failure.WithNext(fmt.Errorf("%w: %s; Farrow never destroys a node because it left the inventory", ErrNodesRemoved, strings.Join(diff.Removed, ", ")), "farrow destroy "+strings.Join(diff.Removed, " ")+", or add them back to the inventory")
 	}
 	if len(diff.Changed) != 0 {
 		return fmt.Errorf("%w: node(s) %s changed; run `farrow plan` to review, then `farrow recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))

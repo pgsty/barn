@@ -253,11 +253,11 @@ func validateDeployment(value DeploymentState) error {
 	}
 	if value.Resolved.Network == "private" {
 		if value.Resolved.Private == nil {
-			return errors.New("private deployment state lacks its network contract")
+			return errors.New("deployment state lacks its network settings")
 		}
 		layout, err := subnet.Parse(value.Resolved.Private.CIDR)
 		if err != nil || value.Resolved.Private.HostAddress != layout.HostAddress() || value.Resolved.Private.DHCPEnd != layout.DHCPEnd() {
-			return errors.New("private deployment state network contract is invalid")
+			return errors.New("deployment state has invalid network settings")
 		}
 		for _, node := range value.Resolved.Nodes {
 			if !layout.IsStatic(node.Address) {

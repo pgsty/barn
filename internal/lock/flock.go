@@ -65,7 +65,7 @@ func openLock(path string) (*os.File, error) {
 		return nil, errors.New("lock path must be absolute")
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("refuse symlink lock path: %s", path)
+		return nil, fmt.Errorf("lock path %s is a symlink", path)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}

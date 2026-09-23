@@ -20,7 +20,7 @@ func AtomicWrite(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("atomic write mode contains non-permission bits: %v", mode)
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refuse atomic overwrite of symlink: %s", path)
+		return fmt.Errorf("will not overwrite %s: it is a symlink", path)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat atomic target: %w", err)
 	}

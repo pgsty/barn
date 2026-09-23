@@ -487,7 +487,7 @@ func TestStopQMPUnavailableRefusesUnknownProcessIdentity(t *testing.T) {
 	lifecycle := testStopLifecycle(fake, recorder)
 
 	err := lifecycle.Stop(context.Background(), "/qmp", testVMName, testVMUUID, process.Identity{PID: testIdentity.PID}, testInvocation, time.Second)
-	if err == nil || !strings.Contains(err.Error(), "incomplete process identity") {
+	if err == nil || !strings.Contains(err.Error(), "process identity or invocation is incomplete") {
 		t.Fatalf("error = %v", err)
 	}
 	if signals := recorder.recordedSignals(); len(signals) != 0 {
@@ -502,7 +502,7 @@ func TestStopQMPUnavailableRefusesInvocationMismatch(t *testing.T) {
 	lifecycle := testStopLifecycle(fake, recorder)
 
 	err := lifecycle.Stop(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, qemu.Invocation{Binary: testInvocation.Binary, Args: []string{"-name", "different-vm"}}, time.Second)
-	if err == nil || !strings.Contains(err.Error(), "without matching process identity") {
+	if err == nil || !strings.Contains(err.Error(), "the process identity does not match") {
 		t.Fatalf("error = %v", err)
 	}
 	if signals := recorder.recordedSignals(); len(signals) != 0 {
@@ -517,7 +517,7 @@ func TestStopRefusesKILLWhenIdentityChangesAfterTERM(t *testing.T) {
 	lifecycle := testStopLifecycle(fake, recorder)
 
 	err := lifecycle.Stop(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, testInvocation, time.Second)
-	if err == nil || !strings.Contains(err.Error(), "refuse SIGKILL") {
+	if err == nil || !strings.Contains(err.Error(), "will not send SIGKILL") {
 		t.Fatalf("error = %v", err)
 	}
 	if got := recorder.recordedSignals(); len(got) != 1 || got[0] != syscall.SIGTERM {

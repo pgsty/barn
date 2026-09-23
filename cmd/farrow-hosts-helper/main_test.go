@@ -30,7 +30,7 @@ func TestHelperRejectsNonNativeAndRelativeInputs(t *testing.T) {
 		{"--target", nativeTarget, "--staging", "relative"},
 	} {
 		err := run(args)
-		if err == nil || !strings.Contains(err.Error(), "non-native target or relative staging path") {
+		if err == nil || !strings.Contains(err.Error(), "non-native target or a relative staging path") {
 			t.Errorf("run(%v) = %v, want the target/staging refusal", args, err)
 		}
 	}

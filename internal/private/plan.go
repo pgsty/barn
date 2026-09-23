@@ -46,7 +46,7 @@ func validateResolved(value spec.Resolved) error {
 	}
 	layout, err := subnet.Parse(value.Private.CIDR)
 	if err != nil || value.Private.HostAddress != layout.HostAddress() || value.Private.DHCPEnd != layout.DHCPEnd() {
-		return errors.New("plan network contract is invalid")
+		return errors.New("plan network settings are invalid")
 	}
 	controls := 0
 	names := make(map[string]struct{})
