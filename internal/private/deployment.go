@@ -118,13 +118,14 @@ func currentHolder() []byte {
 }
 
 // lockHolder describes the command holding path, e.g.
-// "farrow up (pid 4821, running 2m10s)".
+// "farrow up (pid 4821, since 14:02:31)". A start time stays true however
+// long the message is displayed; an elapsed time would not.
 func lockHolder(path string) string {
 	var holder holderRecord
 	if err := json.Unmarshal(lock.Owner(path), &holder); err != nil || holder.PID <= 0 || holder.Command == "" {
 		return "another farrow command"
 	}
-	return fmt.Sprintf("%s (pid %d, running %s)", holder.Command, holder.PID, time.Since(holder.Started).Round(time.Second))
+	return fmt.Sprintf("%s (pid %d, since %s)", holder.Command, holder.PID, holder.Started.Local().Format("15:04:05"))
 }
 
 // Open returns the deployment handle without creating or locking anything.

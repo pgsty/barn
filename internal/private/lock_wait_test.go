@@ -46,7 +46,7 @@ func TestMutatingCommandNamesTheHolderAndGivesUpAsConflict(t *testing.T) {
 	if class != failure.Conflict || reason != "deployment_busy" || !strings.Contains(err.Error(), "(pid ") {
 		t.Fatalf("busy lock = %q %q %v", class, reason, err)
 	}
-	if !strings.HasPrefix(waiting, "Waiting for another farrow command: ") || !strings.Contains(waiting, "running ") {
+	if !strings.HasPrefix(waiting, "Waiting for another farrow command: ") || !strings.Contains(waiting, ", since ") {
 		t.Fatalf("wait was not reported: %q", waiting)
 	}
 }

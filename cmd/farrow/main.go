@@ -1045,7 +1045,7 @@ func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
 		bestEffortln(out, status.Message)
 	}
 	if status.Note != "" {
-		textField(out, 6, "note", status.Note)
+		textField(out, 5, "note", status.Note)
 	}
 }
 
