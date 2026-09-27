@@ -394,6 +394,9 @@ missing compute capability fails the check.`,
 	network := newNetworkCommand(stdout, stderr)
 	network.GroupID = "host"
 	root.AddCommand(doctor, network)
+	mac := newMacCommand(stdout, stderr)
+	mac.GroupID = "host"
+	root.AddCommand(mac)
 
 	versionCommand := &cobra.Command{
 		Use:     "version",
