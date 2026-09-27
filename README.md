@@ -1,9 +1,14 @@
 # Farrow
 
 Farrow turns one Pigsty-compatible Ansible inventory into one fixed-IP local
-QEMU deployment on macOS or Linux. The inventory you hand to Pigsty is the same
+Linux QEMU deployment on macOS or Linux. The inventory you hand to Pigsty is the same
 file that describes the virtual machines, so there is no second project format
 to keep in sync.
+
+The independent [`farrow mac` command](https://github.com/pgsty/farrow/blob/main/docs/mac.md) adds two macOS 27 guest slots
+on Apple Silicon. It has its own state, images, SSH trust and NAT network.
+This source-tree feature has passed local VM acceptance and is not yet released; see the
+[implementation and acceptance log](https://github.com/pgsty/farrow/blob/main/docs/mac-implementation-log.md).
 
 Authoritative documentation: <https://farrow.pgsty.com/>
 
@@ -133,7 +138,47 @@ waits have separate budgets: 2 seconds for the SSH configuration snapshot,
 5 seconds for guest metadata, and 1 second for diagnostic events. A timeout
 preserves the VM result and gives a warning; a later `up` retries the refresh.
 
-## Requirements
+## macOS guests
+
+Build the Mac development bundle on Apple Silicon with macOS 27 and Xcode 27:
+
+```bash
+make mac-build
+bin/mac/farrow mac ls
+bin/mac/farrow mac up mac1
+bin/mac/farrow mac up mac2
+bin/mac/farrow mac open mac1
+```
+
+The fixed slots are `mac1` and `mac2`; an omitted target means `mac1`. Defaults
+are macOS 27.0 Golden Gate, 4 CPUs, 8 GiB RAM and a 100 GiB sparse disk per slot.
+First setup downloads the approximately 26.63 GB official Apple IPSW and asks
+for administrator authorization to install its network helper. Keep about
+100 GiB free for initial installation; the guide records measured cache sizes
+and explains APFS shared-block accounting.
+
+Mac commands use `$FARROW_HOME/mac` and never read `farrow.yml`. `up` prepares
+missing components and verifies SSH; `start` requires an initialized instance.
+Normal `up` preserves the guest's data and version. `mac image update` explicitly
+discovers an Apple macOS 27 update, while `reset` recreates only the selected
+slot. Linux `purge` and `destroy` preserve Mac data.
+
+The Mac path shares the default progress display, structured output and actionable
+next steps. Use `mac status` for live SSH readiness, `mac restart` for a normal
+reboot, and `mac configure mac2 --cpu 8 --memory 16G` while stopped to change
+compute resources. Existing instances reject conflicting creation flags.
+`mac logs`, `mac network status` and `mac credentials migrate` provide direct
+recovery paths; ordinary startup reuses compatible installed components.
+
+The new command is available from the source build; the v0.8.0 release below
+does not include it. The next Darwin arm64 release includes the native app in
+the ordinary archive; the installer and Homebrew keep it paired with the CLI.
+Read the [Mac guide](https://github.com/pgsty/farrow/blob/main/docs/mac.md) for accounts, GUI access,
+image maintenance, development signing and the current acceptance status.
+The packaged command passed local dual-guest installation, networking, SSH,
+desktop and lifecycle acceptance on macOS 27.0 / 26A428.
+
+## Linux guest requirements
 
 | Host | Accelerator | Minimum QEMU | Tier |
 |---|---|---|---|
@@ -254,7 +299,7 @@ the table.
 
 ## State
 
-Everything Farrow owns lives under `$FARROW_HOME` (default `~/.farrow`): the
+Linux deployment state lives under `$FARROW_HOME` (default `~/.farrow`): the
 applied deployment, per-node state and journals, the verified image cache, and
 the signed catalog. Applied-state commands therefore work from any directory.
 Outside that tree Farrow writes only three marked things: the host network
@@ -262,7 +307,8 @@ Outside that tree Farrow writes only three marked things: the host network
 and `~/.ssh/farrow_config` with one `Include` line in `~/.ssh/config`
 (`farrow ssh-config --remove`). When `~/.ssh/config` is a symlink or hard link,
 as dotfile managers create, Farrow leaves it alone and asks you to add the
-`Include` line once.
+`Include` line once. The independent Mac data tree, Keychain credentials and
+privileged network helper are described in [Mac storage and recovery](https://github.com/pgsty/farrow/blob/main/docs/mac.md#storage-and-recovery).
 
 The image catalog ships inside each Farrow release, and Farrow never refreshes
 it implicitly. `farrow update` fetches the configured repository's catalog;

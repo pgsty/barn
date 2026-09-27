@@ -9,6 +9,18 @@ Notable user-visible changes. This project follows
 Farrow 0.9.0 candidate: one error model, recoverable interrupted operations,
 and messages that say what went wrong and what to do.
 
+### Added
+
+- `farrow mac` manages two independent macOS guests, `mac1` and `mac2`, on
+  Apple Silicon with macOS 27 or later. `mac up` prepares and starts the default
+  guest, `mac open` displays its desktop, and `mac stop` shuts it down while
+  preserving its data. Mac images, networking, SSH trust and credentials have
+  separate state from Linux VMs. See [the Mac guide](docs/mac.md).
+- The Darwin arm64 archive includes the native app through the standard
+  installer and Homebrew layout. CLI and app upgrades are installed together;
+  the app retains existing credentials across signing changes. Formal release
+  builds require Developer ID signing and Apple notarization.
+
 ### Changed
 
 - Every failure has one shape: `error: <message>`, the failing program's last
@@ -65,6 +77,10 @@ and messages that say what went wrong and what to do.
 
 ### Fixed
 
+- `mac doctor` recognizes a running guest that has passed SSH readiness and
+  reports its SSH/sudo check instead of treating `ready` as an invalid runtime.
+- Readiness checks for initialized Mac guests reuse their existing SSH identity
+  without rewriting key files.
 - A node whose recorded QEMU PID now belongs to an unrelated process (typically
   after a host reboot) is recognized as stopped instead of blocking every
   command with advice to stop that process by hand.
