@@ -19,7 +19,7 @@ if [[ ! ${SOURCE_DATE_EPOCH:-} =~ ^[0-9]+$ ]] || (( SOURCE_DATE_EPOCH <= 0 )); t
 fi
 # shellcheck disable=SC1091
 source "${script_directory}/binary-format.sh"
-for tool in awk cmp date diff file find go grep jq sed shasum stat tar tr; do
+for tool in awk cmp date diff file find go grep jq python3 sed shasum stat tar tr; do
   command -v "${tool}" >/dev/null || { printf 'required GoReleaser verification tool is missing: %s\n' "${tool}" >&2; exit 3; }
 done
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -50,7 +50,7 @@ inventory=$(farrow_archive_payload_paths "${repo}")
 while IFS= read -r path; do
   expected_paths+=("${path}")
 done <<<"${inventory}"
-expected_list=$(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
+common_paths=("${expected_paths[@]}")
 
 file_mode() {
   if stat -c '%a' "$1" >/dev/null 2>&1; then
@@ -99,6 +99,14 @@ for os_name in darwin linux; do
     archive=${directory}/${archive_name}
     sbom=${archive}.spdx.json
     [[ -s ${archive} && -s ${sbom} ]] || { printf 'missing archive/SBOM: %s\n' "${archive}" >&2; exit 1; }
+    expected_paths=("${common_paths[@]}")
+    if [[ ${os_name}/${arch} == darwin/arm64 ]]; then
+      native_paths=$(python3 "${repo}/packaging/mac-release.py" inventory "${version}" "${archive}")
+      if [[ -n ${native_paths} ]]; then
+        while IFS= read -r path; do expected_paths+=("${path}"); done <<<"${native_paths}"
+      fi
+    fi
+    expected_list=$(printf '%s\n' "${expected_paths[@]}" | LC_ALL=C sort)
     expected_archive_list=$(
       for path in "${expected_paths[@]}"; do
         printf '%s/%s\n' "${root_name}" "${path}"
@@ -132,6 +140,11 @@ for os_name in darwin linux; do
     }
     for path in "${expected_paths[@]}"; do
       case ${path} in bin/farrow|bin/farrow-hosts-helper) continue ;; esac
+      case ${path} in
+        "bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner"|"bin/Farrow Mac.app/Contents/MacOS/farrow-mac-network"|"bin/Farrow Mac.app/Contents/Resources/farrow-mac-network-install")
+          [[ $(file_mode "${root}/${path}") == 755 ]] || { printf 'native Mac entry point is not executable: %s\n' "${path}" >&2; exit 1; }
+          continue ;;
+      esac
       [[ $(file_mode "${root}/${path}") == 644 ]] || { printf 'unexpected archive mode: %s/%s\n' "${archive}" "${path}" >&2; exit 1; }
     done
     for path in "${expected_paths[@]}"; do
@@ -163,6 +176,14 @@ for os_name in darwin linux; do
         printf 'the native archive binary does not report version %s: %s\n' "${version}" "$("${root}/bin/farrow" version)" >&2
         exit 1
       }
+      if [[ -d ${root}/bin/Farrow\ Mac.app ]]; then
+        codesign --verify --deep --strict "${root}/bin/Farrow Mac.app"
+        if [[ ${FARROW_MAC_REQUIRE_NOTARIZATION:-0} == 1 ]]; then
+          xcrun stapler validate "${root}/bin/Farrow Mac.app"
+          spctl --assess --type execute "${root}/bin/Farrow Mac.app"
+        fi
+        "${root}/bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner" probe >/dev/null
+      fi
     fi
     printf '%s verified; helper=%s\n' "${archive_name}" "${helper_sha}"
   done

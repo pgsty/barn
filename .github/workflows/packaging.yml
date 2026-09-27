@@ -14,16 +14,26 @@ on:
     paths:
       - ".goreleaser.yaml"
       - "packaging/**"
+      - "native/**"
+      - "internal/macvm/**"
+      - "cmd/farrow/*mac*.go"
+      - "docs/mac*.md"
       - "tools/**"
       - "Makefile"
       - ".github/workflows/packaging.yml"
+      - ".github/workflows/mac.yml"
   pull_request:
     paths:
       - ".goreleaser.yaml"
       - "packaging/**"
+      - "native/**"
+      - "internal/macvm/**"
+      - "cmd/farrow/*mac*.go"
+      - "docs/mac*.md"
       - "tools/**"
       - "Makefile"
       - ".github/workflows/packaging.yml"
+      - ".github/workflows/mac.yml"
 
 permissions:
   contents: read
@@ -33,7 +43,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native:
+    uses: ./.github/workflows/mac.yml
   snapshot:
+    needs: native
     name: GoReleaser snapshot and package verification
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -83,7 +96,15 @@ jobs:
       - name: Verify the complete pinned toolchain
         run: ./packaging/check-toolchain.sh all
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: farrow-mac-native
+          path: ${{ runner.temp }}/farrow-mac
+
       - name: Build and verify a full snapshot release
+        env:
+          FARROW_MAC_PAYLOAD: ${{ runner.temp }}/farrow-mac/mac-native.tar.gz
+          FARROW_MAC_REQUIRE_PAYLOAD: "1"
         run: make release-snapshot
 
       - name: Build and verify the development release path

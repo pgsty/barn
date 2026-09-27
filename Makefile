@@ -11,6 +11,18 @@ SNAPSHOT_DIST ?= .goreleaser-snapshot
 build:
 	./packaging/build-dev.sh "$$(go env GOOS)" "$$(go env GOARCH)" bin
 
+# Native macOS 27 companions and a verified local tarball, without publication.
+.PHONY: mac-build mac-native-test
+mac-build:
+	bash ./packaging/build-mac.sh
+
+mac-native-test:
+	bash ./native/mac-runner/test.sh
+	@set -e; temporary=$$(mktemp -d "$${TMPDIR:-/tmp}/farrow-mac-native-test.XXXXXXXX"); \
+	  trap 'rm -rf "$$temporary"' EXIT; \
+	  bash ./native/mac-network/build.sh "$$temporary"; \
+	  python3 ./native/mac-network/tests.py --helper "$$temporary/farrow-mac-network" --workdir "$$temporary/tests"
+
 build-darwin-amd64:
 	./packaging/build-dev.sh darwin amd64 bin/darwin_amd64
 
@@ -111,6 +123,7 @@ image-pipeline-native-test:
 
 install-test:
 	./tests/install-test.sh
+	python3 ./tests/mac-release-test.py
 
 catalog-export:
 	@test -n "$(CATALOG_OUTPUT)" || { echo "CATALOG_OUTPUT is required" >&2; exit 2; }
@@ -163,6 +176,9 @@ release-snapshot: release-check
 	  SOURCE_DATE_EPOCH="$$source_epoch" FARROW_COMMIT="$$commit" FARROW_BUILD_DATE="$$build_date" \
 	    goreleaser release --snapshot --parallelism 1; \
 	  snapshot_version=$$(jq -er '.version | strings | select(length > 0)' .goreleaser-dist/metadata.json); \
+	  if test -n "$${FARROW_MAC_PAYLOAD:-}"; then \
+	    python3 packaging/mac-release.py attach "$$snapshot_version" "$$commit" "$$source_epoch" .goreleaser-dist "$$FARROW_MAC_PAYLOAD"; \
+	  fi; \
 	  SOURCE_DATE_EPOCH="$$source_epoch" ./packaging/verify-goreleaser.sh "$$snapshot_version" "$$PWD/.goreleaser-dist"; \
 	  ./packaging/verify-linux-packages.sh "$$snapshot_version" "$$commit" "$$source_epoch" "$$PWD/.goreleaser-dist"; \
 	  mv .goreleaser-dist "$(SNAPSHOT_DIST)"

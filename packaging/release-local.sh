@@ -71,7 +71,7 @@ case ${folded_output} in
     exit 2
     ;;
 esac
-for tool in awk bsdtar cmp date diff file find git go goreleaser grep jq rpm ruby sed shasum sort stat syft tar; do
+for tool in awk bsdtar cmp date diff file find git go goreleaser grep jq python3 rpm ruby sed shasum sort stat syft tar; do
   command -v "${tool}" >/dev/null || {
     printf 'required local release tool is missing: %s\n' "${tool}" >&2
     exit 3
@@ -105,6 +105,8 @@ tag_commit=$(git -C "${repo}" rev-parse --verify "refs/tags/v${version}^{commit}
 }
 source_epoch=$(git -C "${repo}" show -s --format=%ct "${commit}")
 [[ ${source_epoch} =~ ^[0-9]+$ ]] && (( source_epoch > 0 ))
+FARROW_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" check \
+  "${version}" "${commit}" "${FARROW_MAC_PAYLOAD:?build the notarized native payload on macOS first; see docs/mac-release.md}"
 if build_date=$(date -u -r "${source_epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null); then
   :
 else
@@ -161,6 +163,9 @@ case ${folded_output} in
     ;;
 esac
 SOURCE_DATE_EPOCH=${source_epoch} \
+  FARROW_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" attach \
+    "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}" "${FARROW_MAC_PAYLOAD:?build the notarized native payload on macOS first; see docs/mac-release.md}"
+SOURCE_DATE_EPOCH=${source_epoch} FARROW_MAC_REQUIRE_PAYLOAD=1 FARROW_MAC_REQUIRE_NOTARIZATION=1 \
   "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
 "${repo}/packaging/verify-linux-packages.sh" \
   "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}"

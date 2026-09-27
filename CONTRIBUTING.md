@@ -2,9 +2,9 @@
 
 ## Before you start
 
-Farrow is pre-1.0 and deliberately small. The design has a few ratified
-non-negotiables, and a change that contradicts one of them will be declined no
-matter how well it is implemented:
+Farrow is pre-1.0 and deliberately small. The Linux deployment path has a few
+ratified non-negotiables, and a change that contradicts one of them will be
+declined no matter how well it is implemented:
 
 - **Exactly one deployment per user.** No projects, no leases, no workspaces.
 - **One inventory format.** A Pigsty-compatible Ansible inventory is the only
@@ -15,6 +15,10 @@ matter how well it is implemented:
   a machine. Destruction is always explicit and confirmed.
 - **One helper binary.** Privileged work goes through `farrow-hosts-helper` or
   the reviewed network plan, and nowhere else.
+
+The independent `farrow mac` command manages the fixed `mac1` and `mac2` slots
+without reading the Linux inventory. Its state, SSH trust and privileged network
+helper remain separate; see [the Mac guide](docs/mac.md).
 
 Open an issue before a large change so we can agree on the shape first.
 
@@ -84,6 +88,13 @@ application delivery. Application archives and packages are built by GitHub
 Actions and listed in `checksums.txt`; no separate application-release signing
 or provenance bundle is produced.
 
+The native macOS guest app is built on macOS 27 and attached to the ordinary
+Darwin arm64 archive before its SBOM/checksums are finalized. Formal app builds
+require Developer ID signing and Apple notarization; see
+[Mac release preparation](docs/mac-release.md). `make mac-native-test` covers
+the native components, and `tests/mac-release-test.py` exercises payload boundaries
+as part of `make install-test`.
+
 `make release-dev VERSION=0.2.1-dev.1 SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)`
 builds and verifies the older unsigned development-archive path. The packaging
 workflow runs it alongside the GoReleaser snapshot; neither path publishes
@@ -118,6 +129,8 @@ has no Make, workflow, or inventory reference.
   `packaging/payload-inventory.sh`, `packaging/render-homebrew.sh`,
   `packaging/homebrew/farrow.rb.tmpl`, `packaging/install.sh`, and
   `packaging/nfpm.yaml`.
+- Native Mac composition: `packaging/mac-release.py`, `packaging/build-mac.sh`,
+  `packaging/build-mac-app.sh`, and `packaging/install-mac-app.sh`.
 - Image construction: `packaging/image-pipeline/build.sh`,
   `packaging/image-pipeline/build-official.py`,
   `packaging/image-pipeline/normalize-guest.sh`,

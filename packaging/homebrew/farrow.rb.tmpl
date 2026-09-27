@@ -35,6 +35,10 @@ class Farrow < Formula
   def install
     bin.install "bin/farrow"
     libexec.install "bin/farrow-hosts-helper"
+    if (buildpath/"bin/Farrow Mac.app").directory?
+      libexec.install "bin/Farrow Mac.app"
+      doc.install "MACOS.md", "MACOS.json"
+    end
     doc.install "README.md"
     doc.install "licenses"
   end
@@ -50,6 +54,10 @@ class Farrow < Formula
       asks for administrator access at the privileged step.
       Use farrow init full to customize a four-node lab before starting it.
       For unattended preparation, run farrow setup --yes before farrow up.
+
+      On Apple Silicon with macOS 27 or later, start a macOS guest with:
+        farrow mac up
+        farrow mac open
     EOS
   end
 

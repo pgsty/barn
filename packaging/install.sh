@@ -298,6 +298,29 @@ for source in bin/farrow bin/farrow-hosts-helper; do
   }
 done
 
+mac_app="${temporary}/${root}/bin/Farrow Mac.app"
+has_mac_app=false
+if [[ -e ${mac_app} || -e ${temporary}/${root}/MACOS.json ]]; then
+  [[ ${goos} == darwin && ${goarch} == arm64 && -d ${mac_app} && -f ${temporary}/${root}/MACOS.json && -f ${temporary}/${root}/MACOS.md ]] || {
+    printf 'native Mac payload is incomplete or for the wrong platform\n' >&2; exit 7;
+  }
+  /usr/bin/codesign --verify --deep --strict "${mac_app}" || { printf 'native Mac app signature is invalid\n' >&2; exit 7; }
+  has_mac_app=true
+fi
+
+verify_mac_app() {
+  local destination=$1
+  [[ -d ${destination}/Farrow\ Mac.app && ! -L ${destination}/Farrow\ Mac.app ]] || return 1
+  /usr/bin/diff -qr "${mac_app}" "${destination}/Farrow Mac.app" >/dev/null || return 1
+  for name in farrow-mac-runner farrow-mac-network; do
+    [[ -x ${destination}/Farrow\ Mac.app/Contents/MacOS/${name} ]] || return 1
+  done
+  [[ -x ${destination}/Farrow\ Mac.app/Contents/Resources/farrow-mac-network-install ]] || return 1
+  cmp -s "${temporary}/${root}/MACOS.json" "${destination}/MACOS.json" || return 1
+  cmp -s "${temporary}/${root}/MACOS.md" "${destination}/MACOS.md" || return 1
+  /usr/bin/codesign --verify --deep --strict "${destination}/Farrow Mac.app"
+}
+
 if [[ -L ${install_directory} || (-e ${install_directory} && ! -d ${install_directory}) ]]; then
   printf 'installation target is not a real directory: %s\n' "${install_directory}" >&2
   exit 7
@@ -373,6 +396,9 @@ if [[ -e ${release_root} || -L ${release_root} ]]; then
     fi
     chmod 0755 "${release_root}/${name}"
   done
+  if [[ ${has_mac_app} == true ]] && ! verify_mac_app "${release_root}"; then
+    printf 'existing native Mac installation differs from the verified archive\n' >&2; exit 7
+  fi
 else
   release_stage=$(mktemp -d "${install_directory}/.farrow-release.next.XXXXXX")
   chmod 0700 "${release_stage}"
@@ -383,6 +409,11 @@ else
       exit 7
     }
   done
+  if [[ ${has_mac_app} == true ]]; then
+    /usr/bin/ditto "${mac_app}" "${release_stage}/Farrow Mac.app"
+    install -m 0644 "${temporary}/${root}/MACOS.json" "${temporary}/${root}/MACOS.md" "${release_stage}/"
+    verify_mac_app "${release_stage}" || { printf 'staged native Mac app differs from verified archive\n' >&2; exit 7; }
+  fi
   mv "${release_stage}" "${release_root}"
   release_stage=
 fi
@@ -433,3 +464,6 @@ if [[ -z ${selected_farrow} || ! ${selected_farrow} -ef ${install_directory}/far
   printf "For this shell, run: export PATH=%q:\"\$PATH\"\n" "${install_directory}"
 fi
 printf 'Start your lab: %q up\n' "${install_directory}/farrow"
+if [[ ${has_mac_app} == true ]]; then
+  printf 'Start a macOS guest (Apple Silicon/macOS 27+): %q mac up\n' "${install_directory}/farrow"
+fi

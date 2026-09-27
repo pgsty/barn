@@ -1,0 +1,96 @@
+name: native Mac
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ""
+      notarize:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    # GitHub's macOS 27/Apple Silicon preview label; macos-latest is still 26.
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          check-latest: false
+          cache: true
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.0
+          install-only: true
+      - name: Resolve the same identity as the CLI build
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          export FARROW_COMMIT SOURCE_DATE_EPOCH FARROW_BUILD_DATE
+          FARROW_COMMIT=$(git rev-parse HEAD)
+          SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+          FARROW_BUILD_DATE=$(date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+          version=${REQUESTED_VERSION#v}
+          if [[ -z $version ]]; then
+            goreleaser build --snapshot --single-target --id farrow --id farrow-hosts-helper --parallelism 1
+            version=$(jq -er .version .goreleaser-dist/metadata.json)
+          fi
+          printf 'FARROW_VERSION=%s\nFARROW_COMMIT=%s\nSOURCE_DATE_EPOCH=%s\n' "$version" "$FARROW_COMMIT" "$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+      - name: Mac Go and native component regression
+        run: |
+          go test -race ./internal/macvm ./cmd/farrow
+          make mac-native-test
+      - name: Configure release signing and notarization
+        if: inputs.notarize
+        env:
+          CERTIFICATE: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
+          NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MAC_NOTARY_ISSUER }}
+        run: |
+          set -euo pipefail
+          [[ -n $CERTIFICATE && -n $CERTIFICATE_PASSWORD && -n $SIGNING_IDENTITY && -n $NOTARY_KEY && -n $NOTARY_KEY_ID && -n $NOTARY_ISSUER ]] || {
+            echo "Configure the Mac release secrets documented in docs/mac-release.md before tagging a release." >&2
+            exit 1
+          }
+          umask 077
+          keychain="$RUNNER_TEMP/farrow-signing.keychain-db"
+          password=$(uuidgen)
+          printf '::add-mask::%s\n' "$password"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/farrow-signing.p12"
+          printf '%s' "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/farrow-notary.p8"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/farrow-signing.p12" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          xcrun notarytool store-credentials farrow-ci --key "$RUNNER_TEMP/farrow-notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+          printf 'FARROW_CODESIGN_IDENTITY=%s\nFARROW_NOTARY_PROFILE=farrow-ci\nFARROW_MAC_REQUIRE_NOTARIZATION=1\n' "$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+      - name: Build and verify the exported native payload
+        run: |
+          python3 packaging/mac-release.py build "$FARROW_VERSION" "$FARROW_COMMIT" "$SOURCE_DATE_EPOCH" "$RUNNER_TEMP/mac-native.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: farrow-mac-native
+          path: ${{ runner.temp }}/mac-native.tar.gz
+          retention-days: 7
+      - name: Remove temporary signing material
+        if: always() && inputs.notarize
+        run: |
+          security delete-keychain "$RUNNER_TEMP/farrow-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/farrow-signing.p12" "$RUNNER_TEMP/farrow-notary.p8"
