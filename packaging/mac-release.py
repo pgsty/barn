@@ -64,7 +64,7 @@ def validate(files, version, commit=None):
         raise ValueError("Mac payload does not match the CLI source commit")
     if os.environ.get("FARROW_MAC_REQUIRE_NOTARIZATION") == "1" and (manifest.get("signing") != "developer_id" or manifest.get("notarized") is not True):
         raise ValueError("formal Mac release requires a Developer ID signed, notarized app")
-    required = {APP + "/Contents/Info.plist", APP + "/Contents/MacOS/farrow-mac-runner", APP + "/Contents/MacOS/farrow-mac-network", APP + "/Contents/Resources/farrow-mac-network-install", APP + "/Contents/_CodeSignature/CodeResources", "MACOS.md"}
+    required = {APP + "/Contents/Info.plist", APP + "/Contents/MacOS/farrow-mac-runner", APP + "/Contents/_CodeSignature/CodeResources", "MACOS.md"}
     declared = manifest["files"]
     if not isinstance(declared, dict):
         raise ValueError("invalid Mac payload inventory")
@@ -74,7 +74,7 @@ def validate(files, version, commit=None):
         if name != "MACOS.md" and not name.startswith(APP + "/Contents/"):
             raise ValueError("Mac payload escapes its app bundle")
         data, mode = files[name]
-        executable = name in required and name.endswith(("/farrow-mac-runner", "/farrow-mac-network", "/farrow-mac-network-install"))
+        executable = name in required and name.endswith("/farrow-mac-runner")
         if mode != (0o755 if executable else 0o644) or expected != {"sha256": hashlib.sha256(data).hexdigest(), "mode": mode}:
             raise ValueError(f"Mac payload content or mode changed: {name}")
     info = plistlib.loads(files[APP + "/Contents/Info.plist"][0])

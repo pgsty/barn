@@ -24,7 +24,7 @@ class PayloadTests(unittest.TestCase):
     def fixture(self):
         files = {"MACOS.md": (b"guide", 0o644)}
         files[release.APP + "/Contents/Info.plist"] = plistlib.dumps({"FarrowVersion": "0.8.1-next", "FarrowCommit": "uncommitted", "LSMinimumSystemVersion": "27.0"}), 0o644
-        for name in ("MacOS/farrow-mac-runner", "MacOS/farrow-mac-network", "Resources/farrow-mac-network-install", "_CodeSignature/CodeResources"):
+        for name in ("MacOS/farrow-mac-runner", "_CodeSignature/CodeResources"):
             files[release.APP + "/Contents/" + name] = b"test bytes", 0o644 if name.startswith("_CodeSignature/") else 0o755
         manifest = {"schema": 1, "version": "0.8.1-next", "commit": "uncommitted", "target": "darwin/arm64", "signing": "ad_hoc", "notarized": False,
                     "files": {name: {"sha256": hashlib.sha256(data).hexdigest(), "mode": mode} for name, (data, mode) in files.items()}}

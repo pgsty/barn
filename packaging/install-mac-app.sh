@@ -1,6 +1,7 @@
 #!/bin/bash
 # Publish a verified local app by renaming complete directories. This never
-# installs a service, launches the app, or removes an existing app directory.
+# installs a service or launches the app; the previous app is removed only
+# after its replacement is in place.
 set -euo pipefail
 if [[ $# != 2 ]]; then echo "usage: $0 SOURCE_APP DESTINATION_APP" >&2; exit 2; fi
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -28,5 +29,5 @@ if ! mv "$stage/Farrow Mac.app" "$destination"; then
   if [[ -n $previous && ! -e $destination ]]; then mv "$previous/Farrow Mac.app" "$destination"; fi
   exit 1
 fi
+case $previous in "$parent"/.mac-app-previous.*) rm -rf -- "$previous" ;; esac
 printf 'Native app: %s\n' "$destination"
-if [[ -n $previous ]]; then printf 'Previous app retained: %s\n' "$previous/Farrow Mac.app"; fi

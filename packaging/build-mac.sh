@@ -27,57 +27,45 @@ mkdir "$bundle"
 ./packaging/build-dev.sh darwin arm64 "$stage/go"
 cp -L "$stage/go/farrow" "$stage/go/farrow-hosts-helper" "$bundle/"
 bash packaging/build-mac-app.sh "$bundle/Farrow Mac.app"
-install -m 0755 "$bundle/Farrow Mac.app/Contents/MacOS/farrow-mac-runner" "$bundle/Farrow Mac.app/Contents/MacOS/farrow-mac-network" "$bundle/"
-install -m 0755 native/mac-network/install.sh "$bundle/farrow-mac-network-install"
+install -m 0755 "$bundle/Farrow Mac.app/Contents/MacOS/farrow-mac-runner" "$bundle/"
 codesign --force --sign "${FARROW_CODESIGN_IDENTITY:--}" --entitlements native/mac-runner/entitlements.plist "$bundle/farrow-mac-runner"
 install -m 0644 LICENSE "$bundle/LICENSE"
 install -m 0644 docs/mac.md "$bundle/USER_GUIDE.md"
 install -m 0644 docs/mac-implementation-log.md "$bundle/mac-implementation-log.md"
 install -m 0644 native/mac-runner/README.md "$bundle/RUNNER_PROTOCOL.md"
-install -m 0644 native/mac-network/README.md "$bundle/NETWORK_HELPER.md"
 cat > "$bundle/README.md" <<'EOF'
 # Farrow Mac local bundle
 
 Requires Apple Silicon and macOS 27 or later. Keep farrow, farrow-hosts-helper,
-Farrow Mac.app and the compatible standalone native tools together in one
-directory. The CLI prefers the runner inside Farrow Mac.app so the desktop has
-a native application identity. The companions in this local developer bundle are signed
-with FARROW_CODESIGN_IDENTITY, or ad hoc when it was not supplied. This local
-bundle is not a notarized public release.
+Farrow Mac.app and farrow-mac-runner together in one directory. The CLI prefers
+the runner inside Farrow Mac.app so the desktop has a native application
+identity. This developer bundle is signed with FARROW_CODESIGN_IDENTITY, or ad
+hoc when none was supplied; it is not a notarized public release.
 
-The app bundle retains its verified signed Keychain owner with the private Mac
-state, so subsequent ad-hoc rebuilds can still access existing GUI credentials.
-Older instances can adopt this behavior once with `mac credentials migrate`;
-it automatically finds the previous app retained by the local build. Use --from
-if the original app lives elsewhere. Keep the credentials/owners directory with
-your state. Custom standalone runners require explicit migration after a signing
-identity change; read USER_GUIDE.md for recovery details.
+Run ./farrow mac up to create and start mac1. The first run downloads macOS
+from Apple after you confirm, or uses a restore image you pass with --ipsw.
+./farrow mac open shows the desktop; closing its window keeps the machine
+running. ./farrow mac stop shuts it down. Nothing runs as root: each machine's
+private network lives inside its own runner process.
 
-Run ./farrow mac --help, then ./farrow mac setup. Setup downloads the pinned Apple
-restore image and prepares a private network after the required administrator
-authorization. ./farrow mac up starts mac1; ./farrow mac up mac2 starts mac2.
-./farrow mac open mac1 displays its desktop. Closing that window keeps the VM
-running. Use ./farrow mac stop mac1 to shut it down normally.
+State is isolated under $FARROW_HOME/mac (default ~/.farrow/mac). The Linux
+inventory is never read by these commands. ./farrow mac ls --json works before
+anything exists and creates nothing.
 
-State is isolated under $FARROW_HOME/mac (default ~/.farrow/mac). Existing Linux
-inventory is not read by these commands. Empty slots are visible without setup:
-./farrow mac ls --json. No services are installed by extracting this archive.
-
-USER_GUIDE.md explains commands, persistent data and operational limitations.
+USER_GUIDE.md explains commands, persistent data and limitations.
 mac-implementation-log.md records implementation and live acceptance evidence.
-RUNNER_PROTOCOL.md describes the native process and JSON interface.
-NETWORK_HELPER.md describes privilege boundaries and helper installation.
-SHA256SUMS checks the included files. Check with shasum -a 256 -c SHA256SUMS.
+RUNNER_PROTOCOL.md describes the native process and its JSON interface.
+SHA256SUMS checks the included files: shasum -a 256 -c SHA256SUMS.
 EOF
-for binary in farrow-mac-runner farrow-mac-network; do codesign --verify --strict "$bundle/$binary"; done
+codesign --verify --strict "$bundle/farrow-mac-runner"
 codesign --verify --deep --strict "$bundle/Farrow Mac.app"
 "$bundle/farrow-mac-runner" probe > "$stage/probe.json"
 "$bundle/farrow" mac --help > "$stage/mac-help.txt"
 FARROW_HOME="$stage/empty-home" "$bundle/farrow" mac ls --json > "$stage/empty-slots.json"
 (
   cd "$bundle"
-  shasum -a 256 farrow farrow-hosts-helper farrow-mac-runner farrow-mac-network farrow-mac-network-install LICENSE README.md USER_GUIDE.md mac-implementation-log.md RUNNER_PROTOCOL.md NETWORK_HELPER.md \
-    "Farrow Mac.app/Contents/Info.plist" "Farrow Mac.app/Contents/MacOS/"* "Farrow Mac.app/Contents/Resources/"* "Farrow Mac.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
+  shasum -a 256 farrow farrow-hosts-helper farrow-mac-runner LICENSE README.md USER_GUIDE.md mac-implementation-log.md RUNNER_PROTOCOL.md \
+    "Farrow Mac.app/Contents/Info.plist" "Farrow Mac.app/Contents/MacOS/"* "Farrow Mac.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 archive="$stage/farrow-mac-darwin-arm64.tar.gz"
@@ -106,6 +94,10 @@ for source in "$bundle"/*; do
   [[ ${source##*/} != "Farrow Mac.app" ]] || continue
   destination="$repo/bin/mac/${source##*/}"
   if [[ -x $source ]]; then install -m 0755 "$source" "$destination"; else install -m 0644 "$source" "$destination"; fi
+done
+# Earlier bundles shipped a root network helper; none of it is used anymore.
+for obsolete in farrow-mac-network farrow-mac-network-install NETWORK_HELPER.md; do
+  if [[ -f $repo/bin/mac/$obsolete && ! -L $repo/bin/mac/$obsolete ]]; then rm -f -- "$repo/bin/mac/$obsolete"; fi
 done
 bash packaging/install-mac-app.sh "$bundle/Farrow Mac.app" "$repo/bin/mac/Farrow Mac.app"
 install -m 0644 "$archive" "$repo/bin/farrow-mac-darwin-arm64.tar.gz"

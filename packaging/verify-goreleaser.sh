@@ -141,7 +141,7 @@ for os_name in darwin linux; do
     for path in "${expected_paths[@]}"; do
       case ${path} in bin/farrow|bin/farrow-hosts-helper) continue ;; esac
       case ${path} in
-        "bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner"|"bin/Farrow Mac.app/Contents/MacOS/farrow-mac-network"|"bin/Farrow Mac.app/Contents/Resources/farrow-mac-network-install")
+        "bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner")
           [[ $(file_mode "${root}/${path}") == 755 ]] || { printf 'native Mac entry point is not executable: %s\n' "${path}" >&2; exit 1; }
           continue ;;
       esac

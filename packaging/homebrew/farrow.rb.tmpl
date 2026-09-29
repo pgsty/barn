@@ -44,7 +44,7 @@ class Farrow < Formula
   end
 
   def caveats
-    <<~EOS
+    text = <<~EOS
       Start your first VM from a terminal:
         farrow up
         farrow ssh
@@ -54,6 +54,10 @@ class Farrow < Formula
       asks for administrator access at the privileged step.
       Use farrow init full to customize a four-node lab before starting it.
       For unattended preparation, run farrow setup --yes before farrow up.
+    EOS
+    return text unless (libexec/"Farrow Mac.app").exist?
+
+    text + <<~EOS
 
       On Apple Silicon with macOS 27 or later, start a macOS guest with:
         farrow mac up

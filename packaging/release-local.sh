@@ -105,8 +105,14 @@ tag_commit=$(git -C "${repo}" rev-parse --verify "refs/tags/v${version}^{commit}
 }
 source_epoch=$(git -C "${repo}" show -s --format=%ct "${commit}")
 [[ ${source_epoch} =~ ^[0-9]+$ ]] && (( source_epoch > 0 ))
-FARROW_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" check \
-  "${version}" "${commit}" "${FARROW_MAC_PAYLOAD:?build the notarized native payload on macOS first; see docs/mac-release.md}"
+# The native Mac app is optional. When supplied it must be notarized; without
+# it the release ships the CLI alone and farrow mac explains what is missing.
+if [[ -n ${FARROW_MAC_PAYLOAD:-} ]]; then
+  FARROW_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" check \
+    "${version}" "${commit}" "${FARROW_MAC_PAYLOAD}"
+else
+  printf 'FARROW_MAC_PAYLOAD is not set; this release will not include the native Mac app (see docs/mac-release.md)\n' >&2
+fi
 if build_date=$(date -u -r "${source_epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null); then
   :
 else
@@ -162,11 +168,15 @@ case ${folded_output} in
     exit 2
     ;;
 esac
-SOURCE_DATE_EPOCH=${source_epoch} \
-  FARROW_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" attach \
-    "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}" "${FARROW_MAC_PAYLOAD:?build the notarized native payload on macOS first; see docs/mac-release.md}"
-SOURCE_DATE_EPOCH=${source_epoch} FARROW_MAC_REQUIRE_PAYLOAD=1 FARROW_MAC_REQUIRE_NOTARIZATION=1 \
-  "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
+if [[ -n ${FARROW_MAC_PAYLOAD:-} ]]; then
+  SOURCE_DATE_EPOCH=${source_epoch} \
+    FARROW_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" attach \
+      "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}" "${FARROW_MAC_PAYLOAD}"
+  SOURCE_DATE_EPOCH=${source_epoch} FARROW_MAC_REQUIRE_PAYLOAD=1 FARROW_MAC_REQUIRE_NOTARIZATION=1 \
+    "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
+else
+  SOURCE_DATE_EPOCH=${source_epoch} "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
+fi
 "${repo}/packaging/verify-linux-packages.sh" \
   "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}"
 

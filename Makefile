@@ -18,10 +18,6 @@ mac-build:
 
 mac-native-test:
 	bash ./native/mac-runner/test.sh
-	@set -e; temporary=$$(mktemp -d "$${TMPDIR:-/tmp}/farrow-mac-native-test.XXXXXXXX"); \
-	  trap 'rm -rf "$$temporary"' EXIT; \
-	  bash ./native/mac-network/build.sh "$$temporary"; \
-	  python3 ./native/mac-network/tests.py --helper "$$temporary/farrow-mac-network" --workdir "$$temporary/tests"
 
 build-darwin-amd64:
 	./packaging/build-dev.sh darwin amd64 bin/darwin_amd64

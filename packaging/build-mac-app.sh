@@ -20,7 +20,7 @@ trap cleanup EXIT
 app="$stage/Farrow Mac.app"
 macos="$app/Contents/MacOS"
 native="$stage/native"
-mkdir -p "$macos" "$native" "$app/Contents/Resources"
+mkdir -p "$macos" "$native"
 install -m 0644 "$repo/native/mac-runner/Info.plist" "$app/Contents/Info.plist"
 version=${FARROW_VERSION:-dev}
 [[ $version =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]] || { echo "Invalid FARROW_VERSION" >&2; exit 2; }
@@ -34,16 +34,12 @@ plutil -insert FarrowVersion -string "$version" "$app/Contents/Info.plist"
 plutil -insert FarrowCommit -string "$commit" "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 bash "$repo/native/mac-runner/build.sh" "$native/farrow-mac-runner"
-bash "$repo/native/mac-network/build.sh" "$native"
-install -m 0755 "$native/farrow-mac-runner" "$native/farrow-mac-network" "$macos/"
-install -m 0755 "$repo/native/mac-network/install.sh" "$app/Contents/Resources/farrow-mac-network-install"
-# Sign inner Mach-O files first, then seal the complete app with the runner's
-# virtualization entitlement. The root-only network helper has no vmnet grant.
+install -m 0755 "$native/farrow-mac-runner" "$macos/"
+# Seal the app with the runner's only entitlement, virtualization. Each
+# machine's private network is created unprivileged inside its runner.
 codesign --verify --strict "$native/farrow-mac-runner"
-codesign --verify --strict "$native/farrow-mac-network"
 sign_args=(--force --sign "$identity" --options runtime)
 if [[ $identity != - ]]; then sign_args+=(--timestamp); fi
-codesign "${sign_args[@]}" "$macos/farrow-mac-network"
 codesign "${sign_args[@]}" --entitlements "$repo/native/mac-runner/entitlements.plist" "$app"
 codesign --verify --deep --strict "$app"
 if [[ -n ${FARROW_NOTARY_PROFILE:-} ]]; then

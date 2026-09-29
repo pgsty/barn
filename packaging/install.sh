@@ -88,6 +88,10 @@ case $(uname -m) in
   arm64|aarch64) goarch=arm64 ;;
   *) printf 'Farrow supports amd64 and arm64 only\n' >&2; exit 3 ;;
 esac
+# A shell under Rosetta reports x86_64 on Apple Silicon; install the native build.
+if [[ ${goos} == darwin && ${goarch} == amd64 && $(/usr/sbin/sysctl -in hw.optional.arm64 2>/dev/null) == 1 ]]; then
+  goarch=arm64
+fi
 
 for tool in awk chmod cmp curl install ln mkdir mktemp mv readlink rm rmdir stat tar; do
   command -v "${tool}" >/dev/null || { printf 'required installer tool is missing: %s\n' "${tool}" >&2; exit 3; }
@@ -312,10 +316,9 @@ verify_mac_app() {
   local destination=$1
   [[ -d ${destination}/Farrow\ Mac.app && ! -L ${destination}/Farrow\ Mac.app ]] || return 1
   /usr/bin/diff -qr "${mac_app}" "${destination}/Farrow Mac.app" >/dev/null || return 1
-  for name in farrow-mac-runner farrow-mac-network; do
+  for name in farrow-mac-runner; do
     [[ -x ${destination}/Farrow\ Mac.app/Contents/MacOS/${name} ]] || return 1
   done
-  [[ -x ${destination}/Farrow\ Mac.app/Contents/Resources/farrow-mac-network-install ]] || return 1
   cmp -s "${temporary}/${root}/MACOS.json" "${destination}/MACOS.json" || return 1
   cmp -s "${temporary}/${root}/MACOS.md" "${destination}/MACOS.md" || return 1
   /usr/bin/codesign --verify --deep --strict "${destination}/Farrow Mac.app"
