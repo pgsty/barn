@@ -2,20 +2,19 @@
 
 Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
-1.0.0 is a pre-1.0 developer release and may break between minor versions.
+1.0.0 may include incompatible changes between minor versions.
 
-## Unreleased
+## 0.9.0 — 2026-09-30
 
-Barn 0.9.0 candidate: one error model, recoverable interrupted operations,
-messages that say what went wrong and what to do, and a preview of macOS
-guests.
+Barn 0.9.0 adds native macOS guests, a consistent error model, and recovery
+for interrupted operations, with messages that explain the problem and next step.
 
 Barn uses `barn`, `barn.yml`, `BARN_*`, and `~/.barn` throughout the CLI,
 packages, host resources, and documentation.
 
 ### Added
 
-- Preview: `barn mac` runs named macOS 27 virtual machines on Apple Silicon
+- `barn mac` runs named macOS 27 virtual machines on Apple Silicon
   with macOS 27 or later. `mac up [name]` creates and starts a machine and
   waits for SSH and sudo; `mac open` shows its desktop; `mac ssh`/`exec` reach
   it with its own pinned key. Machines are copy-on-write clones of one unbooted
@@ -35,16 +34,17 @@ packages, host resources, and documentation.
   ready machine installs it automatically, so `ssh mac1` and editors with
   Remote-SSH work; lifecycle commands keep it current.
 - `barn mac` needs its native component, `Barn Mac.app`. Releases include
-  it only once it is Developer ID signed and notarized by Apple; until then
-  `make mac-build` (Xcode 27) builds both into `bin/mac`, and a release without
-  it still publishes.
+  it when the native payload is Developer ID signed and notarized by Apple.
+  `make mac-build` (Xcode 27) builds a local CLI and app bundle into `bin/mac`.
 
 ### Changed
 
-- Embed Catalog `2026092902` with 39 artifacts across nine image families.
+- Embed Catalog `2026093001` with 41 artifacts across nine image families.
   Debian 12/13 and Rocky Linux 8/9 use Barn-normalized images; Ubuntu keeps
   the upstream image bytes. Debian includes offline XFS tools and
   `en_US.UTF-8`, with `C.UTF-8` retained as the default locale.
+  Rocky Linux 8 images complete SELinux labeling offline, avoiding a full
+  relabel and reboot during the first start while retaining Enforcing mode.
 - Rocky Linux 8 uses its shipped RHEL chrony template and the `chronyd`
   service when cloud-init enables NTP. Guest user-data uses a scalar sudo
   rule accepted by all supported cloud-init schemas.
@@ -123,5 +123,5 @@ packages, host resources, and documentation.
   Barn publishes its fragment and asks once for the `Include` line.
 - Doctor no longer recommends `destroy --force` for unreadable state or
   `recreate --force` for an unfinished create; `barn up` finishes the latter.
-- `install.sh` reports an unreachable GitHub as a network failure instead of
-  "no stable release is published".
+- `install.sh` distinguishes GitHub connectivity failures from release lookup
+  errors, so its next step matches the actual problem.

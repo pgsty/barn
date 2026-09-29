@@ -77,17 +77,24 @@ for secret in AWS_SECRET_ACCESS_KEY GITHUB_TOKEN COSIGN_PASSWORD; do
 done
 image=
 no_network=false
+no_selinux_relabel=false
 run_command=
 previous=
 for argument in "$@"; do
   if [[ ${previous} == -a ]]; then image=${argument}; fi
   if [[ ${previous} == --run-command ]]; then run_command=${argument}; fi
   [[ ${argument} == --no-network ]] && no_network=true
+  [[ ${argument} == --no-selinux-relabel ]] && no_selinux_relabel=true
   previous=${argument}
 done
 [[ ${no_network} == true && -n ${image} && -f ${image} ]] || exit 43
 profile=$(printf '%s\n' "${run_command}" | awk '{ print $4 }')
 [[ ${profile} =~ ^(base|el8|el9|d12|d13)$ ]] || exit 45
+if [[ ${profile} == el8 ]]; then
+  [[ ${no_selinux_relabel} == true ]] || { printf 'EL8 must not defer labels to first boot\n' >&2; exit 46; }
+else
+  [[ ${no_selinux_relabel} == false ]] || exit 47
+fi
 printf '\nOFFLINE-NORMALIZED\nPROFILE=%s\n' "${profile}" >>"${image}"
 FAKE_CUSTOMIZE
 chmod 0755 "${temporary}/bin/virt-customize"
@@ -452,7 +459,7 @@ fi
 
 "${repo}/packaging/image-pipeline/build-official.py" --list >"${temporary}/official-matrix.txt"
 [[ $(wc -l <"${temporary}/official-matrix.txt" | tr -d ' ') == 8 ]]
-grep -Fxq $'el8/amd64\t8.10.20240528.2\tel8\tpackages=2' "${temporary}/official-matrix.txt"
+grep -Fxq $'el8/amd64\t8.10.20240528.3\tel8\tpackages=2' "${temporary}/official-matrix.txt"
 grep -Fxq $'el9/arm64\t9.8.20260525.2\tel9\tpackages=0' "${temporary}/official-matrix.txt"
 grep -Fxq $'d12/arm64\t20260923.2610.1\td12\tpackages=3' "${temporary}/official-matrix.txt"
 grep -Fxq $'d13/amd64\t20260914.2601.2\td13\tpackages=3' "${temporary}/official-matrix.txt"

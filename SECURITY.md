@@ -25,7 +25,8 @@ reachable as an individual command:
    firmware, and OpenSSH after printing the exact plan and asking once. On
    macOS, Homebrew runs as the invoking user and never needs root.
 2. **Installing the host-global fixed-IP network.** `barn network install`
-   prints the complete privileged plan and applies nothing without `--yes`.
+   prints the complete privileged plan and requires interactive confirmation
+   or an explicit `--yes` before applying it.
    `barn network uninstall` reverses it, restoring the recorded original
    ownership and mode of anything it changed.
 3. **Installing and invoking the hosts helper.** `barn-hosts-helper` is a

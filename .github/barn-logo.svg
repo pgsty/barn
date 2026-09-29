@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-labelledby="title">
+  <title id="title">Barn — Bootstrap And Run Nodes</title>
+  <defs>
+    <linearGradient id="b27g" x1="10%" y1="0%" x2="85%" y2="100%">
+      <stop stop-color="#D4895C" />
+      <stop offset=".53" stop-color="#AA5A3E" />
+      <stop offset="1" stop-color="#743C32" />
+    </linearGradient>
+    <clipPath id="b27c">
+      <circle cx="256" cy="256" r="232" />
+    </clipPath>
+  </defs>
+  <g transform="translate(54 44) scale(0.6875)">
+    <circle cx="256" cy="256" r="232" fill="url(#b27g)" />
+    <g transform="" clip-path="url(#b27c)">
+      <polygon points="0.00,101.00 265.00,49.00 172.00,269.00" fill="#EAB182" opacity="0.2" />
+      <polygon points="265.00,49.00 512.00,91.00 384.00,258.00 172.00,269.00" fill="#D78D62" opacity="0.18" />
+      <polygon points="0.00,302.00 172.00,269.00 256.00,512.00 0.00,512.00" fill="#714235" opacity="0.18" />
+      <polygon points="172.00,269.00 384.00,258.00 512.00,436.00 256.00,512.00" fill="#60372E" opacity="0.12" />
+    </g>
+    <path d="M127 244L170 162 256 115 342 162 385 244H360V379H152V244Z" fill="#FFF9EB" />
+    <polygon points="256.00,115.00 342.00,162.00 385.00,244.00 360.00,244.00 329.00,177.00 256.00,138.00" fill="#E9D6B8" />
+    <path d="M224 204L236 175 256 158 276 175 288 204Z" fill="#A65D42" />
+    <rect x="181" y="260" width="150" height="27" rx="3" fill="#8B4A38" />
+    <rect x="192" y="270" width="66" height="6" rx="2" fill="#FFF9EB" />
+    <circle cx="311" cy="273.5" r="4.7" fill="#D6AE68" />
+    <rect x="181" y="300" width="150" height="27" rx="3" fill="#8B4A38" />
+    <rect x="192" y="310" width="66" height="6" rx="2" fill="#FFF9EB" />
+    <circle cx="311" cy="313.5" r="4.7" fill="#D6AE68" />
+    <rect x="181" y="340" width="150" height="27" rx="3" fill="#8B4A38" />
+    <rect x="192" y="350" width="66" height="6" rx="2" fill="#FFF9EB" />
+    <circle cx="311" cy="353.5" r="4.7" fill="#D6AE68" />
+  </g>
+  <g transform="translate(480 125) scale(1.78)">
+    <path d="M0 0H51L70 17V39L59 50 70 61V83L51 100H0Z M18 17V42H44L52 35V24L44 17Z M18 59V83H44L52 76V66L44 59Z" fill="#344F60" fill-rule="evenodd" transform="translate(0 0)" />
+    <path d="M35 0L59 15 73 43V100H55V69H18V100H0V43L14 15Z M35 22L27 27 18 48V52H55V48L45 27Z" fill="#AF8250" fill-rule="evenodd" transform="translate(89 0)" />
+    <path d="M0 0H50L70 18V43L52 60 76 100H54L31 61H18V100H0Z M18 18V43H43L52 35V26L43 18Z" fill="#344F60" fill-rule="evenodd" transform="translate(178 0)" />
+    <path d="M0 100V0H18L56 66V0H74V100H56L18 34V100Z" fill="#344F60" fill-rule="evenodd" transform="translate(267 0)" />
+  </g>
+</svg>

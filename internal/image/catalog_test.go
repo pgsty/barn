@@ -23,13 +23,15 @@ func TestEmbeddedCatalogRoundTrip(t *testing.T) {
 	if entry.SHA256 != "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55" || entry.ArtifactSize != 620224512 || entry.VirtualSize != 3758096384 || catalog.Version != EmbeddedManifestVersion || catalog.Defaults.Image != "u24" || entry.Channel != "stable" {
 		t.Fatalf("entry/catalog = %#v %#v", entry, catalog)
 	}
-	if len(catalog.Images) != 9 || len(catalog.Entries()) != 39 {
+	if len(catalog.Images) != 9 || len(catalog.Entries()) != 41 {
 		t.Fatalf("embedded catalog matrix = %d images / %d entries", len(catalog.Images), len(catalog.Entries()))
 	}
 	for _, alias := range formalAliases {
 		record, ok := catalog.Images[alias]
 		wantVersions := 1
 		switch alias {
+		case "el8":
+			wantVersions = 2
 		case "u22", "u24", "u26":
 			wantVersions = 3
 		case "el9":

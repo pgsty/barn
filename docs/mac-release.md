@@ -10,8 +10,7 @@ the native job and ships every CLI archive and package without the Mac app;
 secrets configured, the native job must succeed: a failed build, signature or
 notarization stops the release instead of leaving the app out, and a partial
 set of secrets fails the release at once. The CLI and the app speak a
-versioned runner protocol, so an app from another build is refused rather than
-misused.
+versioned runner protocol; an app with an incompatible protocol is refused.
 
 ## Build and identity
 
@@ -82,6 +81,15 @@ Configure these repository secrets for that tag workflow:
 
 Signing material is imported into an ephemeral runner keychain and removed at
 the end of the job. It is not used for pull requests or snapshot builds.
+
+## Homebrew tap
+
+Release assembly generates `barn.rb` from `packaging/homebrew/barn.rb.tmpl`,
+using the versioned archive URLs and their checksums. Update
+`pgsty/homebrew-infra`'s `Formula/barn.rb` with that generated release formula
+as part of the same release. The user-facing macOS installation command is
+`brew install pgsty/infra/barn`; it requires the versioned formula in the tap.
+The formula preserves the native app when the Darwin arm64 archive includes it.
 
 ## Acceptance before publication
 

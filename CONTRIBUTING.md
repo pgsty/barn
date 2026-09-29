@@ -2,15 +2,15 @@
 
 ## Before you start
 
-Barn is pre-1.0 and deliberately small. The Linux deployment path has a few
-ratified non-negotiables, and a change that contradicts one of them will be
-declined no matter how well it is implemented:
+Barn keeps a small, focused product model. Contributions to the Linux
+deployment path should preserve these design choices:
 
 - **Exactly one deployment per user.** No projects, no leases, no workspaces.
 - **One inventory format.** A Pigsty-compatible Ansible inventory is the only
   configuration. `barn.yml` is preferred over `pigsty.yml` only as a filename.
-- **The `vm_*` namespace is strict; everything else is opaque.** An unknown
-  `vm_*` key is a hard error. A non-`vm_*` key is never validated.
+- **The `vm_*` namespace is strict.** An unknown `vm_*` key is a hard error.
+  Barn also reads the documented Pigsty identity and network fields; all
+  other inventory fields remain opaque.
 - **Absence never destroys.** Removing a host from the inventory does not delete
   a machine. Destruction is always explicit and confirmed.
 - **One helper binary.** Privileged work goes through `barn-hosts-helper` or

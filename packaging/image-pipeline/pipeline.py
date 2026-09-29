@@ -546,6 +546,11 @@ def normalize_offline(
         "--chmod",
         f"0700:{remote_script}",
     ]
+    if profile == "el8":
+        # The guest script completes and verifies EL8's labels itself. Some
+        # appliances lack SELinux support and otherwise schedule a slow first
+        # boot relabel even after the guest labels have been repaired.
+        arguments.append("--no-selinux-relabel")
     if packages:
         arguments.extend(("--mkdir", remote_packages))
         for package in packages:

@@ -12,15 +12,24 @@ Linux `destroy` and `purge` leave them alone.
 
 ## Install
 
-`barn mac` needs the native Mac component, `Barn Mac.app`, next to the
-`barn` it serves. Releases will include it once it is signed and notarized
-by Apple; until then, build both from a source checkout with Xcode 27:
+Install [Barn 0.9.0](https://barn.pgsty.com/docs/start/installation/) and run
+`barn mac doctor`. Mac guests require the native component `Barn Mac.app`
+alongside the CLI. The installer preserves it when it is included in the
+Darwin arm64 archive.
+
+The 0.9.0 release archives provide the CLI. Build the native bundle from the
+0.9.0 source with Xcode 27 on Apple Silicon:
 
 ```sh
+git clone --branch v0.9.0 https://github.com/pgsty/barn.git
+cd barn
 make mac-build
 export PATH="$PWD/bin/mac:$PATH"
-barn mac doctor      # checks macOS, the component and free disk space
+barn mac doctor
 ```
+
+Keep `barn` and `Barn Mac.app` together in `bin/mac`. Xcode is needed for
+building the component, not for running a packaged one.
 
 ## Quick start
 
@@ -36,8 +45,7 @@ from Apple (`updates.cdn-apple.com`, about 27 GB) after showing what it will
 download and asking, or takes one you already have with `--ipsw`. The download
 resumes after an interruption and is verified against Apple's published SHA-256.
 Barn then installs macOS once into an unbooted *base* (about 20 minutes).
-Every machine is a copy-on-write clone of that base, so later machines start in
-seconds and use disk only for what they change.
+Every machine is a copy-on-write clone of that base, so later machines skip the full restore and use disk for their own changes.
 
 ```sh
 barn mac up --yes                                  # scripts: accept the download
@@ -114,14 +122,16 @@ mark as concealed never leave the host. Turn it off per machine with
 Shared folders appear in the guest under `/Volumes/My Shared Files/<name>`:
 
 ```sh
-barn mac up dev --share ~/src --share docs=~/Documents:ro
+barn mac stop dev
+barn mac configure dev --share ~/src --share docs=~/Documents:ro
+barn mac start dev
 barn mac stop dev && barn mac configure dev --share data=/Volumes/Work/data --unshare docs
 ```
 
 A share is a real host directory (not a symlink), read-write unless marked
 `:ro`. Barn never creates or deletes shared directories. macOS guests can
 serve stale file contents for a while after the host changes a file; use SSH
-or `exec` when you need an immediately consistent view.
+to copy files with `scp` or `rsync` onto the guest's own disk when you need the latest bytes immediately.
 
 ## SSH
 
@@ -140,8 +150,7 @@ Include line to add instead.
 macOS Local Network privacy blocks third-party programs from the machines'
 private networks unless their app is allowed under **System Settings → Privacy &
 Security → Local Network**; the symptom is "No route to host". Barn connects
-through Apple's own `/usr/bin/nc` and `/usr/bin/ssh`, which are exempt, so
-`mac ssh`, `mac exec` and plain `/usr/bin/ssh mac1` always work.
+through Apple's own `/usr/bin/nc` and `/usr/bin/ssh` to avoid that particular privacy restriction.
 
 ## Accounts and passwords
 
@@ -167,15 +176,15 @@ The first machine uses `10.10.20.0/24`, later ones the next free /24 in
 `10.10.20.0`–`10.10.59.0`, avoiding every route on the host: your LAN, VPNs and
 the Linux lab. `--subnet` chooses one explicitly.
 
-Machines reach the internet through NAT and the host through its gateway
-address. They are isolated from each other and are not exposed on your LAN.
+Machines reach the host through its gateway address and use NAT for outbound
+connections. They have separate subnets; Barn does not bridge them onto the LAN
+or configure incoming port forwards.
 Nothing runs as root: the private network needs no helper, daemon or
 administrator prompt. If a VPN later claims a machine's subnet, `start` stops
 before booting and suggests `barn mac configure NAME --subnet auto`.
 
-First-contact SSH trust comes from this isolation: only the machine can answer
-on its private network, so the host key it presents on first boot is pinned
-and required from then on.
+Barn pins the SSH host key on first contact and requires that key on later
+connections to the same machine instance.
 
 ## Storage
 
@@ -208,9 +217,8 @@ prepares it as the default base; existing machines keep theirs until
 - Apple allows two running macOS virtual machines per Mac.
 - Apple Account sign-in inside a virtual machine is unreliable, and USB
   devices, snapshots and suspending a machine are not supported.
-- The Mac component is built from source until a release includes a signed,
-  notarized one (see [Install](#install)); `barn mac doctor` explains a
-  missing or mismatched component.
+- The native Mac component must be installed (see [Install](#install));
+  `barn mac doctor` reports a missing component or incompatible runner protocol.
 
 `make mac-native-test` runs the native tests; `go test ./internal/macvm
 ./cmd/barn` covers the CLI. The required live checks are listed in

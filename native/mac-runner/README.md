@@ -7,6 +7,10 @@ Virtualization lifecycle, each machine's private vmnet network, and the native
 desktop window with its clipboard sharing. It never reads `barn.yml` or Linux
 VM state, and it never needs root.
 
+`Barn.icns` is the Compute Barn brand mark at macOS icon sizes.
+`packaging/build-mac-app.sh` installs it into `Contents/Resources` before
+signing the app; `Info.plist` selects it for the desktop and Dock.
+
 Build with Xcode 27 on Apple Silicon:
 
 ```sh
@@ -46,8 +50,7 @@ reports another protocol version.
 `run` creates the machine's private network before the VM: a shared-mode
 vmnet network whose host gateway is `--gateway` (the subnet's `.1`), with one
 DHCP reservation giving `--mac` the address `--address` (`.10`). The network
-belongs to this process and disappears when it exits. Machines on different
-networks cannot reach each other.
+belongs to this process and disappears when it exits. Each runner attaches only its own VM to its own logical network.
 
 stdin carries exactly one JSON line, then closes:
 

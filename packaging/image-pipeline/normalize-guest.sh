@@ -383,11 +383,23 @@ if [[ ${profile} == d12 || ${profile} == d13 ]]; then
   [[ ! -e /usr/lib/locale/locale-archive ]] || touch -d "@${source_date_epoch}" /usr/lib/locale/locale-archive
 fi
 
-# EL guests enforce SELinux labels. A blanket virt-customize
-# --selinux-relabel is not valid for the Debian/Ubuntu inputs, so relabel only
-# the paths this cross-distribution recipe creates or replaces when restorecon
-# is present. Native boot/readiness remains a promotion gate.
-if command -v restorecon >/dev/null; then
+# EL8's first-boot relabel also reboots the guest and can exceed Barn's ready
+# timeout. Use the guest's own policy/tools offline, independently of the
+# appliance's SELinux support, and remove the pending marker only on success.
+if [[ ${profile} == el8 ]]; then
+  for tool in setfiles matchpathcon; do
+    command -v "${tool}" >/dev/null || { printf 'required EL8 SELinux command missing: %s\n' "${tool}" >&2; exit 3; }
+  done
+  selinux_type=$(awk -F= '$1 ~ /^[[:space:]]*SELINUXTYPE[[:space:]]*$/ { gsub(/[[:space:]\"]/, "", $2); print $2 }' /etc/selinux/config)
+  [[ ${selinux_type} =~ ^[a-zA-Z0-9_-]+$ ]] || { printf 'invalid EL8 SELinux policy type\n' >&2; exit 3; }
+  selinux_contexts=/etc/selinux/${selinux_type}/contexts/files/file_contexts
+  [[ -s ${selinux_contexts} ]] || { printf 'EL8 SELinux file contexts are missing\n' >&2; exit 3; }
+  setfiles -F -e /dev -e /proc -e /sys -e /run -e /boot/efi "${selinux_contexts}" /
+  matchpathcon -V /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/machine-id \
+    /home/dba /etc/sudoers.d/90-barn-dba /etc/ssh/sshd_config.d/99-barn-image.conf \
+    /etc/cloud/cloud.cfg.d/90-barn-image-ntp.cfg /var/lib/barn-image/normalization.json
+  rm -f /.autorelabel
+elif command -v restorecon >/dev/null; then
   restorecon -F /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/machine-id
   restorecon -RF /home/dba /etc/sudoers.d/90-barn-dba \
     /etc/ssh/sshd_config.d/99-barn-image.conf /var/lib/barn-image

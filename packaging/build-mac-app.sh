@@ -20,8 +20,9 @@ trap cleanup EXIT
 app="$stage/Barn Mac.app"
 macos="$app/Contents/MacOS"
 native="$stage/native"
-mkdir -p "$macos" "$native"
+mkdir -p "$macos" "$native" "$app/Contents/Resources"
 install -m 0644 "$repo/native/mac-runner/Info.plist" "$app/Contents/Info.plist"
+install -m 0644 "$repo/native/mac-runner/Barn.icns" "$app/Contents/Resources/Barn.icns"
 version=${BARN_VERSION:-dev}
 [[ $version =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]] || { echo "Invalid BARN_VERSION" >&2; exit 2; }
 short_version=0.0.0

@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://barn.pgsty.com/
+    url: https://barn.pgsty.com/docs/
     about: Installation, tutorial, reference, and the supported-platform status page.
   - name: Security vulnerability
     url: https://github.com/pgsty/barn/security/advisories/new

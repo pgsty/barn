@@ -63,7 +63,8 @@ BARN_HOME="$stage/empty-home" "$bundle/barn" mac ls --json > "$stage/empty-slots
 (
   cd "$bundle"
   shasum -a 256 barn barn-hosts-helper barn-mac-runner LICENSE README.md USER_GUIDE.md RUNNER_PROTOCOL.md \
-    "Barn Mac.app/Contents/Info.plist" "Barn Mac.app/Contents/MacOS/"* "Barn Mac.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
+    "Barn Mac.app/Contents/Info.plist" "Barn Mac.app/Contents/MacOS/"* \
+    "Barn Mac.app/Contents/Resources/Barn.icns" "Barn Mac.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 archive="$stage/barn-mac-darwin-arm64.tar.gz"

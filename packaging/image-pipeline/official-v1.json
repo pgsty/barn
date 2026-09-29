@@ -1,6 +1,6 @@
 {
   "artifact_base_url": "https://repo.pigsty.cc/barn",
-  "manifest_version": 2026092902,
+  "manifest_version": 2026093001,
   "schema": 1,
   "source_date_epoch": 1790640000,
   "targets": [
@@ -221,7 +221,7 @@
         "schema": 1
       },
       "profile": "el8",
-      "release": "8.10.20240528.2",
+      "release": "8.10.20240528.3",
       "source_filename": "el8-8.10.20240528.0-amd64.qcow2",
       "source_sha256": "e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14",
       "source_sha512": null,
@@ -260,7 +260,7 @@
         "schema": 1
       },
       "profile": "el8",
-      "release": "8.10.20240528.2",
+      "release": "8.10.20240528.3",
       "source_filename": "el8-8.10.20240528.0-arm64.qcow2",
       "source_sha256": "946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f",
       "source_sha512": null,

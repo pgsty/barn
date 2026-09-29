@@ -1,6 +1,6 @@
 {
   "schema": 3,
-  "revision": 2026092902,
+  "revision": 2026093001,
   "defaults": {
     "image": "u24",
     "channel": "stable",
@@ -199,7 +199,7 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "8.10.20240528.2"
+        "stable": "8.10.20240528.3"
       },
       "versions": {
         "8.10.20240528.2": {
@@ -222,6 +222,29 @@
               "virtual_size": 10737418240,
               "source_user": "dba",
               "provenance": "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:dfc88170d5a387a8b35eb232ec52970fa88f6caef532e32aab6928fb78f89410; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; TCG UEFI (upstream 64 KiB ARM kernel) dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+            }
+          }
+        },
+        "8.10.20240528.3": {
+          "status": "supported",
+          "variants": {
+            "amd64": {
+              "file": "images/el8-8.10.20240528.3-amd64.qcow2",
+              "sha256": "32beda4ee88880fd989d2887cb2ed34ac39a1423fc85c8591a5cbd850fe0cc71",
+              "format": "qcow2",
+              "artifact_size": 2098659328,
+              "virtual_size": 10737418240,
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base-8.10-20240528.0.x86_64.qcow2 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; recipe sha256:c306035a892ffc3be32487b8a9c938667b0f242eb069229834f1806a46055fcd; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected; SELinux labels completed and verified offline, pending autorelabel removed only after success; native KVM UEFI; two pristine first boots and full Barn lifecycle passed with the default 180-second guest readiness timeout; dba UID/GID 88, Python, cloud-init without warnings, chronyd, SELinux Enforcing, XFS data writes and direct repository HTTPS verified 2026-09-30; upstream is build provenance only"
+            },
+            "arm64": {
+              "file": "images/el8-8.10.20240528.3-arm64.qcow2",
+              "sha256": "9dc4c04a521c0aa7072a12ff523403d167d79302c1b5e1b28ceab8b3e9b55de6",
+              "format": "qcow2",
+              "artifact_size": 1958019072,
+              "virtual_size": 10737418240,
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:2c1358ad54ed54b5524b8e5e887c77739cfecc87ea1fe234e4ca5e7d71ad6847; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected; SELinux labels completed and verified offline, pending autorelabel removed only after success; TCG UEFI first boot and disk-preserving restart passed; unchanged upstream 64 KiB kernel remains incompatible with Apple HVF; dba UID/GID 88, Python, cloud-init without warnings, chronyd, SELinux Enforcing, XFS data writes and direct repository HTTPS verified 2026-09-30; upstream is build provenance only"
             }
           }
         }
