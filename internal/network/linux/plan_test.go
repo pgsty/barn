@@ -78,6 +78,20 @@ func testConfig() Config {
 	return Config{CIDR: "10.10.10.0/24", HostAddress: "10.10.10.1", DHCPEnd: "10.10.10.8"}
 }
 
+func TestManifestRequiresExplicitBackend(t *testing.T) {
+	plan, err := NewInstallPlan(debianFacts(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Manifest.Backend != BackendNetworkd {
+		t.Fatalf("network owner not recorded: %q", plan.Manifest.Backend)
+	}
+	plan.Manifest.Backend = ""
+	if err := validateManifest(plan.Manifest); err == nil {
+		t.Fatal("accepted a retired manifest without its network owner")
+	}
+}
+
 func TestDebianInstallPlanIsTypedAndMarkerPreserving(t *testing.T) {
 	t.Parallel()
 	plan, err := NewInstallPlan(debianFacts(), testConfig())

@@ -11,11 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/pgsty/barn/internal/execx"
@@ -41,15 +38,6 @@ func ExpectedArgvHash(invocation qemu.Invocation) string {
 	return hashArgv(parts)
 }
 
-// Compatibility expiry: process-start-v0 in CONTRIBUTING.md#compatibility-expiry.
-// IsLegacyStart reports the pre-0.1 process birth encoding produced by
-// `ps -o lstart`. Known-but-malformed numeric prefixes fail closed instead of
-// being reinterpreted as locale-dependent legacy text.
-func IsLegacyStart(started string) bool {
-	return started != "" && !numericStartPattern.MatchString(started) &&
-		!strings.HasPrefix(started, "procstat:") && !strings.HasPrefix(started, "kinfo:")
-}
-
 func hashArgv(argv []string) string {
 	var encoded bytes.Buffer
 	for _, argument := range argv {
@@ -58,51 +46,6 @@ func hashArgv(argv []string) string {
 	}
 	digest := sha256.Sum256(encoded.Bytes())
 	return hex.EncodeToString(digest[:])
-}
-
-func observeLegacyCommand(ctx context.Context, runner execx.Runner, invocation qemu.Invocation, pid int) (string, string, error) {
-	if runner == nil || pid <= 0 {
-		return "", "", errors.New("process runner and positive PID are required")
-	}
-	psPath, err := exec.LookPath("ps")
-	if err != nil {
-		return "", "", err
-	}
-	result, err := runner.Run(ctx, psPath, "-ww", "-p", strconv.Itoa(pid), "-o", "command=")
-	if err != nil {
-		return "", "", err
-	}
-	commandLine := strings.TrimSpace(string(result.Stdout))
-	fields := strings.Fields(commandLine)
-	if len(fields) == 0 {
-		return "", "", errors.New("process command line is empty")
-	}
-	executable := fields[0]
-	hash := sha256.Sum256([]byte(commandLine))
-	if filepath.Base(executable) != filepath.Base(invocation.Binary) {
-		return "", "", fmt.Errorf("process executable %q does not match QEMU %q", executable, invocation.Binary)
-	}
-	return executable, hex.EncodeToString(hash[:]), nil
-}
-
-func captureLegacy(ctx context.Context, runner execx.Runner, invocation qemu.Invocation, pid int) (Identity, error) {
-	executable, argvHash, err := observeLegacyCommand(ctx, runner, invocation, pid)
-	if err != nil {
-		return Identity{}, err
-	}
-	psPath, err := exec.LookPath("ps")
-	if err != nil {
-		return Identity{}, err
-	}
-	result, err := runner.Run(ctx, psPath, "-ww", "-p", strconv.Itoa(pid), "-o", "lstart=")
-	if err != nil {
-		return Identity{}, err
-	}
-	started := strings.TrimSpace(string(result.Stdout))
-	if started == "" {
-		return Identity{}, errors.New("process start time is empty")
-	}
-	return Identity{PID: pid, Executable: executable, Started: started, ArgvHash: argvHash}, nil
 }
 
 // Capture records a locale- and timezone-independent process birth identity.
@@ -148,13 +91,10 @@ func MatchesLive(ctx context.Context, runner execx.Runner, identity Identity, in
 	if !Alive(identity.PID) || identity.Executable == "" || identity.Started == "" || identity.ArgvHash == "" {
 		return false
 	}
-	var current Identity
-	var err error
-	if IsLegacyStart(identity.Started) {
-		current, err = captureLegacy(ctx, runner, invocation, identity.PID)
-	} else {
-		current, err = Capture(ctx, runner, invocation, identity.PID)
+	if !numericStartPattern.MatchString(identity.Started) {
+		return false
 	}
+	current, err := Capture(ctx, runner, invocation, identity.PID)
 	return err == nil && current == identity
 }
 
@@ -179,7 +119,7 @@ func Observe(ctx context.Context, runner execx.Runner, identity Identity, invoca
 	if MatchesLive(ctx, runner, identity, invocation) {
 		return Ours
 	}
-	if identity.Started != "" && !IsLegacyStart(identity.Started) {
+	if numericStartPattern.MatchString(identity.Started) {
 		if started, err := processStarted(identity.PID); err == nil && started != identity.Started {
 			return Foreign
 		}

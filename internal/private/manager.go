@@ -959,10 +959,6 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 	readErrors := make(map[string]error)
 	failures := make([]NodeFailure, 0)
 	nodes := make(map[string]state.NodeState, len(selected))
-	// Compatibility expiry: process-start-v0 in CONTRIBUTING.md#compatibility-expiry.
-	// Pre-0.1 development states stored locale- and timezone-dependent ps lstart
-	// text. Migrate only an identity that still matches every legacy fact in the
-	// caller's current environment; a mismatch remains fail-closed.
 	for _, definition := range deploymentState.Resolved.Nodes {
 		if _, include := selectedSet[definition.Name]; !include {
 			continue
@@ -974,23 +970,6 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 		if err != nil {
 			readErrors[definition.Name] = err
 			continue
-		}
-		if converge && completeProcess(node.Process) && process.IsLegacyStart(node.Process.Started) {
-			recorded := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
-			if process.MatchesLive(ctx, m.runner(), recorded, node.Invocation) {
-				fresh, captureErr := process.Capture(ctx, m.runner(), node.Invocation, node.Process.PID)
-				if captureErr != nil || fresh.PID != recorded.PID || fresh.ArgvHash != process.ExpectedArgvHash(node.Invocation) {
-					result.Message = appendStatusMessage(result.Message, "kept legacy process identity for "+node.Node+" because native argv binding was unavailable or did not match")
-				} else {
-					node.Process = recordProcess(fresh)
-					node.UpdatedAt = time.Now().UTC()
-					if err := store.WriteNode(node); err != nil {
-						readErrors[node.Node] = fmt.Errorf("migrate process identity: %w", err)
-						continue
-					}
-					result.Message = appendStatusMessage(result.Message, "migrated legacy process identity for "+node.Node)
-				}
-			}
 		}
 		nodes[node.Node] = node
 	}

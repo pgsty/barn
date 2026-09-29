@@ -79,7 +79,7 @@ func TestCaptureRecordsStableIdentityAndRejectsAForeignBinary(t *testing.T) {
 	if identity.PID != pid || identity.Executable == "" || identity.Started == "" || len(identity.ArgvHash) != 64 {
 		t.Fatalf("identity = %#v", identity)
 	}
-	if IsLegacyStart(identity.Started) {
+	if !numericStartPattern.MatchString(identity.Started) {
 		t.Fatalf("Capture produced legacy start identity %q", identity.Started)
 	}
 	if identity.ArgvHash != ExpectedArgvHash(invocation) {
@@ -115,20 +115,15 @@ func TestNumericIdentitySurvivesLocaleAndTimezoneChanges(t *testing.T) {
 	}
 }
 
-func TestLegacyIdentityRemainsReadableWithoutWeakMigration(t *testing.T) {
-	t.Setenv("LC_ALL", "C")
-	t.Setenv("TZ", "UTC")
+func TestMatchesLiveRejectsLegacyStartEncoding(t *testing.T) {
 	pid, invocation := liveProcess(t, "121")
-	legacy, err := captureLegacy(context.Background(), testRunner(), invocation, pid)
+	identity, err := Capture(context.Background(), testRunner(), invocation, pid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !IsLegacyStart(legacy.Started) || !MatchesLive(context.Background(), testRunner(), legacy, invocation) {
-		t.Fatalf("legacy identity was not accepted in its original environment: %#v", legacy)
-	}
-	t.Setenv("TZ", "Pacific/Honolulu")
-	if MatchesLive(context.Background(), testRunner(), legacy, invocation) {
-		t.Fatal("legacy locale/timezone identity unexpectedly matched after timezone change")
+	identity.Started = "Thu Jan  1 00:00:00 1970"
+	if MatchesLive(context.Background(), testRunner(), identity, invocation) {
+		t.Fatal("accepted retired locale-dependent process identity")
 	}
 }
 
@@ -249,6 +244,23 @@ func TestObserveProvesPIDReuse(t *testing.T) {
 	other, otherInvocation := liveProcess(t, "124")
 	reused := identity
 	reused.PID = other
+	// Linux start identities have clock-tick precision. Both children can be
+	// born in one tick; wait until this fixture actually proves a later birth.
+	deadline := time.Now().Add(time.Second)
+	for {
+		started, err := processStarted(reused.PID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if started != identity.Started {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("could not create a process with a distinct start identity")
+		}
+		time.Sleep(20 * time.Millisecond)
+		reused.PID, otherInvocation = liveProcess(t, "124")
+	}
 	if got := Observe(context.Background(), testRunner(), reused, otherInvocation); got != Foreign {
 		t.Fatalf("reused PID = %v, want Foreign", got)
 	}

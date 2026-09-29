@@ -33,10 +33,8 @@ const (
 	markerBegin        = "# BEGIN BARN MANAGED: barn0"
 	markerEnd          = "# END BARN MANAGED: barn0"
 
-	// Compatibility expiry: linux-network-backend-v0 in CONTRIBUTING.md#compatibility-expiry.
 	// The backend is selected by the active host-network owner: NetworkManager
-	// when it is running, otherwise systemd-networkd. Legacy manifests carry no
-	// backend field and mean networkd.
+	// when it is running, otherwise systemd-networkd.
 	BackendNetworkd       = "networkd"
 	BackendNetworkManager = "networkmanager"
 
@@ -193,7 +191,7 @@ type Command struct {
 type Manifest struct {
 	Schema             int                  `json:"schema"`
 	Family             Family               `json:"family"`
-	Backend            string               `json:"backend,omitempty"`
+	Backend            string               `json:"backend"`
 	Bridge             string               `json:"bridge"`
 	CIDR               string               `json:"cidr"`
 	HostAddress        string               `json:"host_address"`
@@ -415,15 +413,8 @@ func validateHelper(facts Facts) (*Override, []Command, []string, error) {
 	}
 }
 
-// Compatibility expiry: linux-network-backend-v0 in CONTRIBUTING.md#compatibility-expiry.
-// ManifestBackend normalizes the backend of a manifest; legacy manifests
-// without the field are systemd-networkd installations.
-func ManifestBackend(manifest Manifest) string {
-	if manifest.Backend == "" {
-		return BackendNetworkd
-	}
-	return manifest.Backend
-}
+// ManifestBackend returns the explicitly recorded network owner.
+func ManifestBackend(manifest Manifest) string { return manifest.Backend }
 
 // PublicNetworkState is the world-readable identity file of a
 // NetworkManager-backend installation.
@@ -637,7 +628,7 @@ func NewInstallPlan(facts Facts, config Config) (Plan, error) {
 		appliedOverride = existing.AppliedOverride
 	}
 	manifest := Manifest{
-		Schema: 1, Family: facts.Family, Bridge: BridgeName, CIDR: config.CIDR,
+		Schema: 1, Family: facts.Family, Backend: BackendNetworkd, Bridge: BridgeName, CIDR: config.CIDR,
 		HostAddress: config.HostAddress, DHCPEnd: config.DHCPEnd, HelperPath: facts.Helper.Path,
 		OriginalHelper: originalHelper, OriginalBridgeConf: originalBridgeConf, OriginalBridgePath: originalBridgePath,
 		QEMUConfigCreated: qemuConfigCreated, NetworkdUnits: originalUnits,

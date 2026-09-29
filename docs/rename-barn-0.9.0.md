@@ -47,6 +47,7 @@
 
 - 完整 `make check` 已通过，包括 module、shell、maintenance、Go test/race、vet、Staticcheck、deadcode、errcheck、govulncheck、四平台构建、镜像流水线、安装器与许可证检查。
 - CLI/helper 测试及 40/80/120 列输出测试通过。删除旧 Mac 迁移命令和默认模板的旧版识别分支，不保留虚构的 Barn 历史身份。
+- 进一步移除旧进程身份迁移、单仓库 Catalog 状态升级、缺省网络 backend 和未声明 inherited files 的兼容分支；当前进程、仓库与网络状态均使用显式结构。
 - Native 单元测试、完整 `make mac-build`、新 app/runner 的严格 ad-hoc 签名验证、解包摘要与 probe、空数据根列表检查通过。新归档仅包含 Barn payload。
 - 本轮未重跑真实 VM 生命周期；本机无运行中的 QEMU/Mac runner，也未找到可复用的 macOS prepared base，因此没有为品牌改名额外下载大型恢复镜像。
 - 文档站 `make check` 与中英文首页视觉检查通过，227 个 HTML 的内链/锚点/资源校验通过。

@@ -56,7 +56,7 @@ const (
 	exitIntegrity  = 7
 	exitCancelled  = 130
 
-	// Compatibility expiry: user-network-state-v0 in CONTRIBUTING.md#compatibility-expiry.
+	// Retired network states are refused without adopting or modifying disks.
 	legacyDeploymentMessage = "this deployment predates the fixed-IP redesign; preserve any needed disks, then move or remove the selected BARN_HOME and run `barn setup && barn up`"
 )
 

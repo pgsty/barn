@@ -146,6 +146,30 @@ func TestReadinessEndpointNeverTakesAnotherMachinesSocket(t *testing.T) {
 	m, _ := testManager(t)
 	other := testMachine(t, m, "a-ready", "10.10.21.0/24", true)
 	startFakeRuntime(t, m, other)
+	assertOtherSocket := func() {
+		t.Helper()
+		socket, err := m.socket(other.Name, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := net.Dial("unix", socket)
+		if err != nil {
+			t.Fatalf("a's readiness wait broke a-ready's runner socket: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		_ = conn.SetDeadline(time.Now().Add(time.Second))
+		if err := json.NewEncoder(conn).Encode(map[string]string{"instance": other.InstanceID, "method": "status"}); err != nil {
+			t.Fatal(err)
+		}
+		var reply struct {
+			OK       bool   `json:"ok"`
+			Instance string `json:"instance"`
+			State    string `json:"state"`
+		}
+		if err := json.NewDecoder(conn).Decode(&reply); err != nil || !reply.OK || reply.Instance != other.InstanceID || reply.State != "running" {
+			t.Fatalf("a-ready's runner socket no longer answers for its own machine: %+v, %v", reply, err)
+		}
+	}
 	testMachine(t, m, "a", "10.10.20.0/24", true)
 	ctx := context.Background()
 	op, err := m.acquireOperation(ctx, "a", "mac up a")
@@ -157,11 +181,7 @@ func TestReadinessEndpointNeverTakesAnotherMachinesSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.status(ctx, other); err != nil {
-		t.Fatalf("a's readiness wait broke a-ready's runner socket: %v", err)
-	}
+	assertOtherSocket()
 	finish()
-	if _, err := m.status(ctx, other); err != nil {
-		t.Fatalf("finishing a's readiness wait removed a-ready's runner socket: %v", err)
-	}
+	assertOtherSocket()
 }

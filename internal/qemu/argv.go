@@ -90,13 +90,6 @@ func (i Invocation) UsesPrivateFD3() bool {
 			return true
 		}
 	}
-	// Compatibility with node state written before inherited files became a
-	// typed part of the invocation.
-	for index := 0; index+1 < len(i.Args); index++ {
-		if i.Args[index] == "-netdev" && i.Args[index+1] == "socket,id=private,fd=3" {
-			return true
-		}
-	}
 	return false
 }
 

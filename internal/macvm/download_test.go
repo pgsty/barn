@@ -287,16 +287,16 @@ func TestImportPreservesSourceAndChecksDigest(t *testing.T) {
 }
 
 func TestVerifiedInstallerCacheSurvivesSourceURLChange(t *testing.T) {
-	body := "same official build from local import and Apple download"
+	body := "same official build from two Apple download URLs"
 	s := testStore(t)
-	source := filepath.Join(t.TempDir(), "local.ipsw")
-	if err := os.WriteFile(source, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	spec := fixtureSpec("", body)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+	spec := fixtureSpec(server.URL, body)
 	spec.Version, spec.Build = "27.1", "26B100"
-	imported, err := s.ImportIPSW(context.Background(), source, spec, DownloadOptions{})
-	assertInstaller(t, imported, err, body)
+	cached, err := s.DownloadIPSW(context.Background(), spec, DownloadOptions{AllowHTTP: true})
+	assertInstaller(t, cached, err, body)
 	spec.URL = "https://updates.cdn-apple.com/never-download-cached-fixture.ipsw"
 	requests := 0
 	options := DownloadOptions{Client: &http.Client{Transport: fixtureRoundTripper(func(*http.Request) (*http.Response, error) {
@@ -305,7 +305,7 @@ func TestVerifiedInstallerCacheSurvivesSourceURLChange(t *testing.T) {
 	})}}
 	reused, err := s.DownloadIPSW(context.Background(), spec, options)
 	assertInstaller(t, reused, err, body)
-	if reused.Path != imported.Path {
+	if reused.Path != cached.Path {
 		t.Fatal("source URL change created another cache")
 	}
 	spec.SHA256 = strings.Repeat("f", 64)

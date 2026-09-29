@@ -118,23 +118,6 @@ func verifyManifest(keys []minisign.PublicKey, data, signatureText []byte) (uint
 	return 0, fmt.Errorf("manifest signature uses unknown key ID %016X", signature.KeyID)
 }
 
-func strictManifestState(data []byte) (ManifestState, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var state ManifestState
-	if err := decoder.Decode(&state); err != nil {
-		return ManifestState{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return ManifestState{}, errors.New("manifest state has trailing JSON")
-	}
-	if err := validateManifestState(state); err != nil {
-		return ManifestState{}, err
-	}
-	return state, nil
-}
-
 func validateManifestState(state ManifestState) error {
 	if state.Schema != ManifestStateSchema || state.HighestVersion == 0 || state.ActiveVersion == 0 || (state.Active != "embedded" && state.HighestVersion < state.ActiveVersion) || !digestPattern.MatchString(state.ActiveDigest) || state.Source == "" || state.AcceptedAt.IsZero() {
 		return errors.New("manifest state fields are invalid")
@@ -196,14 +179,6 @@ func (m ManifestManager) readRegistry() (ManifestRegistry, error) {
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return ManifestRegistry{}, err
-	}
-	// Compatibility expiry: manifest-state-v1 in CONTRIBUTING.md#compatibility-expiry.
-	if header.Schema == ManifestStateSchema {
-		legacy, err := strictManifestState(data)
-		if err != nil {
-			return ManifestRegistry{}, err
-		}
-		return ManifestRegistry{Schema: ManifestRegistrySchema, Repositories: map[string]ManifestState{"default": legacy}}, nil
 	}
 	if header.Schema != ManifestRegistrySchema {
 		return ManifestRegistry{}, fmt.Errorf("unsupported manifest registry schema %d", header.Schema)
@@ -275,7 +250,6 @@ func embeddedState() (ManifestState, error) {
 	return ManifestState{Schema: ManifestStateSchema, HighestVersion: EmbeddedManifestVersion, Active: "embedded", ActiveVersion: EmbeddedManifestVersion, ActiveDigest: manifestDigest(data), Source: "embedded", AcceptedAt: embeddedManifestGeneratedAt}, nil
 }
 
-// Compatibility expiry: manifest-state-v1 in CONTRIBUTING.md#compatibility-expiry.
 // currentBaselineState advances any state whose accepted high-water mark
 // predates this binary. The compiled catalog is trusted, strictly newer data;
 // older signed files remain on disk and can be selected again only through an

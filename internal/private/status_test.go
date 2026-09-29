@@ -2,8 +2,6 @@ package private
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -126,51 +124,6 @@ func shortRuntimeBase(t *testing.T, prefix string) string {
 	return canonical
 }
 
-func legacyIdentityForProcess(t *testing.T, command *exec.Cmd, invocation qemu.Invocation) state.ProcessIdentity {
-	t.Helper()
-	ps, err := exec.LookPath("ps")
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := exec.Command(ps, "-ww", "-p", strconv.Itoa(command.Process.Pid), "-o", "lstart=").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(append([]string{invocation.Binary}, invocation.Args...), " ")
-	digest := sha256.Sum256([]byte(joined))
-	return state.ProcessIdentity{
-		PID: command.Process.Pid, Executable: invocation.Binary,
-		Started: strings.TrimSpace(string(output)), ArgvHash: hex.EncodeToString(digest[:]),
-	}
-}
-
-func TestStatusMigratesMatchingLegacyIdentityBeforeRuntimeError(t *testing.T) {
-	t.Setenv("LC_ALL", "C")
-	t.Setenv("TZ", "UTC")
-	_, store := statusFixture(t)
-	command, invocation := startStatusProcess(t)
-	node, err := store.ReadNode("meta")
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := shortRuntimeBase(t, "barn-legacy-status-")
-	node.Phase = state.Running
-	node.Invocation = invocation
-	node.Runtime = state.RuntimePaths{Directory: filepath.Join(base, "barn", node.Node), QMP: filepath.Join(base, "barn", node.Node, "qmp.sock"), PIDFile: filepath.Join(base, "barn", node.Node, "qemu.pid")}
-	node.Process = legacyIdentityForProcess(t, command, invocation)
-	if err := store.WriteNode(node); err != nil {
-		t.Fatal(err)
-	}
-	_, statusErr := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
-	if statusErr == nil || !strings.Contains(statusErr.Error(), "QMP socket does not answer") {
-		t.Fatalf("status error = %v", statusErr)
-	}
-	migrated, err := store.ReadNode("meta")
-	if err != nil || process.IsLegacyStart(migrated.Process.Started) || migrated.Process.Started == node.Process.Started {
-		t.Fatalf("migrated process = %#v, %v", migrated.Process, err)
-	}
-}
-
 func TestStatusAdoptsQMPBoundInterruptedStart(t *testing.T) {
 	_, store := statusFixture(t)
 	command, invocation := startStatusProcess(t)
@@ -199,7 +152,7 @@ func TestStatusAdoptsQMPBoundInterruptedStart(t *testing.T) {
 		t.Fatalf("adopted status = %#v, %v", status, err)
 	}
 	adopted, err := store.ReadNode("meta")
-	if err != nil || adopted.Phase != state.Running || adopted.Process.PID != command.Process.Pid || process.IsLegacyStart(adopted.Process.Started) {
+	if err != nil || adopted.Phase != state.Running || adopted.Process.PID != command.Process.Pid || adopted.Process.Started == "" {
 		t.Fatalf("adopted state = %#v, %v", adopted, err)
 	}
 	manager := Manager{BarnVersion: "test"}

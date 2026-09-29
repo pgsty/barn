@@ -328,7 +328,7 @@ func TestPriorEmbeddedStateAdvancesToNewBinaryBaseline(t *testing.T) {
 		ActiveDigest: strings.Repeat("0", 64), Source: "embedded",
 		AcceptedAt: embeddedManifestGeneratedAt.Add(-time.Hour),
 	}
-	data, err := json.Marshal(prior)
+	data, err := json.Marshal(ManifestRegistry{Schema: ManifestRegistrySchema, Repositories: map[string]ManifestState{"default": prior}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestPriorSignedStateAdvancesAndCanSyncCurrentBaseline(t *testing.T) {
 		KeyID: strings.ToUpper(strconv.FormatUint(keyID, 16)), Source: "local:" + priorPath,
 		AcceptedAt: time.Now().UTC(),
 	}
-	stateData, err := json.Marshal(priorState)
+	stateData, err := json.Marshal(ManifestRegistry{Schema: ManifestRegistrySchema, Repositories: map[string]ManifestState{"default": priorState}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,5 +568,26 @@ func TestSignedRepositoryRefusesUnsignedDowngradeWithoutExplicitOverride(t *test
 	}
 	if state, err := manager.Sync(context.Background(), path, true); err != nil || state.KeyID != "" || state.ActiveVersion != 2 {
 		t.Fatalf("explicit signature downgrade = %#v, %v", state, err)
+	}
+}
+
+func TestManifestRegistryRejectsRetiredSingleRepositoryState(t *testing.T) {
+	manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data")}
+	if err := os.MkdirAll(manager.root(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state, err := embeddedState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manager.statePath(), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := manager.Current(); err == nil || !strings.Contains(err.Error(), "unsupported manifest registry schema") {
+		t.Fatalf("retired manifest state accepted: %v", err)
 	}
 }
