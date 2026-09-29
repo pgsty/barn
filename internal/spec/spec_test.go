@@ -9,7 +9,7 @@ import (
 func TestQuickDefaults(t *testing.T) {
 	t.Parallel()
 	got := Quick(true, true)
-	if got.SSHUser != "dba" || got.Image != "u24" || got.Network != "user" {
+	if got.SSHUser != "dba" || got.Image != "u24" || got.Network != "private" {
 		t.Fatalf("quick identity defaults = %#v", got)
 	}
 	if len(got.Nodes) != 1 {
@@ -50,7 +50,7 @@ func TestHashDeterministic(t *testing.T) {
 	}
 }
 
-func TestOptionalSharesPreserveLegacyQuickCanonicalHash(t *testing.T) {
+func TestEmptySharesPreserveCanonicalHash(t *testing.T) {
 	t.Parallel()
 	resolved := Quick(true, true)
 	canonical, err := CanonicalJSON(resolved)
@@ -63,9 +63,6 @@ func TestOptionalSharesPreserveLegacyQuickCanonicalHash(t *testing.T) {
 	hash, err := Hash(resolved)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if want := "160bbddd72591a8ebfb3c6073a1110534585852e62398eb9174f181b9551af3f"; hash != want {
-		t.Fatalf("legacy quick hash changed: got %s want %s", hash, want)
 	}
 	resolved.Nodes[0].Shares = []Share{}
 	emptyHash, err := Hash(resolved)
@@ -114,12 +111,12 @@ func TestMaterializedForwardPreservesOptionalRequestEvidence(t *testing.T) {
 	if remapped.Host != 25432 || remapped.RequestedHost != 15432 || !strings.Contains(string(data), `"requested_host":15432`) {
 		t.Fatalf("remapped allocation lost request evidence: %#v %s", remapped, data)
 	}
-	var legacy Forward
-	if err := json.Unmarshal([]byte(`{"bind":"127.0.0.1","host":25432,"guest":5432,"protocol":"tcp"}`), &legacy); err != nil {
+	var decoded Forward
+	if err := json.Unmarshal([]byte(`{"bind":"127.0.0.1","host":25432,"guest":5432,"protocol":"tcp"}`), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if legacy.RequestedHost != 0 || RequestedHostPort(legacy) != 25432 {
-		t.Fatalf("legacy allocation baseline = %#v", legacy)
+	if decoded.RequestedHost != 0 || RequestedHostPort(decoded) != 25432 {
+		t.Fatalf("unchanged port request = %#v", decoded)
 	}
 }
 

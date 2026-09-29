@@ -59,7 +59,7 @@ func TestDeploymentAndNodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDataDiskFilesystemFieldsAreBackwardCompatible(t *testing.T) {
+func TestDataDiskFilesystemFieldsRemainOptional(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	resolved := quickResolved(true, true)
@@ -98,11 +98,11 @@ func TestDataDiskFilesystemFieldsAreBackwardCompatible(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := raw["data_disks"]; !ok {
-		t.Fatal("legacy-compatible node fixture lost data_disks")
+		t.Fatal("node fixture lost data_disks")
 	}
 	got, err := store.ReadNode("meta")
 	if err != nil || len(got.DataDisks) != 1 || got.DataDisks[0].RequestedFilesystem != "" || got.DataDisks[0].ActualFilesystem != "" {
-		t.Fatalf("legacy filesystem fields did not decode as unknown: %#v, %v", got.DataDisks, err)
+		t.Fatalf("omitted filesystem fields did not remain unknown: %#v, %v", got.DataDisks, err)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestDataDiskFilesystemStatePreservesContradictoryEvidence(t *testing.T) {
 	}
 }
 
-func TestDeploymentForwardRequestEvidenceAndLegacyCompatibility(t *testing.T) {
+func TestDeploymentForwardRequestEvidenceRemainsOptional(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	resolved := quickResolved(true, true)
@@ -154,24 +154,24 @@ func TestDeploymentForwardRequestEvidenceAndLegacyCompatibility(t *testing.T) {
 		t.Fatalf("requested host evidence did not round trip: %#v, %v", got.Resolved.Nodes[0].Forwards[0], err)
 	}
 
-	legacy := resolved
-	legacy.Nodes = append([]spec.Node(nil), resolved.Nodes...)
-	legacy.Nodes[0].Forwards = append([]spec.Forward(nil), resolved.Nodes[0].Forwards...)
-	legacy.Nodes[0].Forwards[0].RequestedHost = 0
-	legacyHash, err := spec.Hash(legacy)
+	unchanged := resolved
+	unchanged.Nodes = append([]spec.Node(nil), resolved.Nodes...)
+	unchanged.Nodes[0].Forwards = append([]spec.Forward(nil), resolved.Nodes[0].Forwards...)
+	unchanged.Nodes[0].Forwards[0].RequestedHost = 0
+	unchangedHash, err := spec.Hash(unchanged)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value.Resolved, value.SpecHash = legacy, legacyHash
+	value.Resolved, value.SpecHash = unchanged, unchangedHash
 	if err := store.WriteDeployment(value); err != nil {
-		t.Fatalf("legacy state without requested_host was rejected: %v", err)
+		t.Fatalf("unchanged port state without requested_host was rejected: %v", err)
 	}
 	data, err = os.ReadFile(filepath.Join(store.Root, "state.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(data), "requested_host") {
-		t.Fatalf("legacy optional field was synthesized without evidence: %s", data)
+		t.Fatalf("redundant requested_host was serialized: %s", data)
 	}
 
 	invalid := resolved
@@ -258,7 +258,7 @@ func TestResolveDataRootRejectsUnsupportedLayout(t *testing.T) {
 	if _, err := ResolveDataRoot(); err == nil || !strings.Contains(err.Error(), "unsupported multiple-deployment") {
 		t.Fatalf("unsupported layout was accepted: %v", err)
 	} else if strings.Contains(err.Error(), "rm -rf") || !strings.Contains(err.Error(), "preserve this directory") {
-		t.Fatalf("legacy guidance risks deleting VM disks: %v", err)
+		t.Fatalf("layout guidance risks deleting VM disks: %v", err)
 	}
 	t.Setenv("BARN_HOME", "relative/path")
 	if _, err := ResolveDataRoot(); err == nil {

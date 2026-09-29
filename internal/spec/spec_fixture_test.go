@@ -1,8 +1,7 @@
 package spec
 
-// Quick remains test-only; keep Network "user" for legacy-state diagnostics.
 func Quick(withDataDisk, withDefaultForwards bool) Resolved {
-	node := Node{Name: "meta", Control: true, CPUs: 2, Memory: 4 * GiB, RootDisk: 64 * GiB}
+	node := Node{Name: "meta", Control: true, Address: "10.10.10.10", CPUs: 2, Memory: 4 * GiB, RootDisk: 64 * GiB}
 	if withDataDisk {
 		node.Disks = []Disk{{Name: "data", Size: 64 * GiB, Mount: "/data"}}
 	}
@@ -14,5 +13,5 @@ func Quick(withDataDisk, withDefaultForwards bool) Resolved {
 			{Bind: "127.0.0.1", Host: 18443, Guest: 443, Protocol: "tcp"},
 		}
 	}
-	return Resolved{Schema: 1, Name: "quick", Image: "u24", Network: "user", SSHUser: "dba", SSHWaitTimeoutNS: int64(DefaultSSHWaitTimeout), Nodes: []Node{node}}
+	return Resolved{Schema: 1, Name: "quick", Image: "u24", Network: "private", Private: &PrivateNetwork{CIDR: "10.10.10.0/24", HostAddress: "10.10.10.1", DHCPEnd: "10.10.10.8"}, SSHUser: "dba", SSHWaitTimeoutNS: int64(DefaultSSHWaitTimeout), Nodes: []Node{node}}
 }

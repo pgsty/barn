@@ -13,14 +13,14 @@ func warningFixture(t *testing.T) (Store, NodeState) {
 	t.Helper()
 	store := testStore(t)
 	now := time.Now().UTC()
-	node := NodeState{Schema: NodeSchema, BarnVersion: "0.7.0", Node: "meta", VMUUID: "original", Phase: Running, Generation: 1, SpecHash: strings.Repeat("a", 64), CreatedAt: now, UpdatedAt: now}
+	node := NodeState{Schema: NodeSchema, BarnVersion: "dev", Node: "meta", VMUUID: "original", Phase: Running, Generation: 1, SpecHash: strings.Repeat("a", 64), CreatedAt: now, UpdatedAt: now}
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
 	return store, node
 }
 
-func TestGuestWarningsPreserveLegacyStateAndClearAfterRecovery(t *testing.T) {
+func TestGuestWarningsPreserveNodeStateAndClearAfterRecovery(t *testing.T) {
 	store, node := warningFixture(t)
 	path := filepath.Join(store.Root, "nodes", node.Node, "state.json")
 	original, err := os.ReadFile(path)
@@ -36,11 +36,11 @@ func TestGuestWarningsPreserveLegacyStateAndClearAfterRecovery(t *testing.T) {
 	}
 	current, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(original, current) {
-		t.Fatalf("warnings changed the v0.6-compatible node document: %s %v", current, err)
+		t.Fatalf("warnings changed the node document: %s %v", current, err)
 	}
 	entries, err := os.ReadDir(filepath.Dir(path))
 	if err != nil || len(entries) != 1 {
-		t.Fatalf("cache would block an older destroy: %v %v", entries, err)
+		t.Fatalf("warning cache changed node directory contents: %v %v", entries, err)
 	}
 	read, err := store.ReadNode(node.Node)
 	if err != nil || len(read.GuestWarnings) != 1 {

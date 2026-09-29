@@ -56,8 +56,7 @@ const (
 	exitIntegrity  = 7
 	exitCancelled  = 130
 
-	// Retired network states are refused without adopting or modifying disks.
-	legacyDeploymentMessage = "this deployment predates the fixed-IP redesign; preserve any needed disks, then move or remove the selected BARN_HOME and run `barn setup && barn up`"
+	invalidDeploymentNetworkMessage = "deployment state must use a private network"
 )
 
 type lifecycleOptions struct {
@@ -689,7 +688,7 @@ func runSSH(ctx context.Context, commandName string, args []string, stdout, stde
 		return commandOutcome{}, deploymentReadError(err)
 	}
 	if resolved.Network != "private" {
-		return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
+		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 	}
 	return runPrivateSSH(ctx, commandName, args, resolved, stdout, stderr)
 }
@@ -1426,7 +1425,7 @@ func runPurgeCommand(parent context.Context, stderr io.Writer) (commandOutcome, 
 	resolved, err := currentDeploymentResolved()
 	if err == nil {
 		if resolved.Network != "private" {
-			return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
+			return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 		}
 		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", true, true, true, false, false, stderr)
 	}
@@ -1536,8 +1535,8 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 			resolvedFile = persisted
 			hasConfig = true
 		}
-	case persistedErr == nil && persisted.Network == "user":
-		return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
+	case persistedErr == nil:
+		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 	}
 	if !hasConfig && command == "up" && interactiveTextSession(stderr) {
 		if _, setupErr := runSetupCommand(ctx, "", implicitSetupOptions(options, repository), outputFormatFor(stderr), verboseOutput(stderr), stderr); setupErr != nil {
@@ -1732,7 +1731,7 @@ func runSSHConfig(parent context.Context, options sshConfigOptions, nodes []stri
 		return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 	}
 	if resolved.Network != "private" {
-		return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
+		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 	}
 	manager := privatevm.Manager{BarnVersion: version.Version, Nodes: append([]string(nil), nodes...)}
 	if options.Install {
@@ -1795,7 +1794,7 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 		case resolveErr != nil:
 			return commandOutcome{}, newCommandError(exitIntegrity, resolveErr)
 		case resolved.Network != "private":
-			return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
+			return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 		}
 		entries, err = manager.HostEntries(ctx)
 		if err != nil {
@@ -1908,7 +1907,7 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 		return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
 	}
 	if resolveErr == nil && resolved.Network != "private" {
-		return commandOutcome{}, newConflictError(errors.New(legacyDeploymentMessage))
+		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 	}
 	node := requestedNode
 	if options.Source == "events" {

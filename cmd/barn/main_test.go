@@ -934,10 +934,12 @@ func TestDeploymentEventLogRejectsNodeSelector(t *testing.T) {
 	}
 }
 
-func TestLegacyDeploymentDiagnosticsDistinguishExistingState(t *testing.T) {
+func TestDeploymentDiagnosticsRejectUnsupportedNetwork(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("BARN_HOME", root)
 	resolved := quickResolved(true, false)
+	resolved.Network = "unsupported"
+	resolved.Private = nil
 	hash, err := spec.Hash(resolved)
 	if err != nil {
 		t.Fatal(err)
@@ -958,13 +960,13 @@ func TestLegacyDeploymentDiagnosticsDistinguishExistingState(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &failure); err != nil {
 			t.Fatalf("%s failure JSON: %v\n%s", command, err, stdout.String())
 		}
-		if failure.Error != "conflict" || failure.Message != legacyDeploymentMessage || !strings.Contains(stderr.String(), "predates the fixed-IP redesign") {
+		if failure.Error != "conflict" || failure.Message != invalidDeploymentNetworkMessage || !strings.Contains(stderr.String(), invalidDeploymentNetworkMessage) {
 			t.Fatalf("%s failure=%#v stderr=%q", command, failure, stderr.String())
 		}
 	}
 }
 
-func TestMissingDeploymentDiagnosticsRemainDistinctFromLegacyState(t *testing.T) {
+func TestMissingDeploymentDiagnostics(t *testing.T) {
 	t.Setenv("BARN_HOME", t.TempDir())
 	const missingMessage = "no deployment state found"
 	for _, command := range []string{"logs", "ssh-config", "status", "ssh"} {
@@ -977,7 +979,7 @@ func TestMissingDeploymentDiagnosticsRemainDistinctFromLegacyState(t *testing.T)
 		if err := json.Unmarshal(stdout.Bytes(), &failure); err != nil {
 			t.Fatalf("%s failure JSON: %v\n%s", command, err, stdout.String())
 		}
-		if failure.Error != "conflict" || failure.Message != missingMessage || strings.Contains(failure.Message, legacyDeploymentMessage) {
+		if failure.Error != "conflict" || failure.Message != missingMessage {
 			t.Fatalf("%s failure=%#v stderr=%q", command, failure, stderr.String())
 		}
 	}

@@ -20,9 +20,8 @@ type Forward struct {
 	Protocol      string `json:"protocol"`
 }
 
-// RequestedHostPort returns the user's original preferred host port. Older
-// resolved documents did not preserve this evidence, so their materialized
-// host port is the only safe compatibility baseline.
+// RequestedHostPort returns the user's preferred host port. RequestedHost is
+// set only when allocation chose a different port; otherwise Host is the request.
 func RequestedHostPort(forward Forward) uint16 {
 	if forward.RequestedHost != 0 {
 		return forward.RequestedHost
@@ -137,8 +136,8 @@ type Resolved struct {
 
 const DefaultSSHWaitTimeout = 180 * time.Second
 
-// SSHWaitTimeout accepts old resolved/state documents that predate the field
-// by applying the original 180-second default. Negative values fail closed.
+// SSHWaitTimeout applies the 180-second default when unset. Negative values
+// fail closed.
 func (r Resolved) SSHWaitTimeout() (time.Duration, error) {
 	if r.SSHWaitTimeoutNS == 0 {
 		return DefaultSSHWaitTimeout, nil
