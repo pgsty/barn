@@ -16,9 +16,10 @@ declined no matter how well it is implemented:
 - **One helper binary.** Privileged work goes through `farrow-hosts-helper` or
   the reviewed network plan, and nowhere else.
 
-The independent `farrow mac` command manages the fixed `mac1` and `mac2` slots
-without reading the Linux inventory. Its state, SSH trust and privileged network
-helper remain separate; see [the Mac guide](docs/mac.md).
+The independent `farrow mac` command manages named macOS machines without
+reading the Linux inventory, and runs entirely as the invoking user: each
+machine's network lives inside its own runner process. Keep it that way; see
+[the Mac guide](docs/mac.md).
 
 Open an issue before a large change so we can agree on the shape first.
 
@@ -89,11 +90,13 @@ Actions and listed in `checksums.txt`; no separate application-release signing
 or provenance bundle is produced.
 
 The native macOS guest app is built on macOS 27 and attached to the ordinary
-Darwin arm64 archive before its SBOM/checksums are finalized. Formal app builds
-require Developer ID signing and Apple notarization; see
-[Mac release preparation](docs/mac-release.md). `make mac-native-test` covers
-the native components, and `tests/mac-release-test.py` exercises payload boundaries
-as part of `make install-test`.
+Darwin arm64 archive before its SBOM/checksums are finalized. It is optional:
+without the Developer ID signing and notarization secrets, the release ships
+the CLI alone; with them, a failed Mac build stops the release. See
+[Mac release preparation](docs/mac-release.md).
+`make mac-native-test` covers the native components, and
+`tests/mac-release-test.py` exercises payload boundaries as part of
+`make install-test`.
 
 `make release-dev VERSION=0.2.1-dev.1 SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)`
 builds and verifies the older unsigned development-archive path. The packaging

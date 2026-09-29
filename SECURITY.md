@@ -37,6 +37,12 @@ reachable as an individual command:
 Everything else — image cache, deployment state, SSH material, QEMU processes —
 is owned by the invoking user under `$FARROW_HOME` and never needs root.
 
+`farrow mac` adds no privileged transaction: macOS virtual machines, their
+private networks and their desktops run as the invoking user. The only sudo
+call in the Mac path is the hidden `farrow mac migrate` removing the root
+network daemon that unreleased development builds installed; it is announced
+first, removes exactly that daemon, and can be repeated safely.
+
 ### What the hosts helper will refuse
 
 The helper is deliberately hard to misuse. It rejects any invocation that does

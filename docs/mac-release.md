@@ -1,8 +1,17 @@
 # Shipping the native Mac feature
 
-The native app is part of the ordinary `farrow_VERSION_darwin_arm64.tar.gz`.
-There is one installer and one Homebrew formula. Other platform archives keep
-their existing contents. The public v0.8.0 release does not contain this feature.
+The native app is part of the ordinary `farrow_VERSION_darwin_arm64.tar.gz`
+when a signed, notarized build is available. There is one installer and one
+Homebrew formula. Other platform archives keep their existing contents.
+
+The app is optional. Without the signing secrets below, the tag workflow skips
+the native job and ships every CLI archive and package without the Mac app;
+`farrow mac` then explains that its component is not installed. With all six
+secrets configured, the native job must succeed: a failed build, signature or
+notarization stops the release instead of leaving the app out, and a partial
+set of secrets fails the release at once. The CLI and the app speak a
+versioned runner protocol, so an app from another build is refused rather than
+misused.
 
 ## Build and identity
 
@@ -20,7 +29,8 @@ the same tar representation used for distribution.
 
 `FARROW_MAC_PAYLOAD=/absolute/native.tar.gz make release-snapshot` exercises this
 complete composition locally. The payload version must match the snapshot
-version selected by `.goreleaser.yaml`; the current source selects `0.8.1-next`.
+version selected by `.goreleaser.yaml`: the next patch after the latest tag
+with `-next` (after `v0.8.0`, `0.8.1-next`).
 Use `uncommitted` for a dirty checkout, or its full commit for clean source.
 Snapshot builds support ad-hoc signing and are explicitly not notarized releases.
 
@@ -39,10 +49,11 @@ FARROW_MAC_PAYLOAD=/absolute/native.tar.gz make release-local VERSION="$VERSION"
 
 Create the profile with `xcrun notarytool store-credentials` using your own Apple
 credentials. Keep private keys and passwords outside the repository. The app
-and its native helper use hardened runtime; Developer ID signatures include a
+uses hardened runtime; Developer ID signatures include a
 secure timestamp. The builder waits for Apple acceptance, staples the app and
 checks both the stapled ticket and Gatekeeper before exporting it. Missing
-signing configuration is a release error, not an unsigned fallback. The ordinary
+signing configuration never produces an unsigned app: the tag workflow skips
+the native job and ships the CLI alone. The ordinary
 Go CLI and hosts-helper retain the existing GoReleaser delivery contract; the
 notarization claim covers the native app and its enclosed executables.
 
@@ -54,8 +65,9 @@ This follows [Apple's notarization requirements](https://developer.apple.com/doc
 [`xcode-27` Apple Silicon image](https://github.com/actions/runner-images).
 CI runs Mac-specific Go and native tests. Packaging snapshots build an ad-hoc
 native payload, attach it to the normal archive and verify the complete result.
-The tag release workflow requires the notarized native job to succeed before it
-creates a draft release.
+The tag release workflow builds and attaches the notarized native payload when
+all six secrets below are configured, and creates the draft release without it,
+with a notice, when none are.
 
 Configure these repository secrets for that tag workflow:
 

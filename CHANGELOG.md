@@ -7,19 +7,37 @@ Notable user-visible changes. This project follows
 ## [Unreleased]
 
 Farrow 0.9.0 candidate: one error model, recoverable interrupted operations,
-and messages that say what went wrong and what to do.
+messages that say what went wrong and what to do, and a preview of macOS
+guests.
+
+**For scripts:** exit codes and the JSON error envelope changed, and the `rm`
+alias is gone; see Changed and Removed.
 
 ### Added
 
-- `farrow mac` manages two independent macOS guests, `mac1` and `mac2`, on
-  Apple Silicon with macOS 27 or later. `mac up` prepares and starts the default
-  guest, `mac open` displays its desktop, and `mac stop` shuts it down while
-  preserving its data. Mac images, networking, SSH trust and credentials have
-  separate state from Linux VMs. See [the Mac guide](docs/mac.md).
-- The Darwin arm64 archive includes the native app through the standard
-  installer and Homebrew layout. CLI and app upgrades are installed together;
-  the app retains existing credentials across signing changes. Formal release
-  builds require Developer ID signing and Apple notarization.
+- Preview: `farrow mac` runs named macOS 27 virtual machines on Apple Silicon
+  with macOS 27 or later. `mac up [name]` creates and starts a machine and
+  waits for SSH and sudo; `mac open` shows its desktop; `mac ssh`/`exec` reach
+  it with its own pinned key. Machines are copy-on-write clones of one unbooted
+  base, have their own private network with a fixed address, share host
+  folders and the text clipboard, and never read the Linux inventory. See
+  [the Mac guide](docs/mac.md).
+- The macOS restore image comes only from Apple, after a confirmation that
+  shows the download (or `--yes`), resumable and verified against Apple's
+  SHA-256; `--ipsw` uses a local image, cloned on the same APFS volume instead
+  of copied. Nothing in the Mac path runs as root.
+- `mac stop` shuts down through macOS and powers off a machine that is still
+  running after two minutes, saying so; `--force` powers off at once. `mac
+  start --recovery` boots macOS Recovery. `mac configure` changes CPUs, memory,
+  shared folders, the network and clipboard sharing; `mac recreate` replaces a
+  machine with a fresh macOS of the same settings and address.
+- `mac ssh-config --install` adds the machines to `~/.ssh/config`, and the first
+  ready machine installs it automatically, so `ssh mac1` and editors with
+  Remote-SSH work; lifecycle commands keep it current.
+- `farrow mac` needs its native component, `Farrow Mac.app`. Releases include
+  it only once it is Developer ID signed and notarized by Apple; until then
+  `make mac-build` (Xcode 27) builds both into `bin/mac`, and a release without
+  it still publishes.
 
 ### Changed
 
@@ -77,10 +95,6 @@ and messages that say what went wrong and what to do.
 
 ### Fixed
 
-- `mac doctor` recognizes a running guest that has passed SSH readiness and
-  reports its SSH/sudo check instead of treating `ready` as an invalid runtime.
-- Readiness checks for initialized Mac guests reuse their existing SSH identity
-  without rewriting key files.
 - A node whose recorded QEMU PID now belongs to an unrelated process (typically
   after a host reboot) is recognized as stopped instead of blocking every
   command with advice to stop that process by hand.
@@ -536,7 +550,8 @@ Pigsty-compatible local labs.
   Cosign is available, and explains that pre-1.0 GitHub pre-releases require an
   explicit `FARROW_VERSION`.
 
-[Unreleased]: https://github.com/pgsty/farrow/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/pgsty/farrow/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/pgsty/farrow/releases/tag/v0.8.0
 [0.7.0]: https://github.com/pgsty/farrow/releases/tag/v0.7.0
 [0.6.0]: https://github.com/pgsty/farrow/releases/tag/v0.6.0
 [0.5.0]: https://github.com/pgsty/farrow/releases/tag/v0.5.0
