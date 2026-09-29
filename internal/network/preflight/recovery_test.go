@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/barn/internal/network/subnet"
 )
 
 func TestRepairRequiresIntactOwnedNetworkAndNoConflicts(t *testing.T) {

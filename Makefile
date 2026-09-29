@@ -53,10 +53,10 @@ staticcheck:
 deadcode:
 	@set -eu; \
 	  temporary_parent=$$(cd "$${TMPDIR:-/tmp}" && pwd -P); \
-	  temporary=$$(mktemp -d "$${temporary_parent}/farrow-deadcode.XXXXXX"); \
+	  temporary=$$(mktemp -d "$${temporary_parent}/barn-deadcode.XXXXXX"); \
 	  cleanup() { \
 	    case "$${temporary}" in \
-	      "$${temporary_parent}"/farrow-deadcode.*) rm -rf -- "$${temporary}" ;; \
+	      "$${temporary_parent}"/barn-deadcode.*) rm -rf -- "$${temporary}" ;; \
 	      *) printf 'refuse unsafe deadcode cleanup: %s\n' "$${temporary}" >&2 ;; \
 	    esac; \
 	  }; \
@@ -115,7 +115,7 @@ image-pipeline-test:
 	./tests/image-pipeline-test.sh
 
 image-pipeline-native-test:
-	FARROW_IMAGE_PIPELINE_NATIVE_REQUIRED=1 ./tests/image-pipeline-native-test.sh
+	BARN_IMAGE_PIPELINE_NATIVE_REQUIRED=1 ./tests/image-pipeline-native-test.sh
 
 install-test:
 	./tests/install-test.sh
@@ -169,11 +169,11 @@ release-snapshot: release-check
 	    if test -e .goreleaser-dist; then rm -rf -- .goreleaser-dist; fi; \
 	  }; \
 	  trap cleanup_companions EXIT; \
-	  SOURCE_DATE_EPOCH="$$source_epoch" FARROW_COMMIT="$$commit" FARROW_BUILD_DATE="$$build_date" \
+	  SOURCE_DATE_EPOCH="$$source_epoch" BARN_COMMIT="$$commit" BARN_BUILD_DATE="$$build_date" \
 	    goreleaser release --snapshot --parallelism 1; \
 	  snapshot_version=$$(jq -er '.version | strings | select(length > 0)' .goreleaser-dist/metadata.json); \
-	  if test -n "$${FARROW_MAC_PAYLOAD:-}"; then \
-	    python3 packaging/mac-release.py attach "$$snapshot_version" "$$commit" "$$source_epoch" .goreleaser-dist "$$FARROW_MAC_PAYLOAD"; \
+	  if test -n "$${BARN_MAC_PAYLOAD:-}"; then \
+	    python3 packaging/mac-release.py attach "$$snapshot_version" "$$commit" "$$source_epoch" .goreleaser-dist "$$BARN_MAC_PAYLOAD"; \
 	  fi; \
 	  SOURCE_DATE_EPOCH="$$source_epoch" ./packaging/verify-goreleaser.sh "$$snapshot_version" "$$PWD/.goreleaser-dist"; \
 	  ./packaging/verify-linux-packages.sh "$$snapshot_version" "$$commit" "$$source_epoch" "$$PWD/.goreleaser-dist"; \

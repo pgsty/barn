@@ -9,7 +9,7 @@ import (
 
 // Disk fixtures alone do not isolate the short QMP/pidfile paths.
 func TestMain(m *testing.M) {
-	root, err := os.MkdirTemp("/tmp", "farrow-test-")
+	root, err := os.MkdirTemp("/tmp", "barn-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

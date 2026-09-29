@@ -1,4 +1,4 @@
-// Package macvm manages Farrow's macOS guest machines on Apple Silicon.
+// Package macvm manages Barn's macOS guest machines on Apple Silicon.
 // It never reads the Linux inventory or Linux VM state.
 package macvm
 
@@ -15,17 +15,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/identity"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/identity"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 const (
 	// SchemaVersion describes config.json and each machine's state.json.
 	SchemaVersion = 2
-	// legacySchemaVersion is the two-slot layout written before named machines.
-	legacySchemaVersion = 1
 	// imageSchemaVersion describes installer and base metadata, unchanged
 	// since the first layout so prepared bases remain reusable.
 	imageSchemaVersion = 1
@@ -95,7 +93,7 @@ type Machine struct {
 }
 
 // HostKeyAlias pins the guest SSH host key to the instance, not its address.
-func (m *Machine) HostKeyAlias() string { return "farrow-mac-" + strings.ToLower(m.InstanceID) }
+func (m *Machine) HostKeyAlias() string { return "barn-mac-" + strings.ToLower(m.InstanceID) }
 
 var namePattern = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 
@@ -107,20 +105,15 @@ func invalidName(name string) error {
 	return failure.New(failure.Usage, fmt.Errorf("invalid machine name %q: use lowercase letters, digits and inner hyphens, starting with a letter (at most 32 characters)", name))
 }
 
-// ErrLegacyState marks data written by the two-slot layout. Every command
-// except migrate refuses it so nothing is reinterpreted by accident.
-var ErrLegacyState = failure.New(failure.Conflict, errors.New("this Mac data uses the earlier two-slot layout")).
-	Because("mac_legacy_state").Then("farrow mac migrate")
-
 // Store construction and reads never create directories. Root always names
-// the mac directory, not FARROW_HOME itself.
+// the mac directory, not BARN_HOME itself.
 type Store struct{ Root string }
 
-func NewStore(farrowHome string) (*Store, error) {
-	if farrowHome == "" {
-		return nil, errors.New("farrow home must be specified")
+func NewStore(barnHome string) (*Store, error) {
+	if barnHome == "" {
+		return nil, errors.New("barn home must be specified")
 	}
-	absolute, err := filepath.Abs(farrowHome)
+	absolute, err := filepath.Abs(barnHome)
 	if err != nil {
 		return nil, err
 	}
@@ -262,8 +255,7 @@ func writeJSON(path string, value any) error {
 	return fsutil.AtomicWrite(path, append(data, '\n'), 0o600)
 }
 
-// schemaOf reads only the schema number, so a legacy document is recognized
-// before a strict decode rejects its different fields.
+// schemaOf reads and validates the metadata header before a strict decode.
 func schemaOf(path string) (int, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -306,8 +298,7 @@ func NewConfig() (*Config, error) {
 	return &Config{SchemaVersion: SchemaVersion, InstallationID: id, CreatedAt: time.Now().UTC()}, nil
 }
 
-// LoadConfig returns os.ErrNotExist before the first setup and ErrLegacyState
-// for the earlier two-slot layout.
+// LoadConfig returns os.ErrNotExist before the first setup.
 func (s *Store) LoadConfig() (*Config, error) {
 	path, err := s.Path("config.json")
 	if err != nil {
@@ -317,8 +308,8 @@ func (s *Store) LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if schema == legacySchemaVersion {
-		return nil, ErrLegacyState
+	if schema != SchemaVersion {
+		return nil, fmt.Errorf("unsupported mac metadata schema %d; expected %d", schema, SchemaVersion)
 	}
 	var c Config
 	if err := readJSON(path, &c); err != nil {
@@ -366,8 +357,7 @@ func (s *Store) SaveConfig(held *lock.File, c *Config) error {
 	return writeJSON(path, c)
 }
 
-// MachinePath names a machine's private directory. The historical "slots"
-// directory keeps existing instances in place.
+// MachinePath names a machine's private directory.
 func (s *Store) MachinePath(name string) (string, error) {
 	if !ValidName(name) {
 		return "", invalidName(name)
@@ -400,7 +390,7 @@ func (s *Store) LoadMachine(name string) (*Machine, error) {
 		for _, entry := range entries {
 			if entry.Name() != "password" && !strings.HasPrefix(entry.Name(), ".") {
 				return nil, failure.New(failure.Conflict, fmt.Errorf("%s has files but no state; its directory was preserved for recovery: %s: %w", name, filepath.Dir(path), errStateless)).
-					Then("farrow mac destroy " + name)
+					Then("barn mac destroy " + name)
 			}
 		}
 		return nil, err
@@ -408,8 +398,8 @@ func (s *Store) LoadMachine(name string) (*Machine, error) {
 	if err != nil {
 		return nil, err
 	}
-	if schema == legacySchemaVersion {
-		return nil, ErrLegacyState
+	if schema != SchemaVersion {
+		return nil, fmt.Errorf("unsupported mac metadata schema %d; expected %d", schema, SchemaVersion)
 	}
 	var machine Machine
 	if err := readJSON(path, &machine); err != nil {

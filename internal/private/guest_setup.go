@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/identity"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/identity"
+	"github.com/pgsty/barn/internal/state"
 )
 
 type GuestSetupError struct{ Cause error }

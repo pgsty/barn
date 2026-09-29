@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func privateResolved() spec.Resolved {

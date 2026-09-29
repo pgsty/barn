@@ -1,6 +1,6 @@
 version: 2
 
-project_name: farrow
+project_name: barn
 
 # Keep formal artifacts isolated from the historical dist/ tree. GoReleaser
 # does not template this field; wrappers move the complete directory only after
@@ -12,9 +12,9 @@ before:
     - ./packaging/dependency-licenses.sh stage .goreleaser-licenses
 
 builds:
-  - id: farrow
-    main: ./cmd/farrow
-    binary: bin/farrow
+  - id: barn
+    main: ./cmd/barn
+    binary: bin/barn
     env:
       - CGO_ENABLED=0
       - GOFLAGS=-mod=readonly
@@ -33,13 +33,13 @@ builds:
     ldflags:
       - >-
         -buildid= -s -w
-        -X github.com/pgsty/farrow/internal/version.Version={{.Version}}
-        -X github.com/pgsty/farrow/internal/version.Commit={{ .Env.FARROW_COMMIT }}
-        -X github.com/pgsty/farrow/internal/version.Date={{ .Env.FARROW_BUILD_DATE }}
+        -X github.com/pgsty/barn/internal/version.Version={{.Version}}
+        -X github.com/pgsty/barn/internal/version.Commit={{ .Env.BARN_COMMIT }}
+        -X github.com/pgsty/barn/internal/version.Date={{ .Env.BARN_BUILD_DATE }}
     mod_timestamp: "{{ .Env.SOURCE_DATE_EPOCH }}"
-  - id: farrow-hosts-helper
-    main: ./cmd/farrow-hosts-helper
-    binary: bin/farrow-hosts-helper
+  - id: barn-hosts-helper
+    main: ./cmd/barn-hosts-helper
+    binary: bin/barn-hosts-helper
     env:
       - CGO_ENABLED=0
       - GOFLAGS=-mod=readonly
@@ -51,9 +51,9 @@ builds:
     ldflags:
       - -buildid= -s -w
     mod_timestamp: "{{ .Env.SOURCE_DATE_EPOCH }}"
-  - id: farrow-package-linux-amd64
-    main: ./cmd/farrow
-    binary: bin/farrow
+  - id: barn-package-linux-amd64
+    main: ./cmd/barn
+    binary: bin/barn
     env:
       - CGO_ENABLED=0
       - GOFLAGS=-mod=readonly
@@ -68,18 +68,18 @@ builds:
         - cmd: './packaging/goreleaser-companion.sh prepare linux amd64 .goreleaser-companion'
           output: true
       post:
-        - cmd: './packaging/goreleaser-package-stage.sh linux amd64 "{{ .Path }}" "{{ .Version }}" "{{ .Env.FARROW_COMMIT }}" "{{ .Env.FARROW_BUILD_DATE }}" "{{ .Env.SOURCE_DATE_EPOCH }}" .goreleaser-companion'
+        - cmd: './packaging/goreleaser-package-stage.sh linux amd64 "{{ .Path }}" "{{ .Version }}" "{{ .Env.BARN_COMMIT }}" "{{ .Env.BARN_BUILD_DATE }}" "{{ .Env.SOURCE_DATE_EPOCH }}" .goreleaser-companion'
           output: true
     ldflags:
       - >-
         -buildid= -s -w
-        -X github.com/pgsty/farrow/internal/version.Version={{.Version}}
-        -X github.com/pgsty/farrow/internal/version.Commit={{ .Env.FARROW_COMMIT }}
-        -X github.com/pgsty/farrow/internal/version.Date={{ .Env.FARROW_BUILD_DATE }}
+        -X github.com/pgsty/barn/internal/version.Version={{.Version}}
+        -X github.com/pgsty/barn/internal/version.Commit={{ .Env.BARN_COMMIT }}
+        -X github.com/pgsty/barn/internal/version.Date={{ .Env.BARN_BUILD_DATE }}
     mod_timestamp: "{{ .Env.SOURCE_DATE_EPOCH }}"
-  - id: farrow-package-linux-arm64
-    main: ./cmd/farrow
-    binary: bin/farrow
+  - id: barn-package-linux-arm64
+    main: ./cmd/barn
+    binary: bin/barn
     env:
       - CGO_ENABLED=0
       - GOFLAGS=-mod=readonly
@@ -94,19 +94,19 @@ builds:
         - cmd: './packaging/goreleaser-companion.sh prepare linux arm64 .goreleaser-companion'
           output: true
       post:
-        - cmd: './packaging/goreleaser-package-stage.sh linux arm64 "{{ .Path }}" "{{ .Version }}" "{{ .Env.FARROW_COMMIT }}" "{{ .Env.FARROW_BUILD_DATE }}" "{{ .Env.SOURCE_DATE_EPOCH }}" .goreleaser-companion'
+        - cmd: './packaging/goreleaser-package-stage.sh linux arm64 "{{ .Path }}" "{{ .Version }}" "{{ .Env.BARN_COMMIT }}" "{{ .Env.BARN_BUILD_DATE }}" "{{ .Env.SOURCE_DATE_EPOCH }}" .goreleaser-companion'
           output: true
     ldflags:
       - >-
         -buildid= -s -w
-        -X github.com/pgsty/farrow/internal/version.Version={{.Version}}
-        -X github.com/pgsty/farrow/internal/version.Commit={{ .Env.FARROW_COMMIT }}
-        -X github.com/pgsty/farrow/internal/version.Date={{ .Env.FARROW_BUILD_DATE }}
+        -X github.com/pgsty/barn/internal/version.Version={{.Version}}
+        -X github.com/pgsty/barn/internal/version.Commit={{ .Env.BARN_COMMIT }}
+        -X github.com/pgsty/barn/internal/version.Date={{ .Env.BARN_BUILD_DATE }}
     mod_timestamp: "{{ .Env.SOURCE_DATE_EPOCH }}"
 
 archives:
-  - id: farrow
-    ids: [farrow, farrow-hosts-helper]
+  - id: barn
+    ids: [barn, barn-hosts-helper]
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
@@ -114,14 +114,14 @@ archives:
     builds_info:
       owner: root
       group: root
-      mtime: "{{ .Env.FARROW_BUILD_DATE }}"
+      mtime: "{{ .Env.BARN_BUILD_DATE }}"
     files:
       - src: LICENSE
         info: &archive_file_info
           owner: root
           group: root
           mode: 0644
-          mtime: "{{ .Env.FARROW_BUILD_DATE }}"
+          mtime: "{{ .Env.BARN_BUILD_DATE }}"
       - src: README.md
         info: *archive_file_info
       - src: .goreleaser-licenses/*
@@ -129,23 +129,23 @@ archives:
         info: *archive_file_info
 
 nfpms:
-  - id: farrow-packages-amd64
-    ids: [farrow-package-linux-amd64]
-    package_name: farrow
-    file_name_template: "farrow_{{ .Version }}_linux_{{ .Arch }}"
+  - id: barn-packages-amd64
+    ids: [barn-package-linux-amd64]
+    package_name: barn
+    file_name_template: "barn_{{ .Version }}_linux_{{ .Arch }}"
     formats: [deb, rpm]
     bindir: /usr
     vendor: Pigsty
-    homepage: https://github.com/pgsty/farrow
+    homepage: https://github.com/pgsty/barn
     maintainer: Pigsty <repo@pigsty.cc>
     description: |-
       Native Go/QEMU runtime for Pigsty development virtual machines.
-      Farrow boots one Pigsty-compatible inventory as one fixed-IP deployment.
+      Barn boots one Pigsty-compatible inventory as one fixed-IP deployment.
     license: Apache-2.0
     release: "1"
     section: utils
     priority: optional
-    mtime: "{{ .Env.FARROW_BUILD_DATE }}"
+    mtime: "{{ .Env.BARN_BUILD_DATE }}"
     contents: &linux_package_contents
       - src: .goreleaser-companion/linux_{{ .Arch }}/package-content/
         dst: /
@@ -153,7 +153,7 @@ nfpms:
         file_info:
           owner: root
           group: root
-          mtime: "{{ .Env.FARROW_BUILD_DATE }}"
+          mtime: "{{ .Env.BARN_BUILD_DATE }}"
     overrides:
       deb:
         dependencies: [qemu-system-x86, qemu-utils, ovmf, openssh-client, iproute2]
@@ -163,24 +163,24 @@ nfpms:
       summary: Native Go/QEMU runtime for Pigsty development VMs
     deb:
       fields:
-        Bugs: https://github.com/pgsty/farrow/issues
-  - id: farrow-packages-arm64
-    ids: [farrow-package-linux-arm64]
-    package_name: farrow
-    file_name_template: "farrow_{{ .Version }}_linux_{{ .Arch }}"
+        Bugs: https://github.com/pgsty/barn/issues
+  - id: barn-packages-arm64
+    ids: [barn-package-linux-arm64]
+    package_name: barn
+    file_name_template: "barn_{{ .Version }}_linux_{{ .Arch }}"
     formats: [deb, rpm]
     bindir: /usr
     vendor: Pigsty
-    homepage: https://github.com/pgsty/farrow
+    homepage: https://github.com/pgsty/barn
     maintainer: Pigsty <repo@pigsty.cc>
     description: |-
       Native Go/QEMU runtime for Pigsty development virtual machines.
-      Farrow boots one Pigsty-compatible inventory as one fixed-IP deployment.
+      Barn boots one Pigsty-compatible inventory as one fixed-IP deployment.
     license: Apache-2.0
     release: "1"
     section: utils
     priority: optional
-    mtime: "{{ .Env.FARROW_BUILD_DATE }}"
+    mtime: "{{ .Env.BARN_BUILD_DATE }}"
     contents: *linux_package_contents
     overrides:
       deb:
@@ -191,7 +191,7 @@ nfpms:
       summary: Native Go/QEMU runtime for Pigsty development VMs
     deb:
       fields:
-        Bugs: https://github.com/pgsty/farrow/issues
+        Bugs: https://github.com/pgsty/barn/issues
 
 checksum:
   name_template: checksums.txt
@@ -210,7 +210,7 @@ sboms:
       - SOURCE_DATE_EPOCH={{ .Env.SOURCE_DATE_EPOCH }}
   - id: package-spdx
     artifacts: package
-    ids: [farrow-packages-amd64, farrow-packages-arm64]
+    ids: [barn-packages-amd64, barn-packages-arm64]
     cmd: ../packaging/goreleaser-package-sbom.sh
     documents:
       - "{{ .ArtifactName }}.spdx.json"
@@ -229,6 +229,6 @@ changelog:
 release:
   github:
     owner: pgsty
-    name: farrow
+    name: barn
   draft: true
   prerelease: auto

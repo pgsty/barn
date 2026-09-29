@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 func TestEnsureKeysRestoresPublicKeyWithoutChangingIdentity(t *testing.T) {

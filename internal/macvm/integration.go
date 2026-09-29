@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/sshconfig"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/sshconfig"
 )
 
 func (m *Manager) sshHome() (string, error) {
@@ -51,7 +51,7 @@ func (m *Manager) SSHConfig() (string, error) {
 }
 
 // InstallSSHConfig publishes the fragment and one Include in ~/.ssh/config,
-// replacing a fragment written for another Farrow home, and lets lifecycle
+// replacing a fragment written for another Barn home, and lets lifecycle
 // commands keep it current again. With no ready machine it changes nothing in
 // ~/.ssh: the first machine to become ready installs it.
 func (m *Manager) InstallSSHConfig(ctx context.Context) (sshconfig.Result, error) {
@@ -98,7 +98,7 @@ func (m *Manager) setSSHConfigOff(ctx context.Context, off bool) (retErr error) 
 
 // refreshSSHConfig keeps an installed fragment current after a lifecycle
 // change and installs it after the first machine becomes ready, unless the
-// user removed it. A fragment written for another Farrow home is left alone.
+// user removed it. A fragment written for another Barn home is left alone.
 // It returns a warning, never an error: the machine is already in its new
 // state.
 func (m *Manager) refreshSSHConfig() string {
@@ -125,5 +125,5 @@ func (m *Manager) refreshSSHConfig() string {
 
 // ShadowedWarning explains machine names that ~/.ssh/config already uses.
 func ShadowedWarning(names []string) string {
-	return fmt.Sprintf("~/.ssh/config already uses %s for another host, so the Farrow entry answers only to the machine's address; farrow mac ssh NAME always works", strings.Join(names, ", "))
+	return fmt.Sprintf("~/.ssh/config already uses %s for another host, so the Barn entry answers only to the machine's address; barn mac ssh NAME always works", strings.Join(names, ", "))
 }

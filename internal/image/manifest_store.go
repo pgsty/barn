@@ -19,10 +19,10 @@ import (
 	"time"
 
 	"aead.dev/minisign"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/webclient"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/webclient"
 )
 
 const (

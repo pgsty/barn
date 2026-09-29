@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 func lifecycleManager(t *testing.T) *Manager {
@@ -133,15 +133,15 @@ func TestUpRefusesOptionsThatWouldNotApply(t *testing.T) {
 	testMachine(t, m, "dev", "10.10.30.0/24", true)
 	_, err := m.Up(context.Background(), "dev", UpOptions{CreateOptions: CreateOptions{CPU: 8, MemoryBytes: 16 << 30}})
 	class, reason, next := failure.Classify(err)
-	if class != failure.Conflict || reason != "mac_configuration_conflict" || next != "farrow mac configure dev --cpu 8 --memory 16G" {
+	if class != failure.Conflict || reason != "mac_configuration_conflict" || next != "barn mac configure dev --cpu 8 --memory 16G" {
 		t.Fatalf("err=%v class=%s reason=%s next=%s", err, class, reason, next)
 	}
 	_, err = m.Up(context.Background(), "dev", UpOptions{CreateOptions: CreateOptions{User: "someone"}})
-	if _, _, next := failure.Classify(err); next != "create another machine for these settings: farrow mac up NEW-NAME" {
+	if _, _, next := failure.Classify(err); next != "create another machine for these settings: barn mac up NEW-NAME" {
 		t.Fatalf("user change next %q (%v)", next, err)
 	}
 	_, err = m.Up(context.Background(), "dev", UpOptions{CreateOptions: CreateOptions{Setup: SetupOptions{IPSW: "/tmp/new.ipsw"}}})
-	if _, _, next := failure.Classify(err); next != "farrow mac image update --ipsw /tmp/new.ipsw, then farrow mac recreate dev --update" {
+	if _, _, next := failure.Classify(err); next != "barn mac image update --ipsw /tmp/new.ipsw, then barn mac recreate dev --update" {
 		t.Fatalf("ipsw next %q (%v)", next, err)
 	}
 }
@@ -172,7 +172,7 @@ func TestConfigureRefusesHardwareChangesWhileRunning(t *testing.T) {
 	machine := testMachine(t, m, "dev", "10.10.30.0/24", true)
 	startFakeRuntime(t, m, machine)
 	_, err := m.Configure(context.Background(), "dev", ConfigureOptions{CPU: 8})
-	if class, reason, next := failure.Classify(err); class != failure.Conflict || reason != "mac_running" || next != "farrow mac stop dev" {
+	if class, reason, next := failure.Classify(err); class != failure.Conflict || reason != "mac_running" || next != "barn mac stop dev" {
 		t.Fatalf("err=%v %s %s %s", err, class, reason, next)
 	}
 	on := false
@@ -187,7 +187,7 @@ func TestVMLimitNamesTheRunningMachines(t *testing.T) {
 	startFakeRuntime(t, m, testMachine(t, m, "mac1", "10.10.20.0/24", true))
 	startFakeRuntime(t, m, testMachine(t, m, "mac2", "10.10.21.0/24", true))
 	err := m.checkVMLimit(context.Background(), "dev")
-	if class, reason, next := failure.Classify(err); class != failure.Resource || reason != "mac_vm_limit" || next != "farrow mac stop mac2" {
+	if class, reason, next := failure.Classify(err); class != failure.Resource || reason != "mac_vm_limit" || next != "barn mac stop mac2" {
 		t.Fatalf("err=%v %s %s %s", err, class, reason, next)
 	}
 	if err := m.checkVMLimit(context.Background(), "mac1"); err != nil {
@@ -209,12 +209,12 @@ func TestConnectionRequiresAReadyRunningMachine(t *testing.T) {
 	machine := testMachine(t, m, "dev", "10.10.30.0/24", true)
 	if _, err := m.Connection(context.Background(), "fresh"); err == nil {
 		t.Fatal("connected to an uninitialized machine")
-	} else if _, reason, next := failure.Classify(err); reason != "mac_not_initialized" || next != "farrow mac up fresh" {
+	} else if _, reason, next := failure.Classify(err); reason != "mac_not_initialized" || next != "barn mac up fresh" {
 		t.Fatalf("%v %s %s", err, reason, next)
 	}
 	if _, err := m.Connection(context.Background(), "dev"); err == nil {
 		t.Fatal("connected to a stopped machine")
-	} else if _, reason, next := failure.Classify(err); reason != "mac_not_running" || next != "farrow mac start dev" {
+	} else if _, reason, next := failure.Classify(err); reason != "mac_not_running" || next != "barn mac start dev" {
 		t.Fatalf("%v %s %s", err, reason, next)
 	}
 	startFakeRuntime(t, m, machine)
@@ -224,7 +224,7 @@ func TestConnectionRequiresAReadyRunningMachine(t *testing.T) {
 	}
 	if _, err := m.Connection(context.Background(), "ghost"); err == nil {
 		t.Fatal("connected to an absent machine")
-	} else if _, reason, next := failure.Classify(err); reason != "mac_machine_absent" || next != "farrow mac up ghost" {
+	} else if _, reason, next := failure.Classify(err); reason != "mac_machine_absent" || next != "barn mac up ghost" {
 		t.Fatalf("%v %s %s", err, reason, next)
 	}
 }
@@ -265,7 +265,7 @@ func TestOpenShowsARunningDesktop(t *testing.T) {
 	testMachine(t, m, "fresh", "10.10.31.0/24", false)
 	if _, err := m.Open(context.Background(), "fresh"); err == nil {
 		t.Fatal("opened a machine that never booted")
-	} else if _, _, next := failure.Classify(err); next != "farrow mac up fresh --open" {
+	} else if _, _, next := failure.Classify(err); next != "barn mac up fresh --open" {
 		t.Fatalf("next %q", next)
 	}
 }
@@ -330,7 +330,7 @@ func TestStatelessDirectoryBlocksOnlyItself(t *testing.T) {
 	}
 	if _, err := m.Store.ListMachines(); !errors.Is(err, errStateless) {
 		t.Fatalf("ls hid a stateless directory: %v", err)
-	} else if _, _, next := failure.Classify(err); next != "farrow mac destroy zz" {
+	} else if _, _, next := failure.Classify(err); next != "barn mac destroy zz" {
 		t.Fatalf("next %q", next)
 	}
 	if name, err := m.Store.DefaultMachine(); err != nil || name != "mac1" {

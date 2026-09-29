@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/barn/internal/activity"
 )
 
 // CatalogSession pins one catalog revision and repository selection for a

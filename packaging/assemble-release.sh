@@ -15,7 +15,7 @@ source_epoch=$3
 goreleaser_dist=$4
 package_directory=$5
 output=$6
-if ! farrow_is_semver "${version}" || [[ ! ${commit} =~ ^[0-9a-f]{40}$ || ! ${source_epoch} =~ ^[0-9]+$ ]] || (( source_epoch <= 0 )); then
+if ! barn_is_semver "${version}" || [[ ! ${commit} =~ ^[0-9a-f]{40}$ || ! ${source_epoch} =~ ^[0-9]+$ ]] || (( source_epoch <= 0 )); then
   printf 'invalid release identity\n' >&2
   exit 2
 fi
@@ -33,12 +33,12 @@ else
   build_date=$(date -u -d "@${source_epoch}" +%Y-%m-%dT%H:%M:%SZ)
 fi
 channel=stable
-farrow_is_stable_release "${version}" || channel=prerelease
+barn_is_stable_release "${version}" || channel=prerelease
 install -d -m 0755 "${output}"
 
 for os_name in darwin linux; do
   for arch in amd64 arm64; do
-    archive=farrow_${version}_${os_name}_${arch}.tar.gz
+    archive=barn_${version}_${os_name}_${arch}.tar.gz
     for source in "${goreleaser_dist}/${archive}" "${goreleaser_dist}/${archive}.spdx.json"; do
       [[ -s ${source} && ! -L ${source} ]] || { printf 'missing GoReleaser asset: %s\n' "${source}" >&2; exit 1; }
       install -m 0644 "${source}" "${output}/"
@@ -47,7 +47,7 @@ for os_name in darwin linux; do
 done
 for arch in amd64 arm64; do
   for format in deb rpm; do
-    package=farrow_${version}_linux_${arch}.${format}
+    package=barn_${version}_linux_${arch}.${format}
     for source in "${package_directory}/${package}" "${package_directory}/${package}.spdx.json"; do
       [[ -s ${source} && ! -L ${source} ]] || { printf 'missing Linux package asset: %s\n' "${source}" >&2; exit 1; }
       install -m 0644 "${source}" "${output}/"
@@ -55,15 +55,15 @@ for arch in amd64 arm64; do
   done
 done
 
-release_base=${FARROW_RELEASE_BASE_URL:-https://github.com/pgsty/farrow/releases/download/v${version}}
-"${repo}/packaging/render-homebrew.sh" "${version}" "${release_base}" "${output}" "${output}/farrow.rb"
+release_base=${BARN_RELEASE_BASE_URL:-https://github.com/pgsty/barn/releases/download/v${version}}
+"${repo}/packaging/render-homebrew.sh" "${version}" "${release_base}" "${output}" "${output}/barn.rb"
 install -m 0755 "${repo}/packaging/install.sh" "${output}/install.sh"
 jq -n \
   --arg version "${version}" --arg commit "${commit}" --arg date "${build_date}" --arg channel "${channel}" \
-  --arg go "${FARROW_GO_VERSION}" --arg goreleaser "${FARROW_GORELEASER_VERSION}" \
-  --arg nfpm "${FARROW_GORELEASER_NFPM_VERSION}" --arg nfpm_standalone "${FARROW_NFPM_VERSION}" \
-  --arg syft "${FARROW_SYFT_VERSION}" \
-  --arg staticcheck "${FARROW_STATICCHECK_VERSION}" --arg govulncheck "${FARROW_GOVULNCHECK_VERSION}" \
+  --arg go "${BARN_GO_VERSION}" --arg goreleaser "${BARN_GORELEASER_VERSION}" \
+  --arg nfpm "${BARN_GORELEASER_NFPM_VERSION}" --arg nfpm_standalone "${BARN_NFPM_VERSION}" \
+  --arg syft "${BARN_SYFT_VERSION}" \
+  --arg staticcheck "${BARN_STATICCHECK_VERSION}" --arg govulncheck "${BARN_GOVULNCHECK_VERSION}" \
   --argjson epoch "${source_epoch}" \
   '{schema:1,version:$version,commit:$commit,date:$date,source_date_epoch:$epoch,channel:$channel,
     targets:["darwin/amd64","darwin/arm64","linux/amd64","linux/arm64"],
@@ -74,7 +74,7 @@ chmod 0644 "${output}/release.json"
 
 (
   cd "${output}"
-  shasum -a 256 farrow_* farrow.rb install.sh release.json | LC_ALL=C sort >checksums.txt
+  shasum -a 256 barn_* barn.rb install.sh release.json | LC_ALL=C sort >checksums.txt
 )
 chmod 0644 "${output}/checksums.txt"
 [[ $(wc -l <"${output}/checksums.txt" | tr -d ' ') -eq 19 ]] || { printf 'unexpected final release asset count\n' >&2; exit 1; }

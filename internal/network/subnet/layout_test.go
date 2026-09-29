@@ -18,7 +18,7 @@ func TestLayoutAndRebase(t *testing.T) {
 	if err != nil || rebased != "172.31.251.13" {
 		t.Fatalf("rebase=%q err=%v", rebased, err)
 	}
-	if custom.Warning() == "" || !strings.Contains(custom.Warning(), "non-default Farrow network") || defaultLayout.Warning() != "" {
+	if custom.Warning() == "" || !strings.Contains(custom.Warning(), "non-default Barn network") || defaultLayout.Warning() != "" {
 		t.Fatal("warning policy mismatch")
 	}
 	addresses := custom.StaticAddresses()

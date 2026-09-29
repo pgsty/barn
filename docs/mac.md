@@ -1,48 +1,48 @@
 # macOS virtual machines
 
-`farrow mac` creates and runs macOS 27 virtual machines on an Apple Silicon Mac
+`barn mac` creates and runs macOS 27 virtual machines on an Apple Silicon Mac
 running macOS 27 or later. Each machine is a clean, disposable macOS with an
 administrator account, passwordless sudo, pinned SSH keys and a fixed address,
 built for testing and building software. It uses Apple's Virtualization and
 DiskImageKit frameworks directly.
 
-Mac machines are independent of the Linux lab: they never read `farrow.yml`,
-never join the Pigsty inventory, and keep every file under `$FARROW_HOME/mac`.
+Mac machines are independent of the Linux lab: they never read `barn.yml`,
+never join the Pigsty inventory, and keep every file under `$BARN_HOME/mac`.
 Linux `destroy` and `purge` leave them alone.
 
 ## Install
 
-`farrow mac` needs the native Mac component, `Farrow Mac.app`, next to the
-`farrow` it serves. Releases will include it once it is signed and notarized
+`barn mac` needs the native Mac component, `Barn Mac.app`, next to the
+`barn` it serves. Releases will include it once it is signed and notarized
 by Apple; until then, build both from a source checkout with Xcode 27:
 
 ```sh
 make mac-build
 export PATH="$PWD/bin/mac:$PATH"
-farrow mac doctor      # checks macOS, the component and free disk space
+barn mac doctor      # checks macOS, the component and free disk space
 ```
 
 ## Quick start
 
 ```sh
-farrow mac up          # create mac1 and wait until SSH works
-farrow mac open        # show its desktop
-farrow mac ssh         # open a shell in it
-farrow mac stop        # shut it down
+barn mac up          # create mac1 and wait until SSH works
+barn mac open        # show its desktop
+barn mac ssh         # open a shell in it
+barn mac stop        # shut it down
 ```
 
-The first `up` on a Mac needs the macOS restore image. Farrow downloads it only
+The first `up` on a Mac needs the macOS restore image. Barn downloads it only
 from Apple (`updates.cdn-apple.com`, about 27 GB) after showing what it will
 download and asking, or takes one you already have with `--ipsw`. The download
 resumes after an interruption and is verified against Apple's published SHA-256.
-Farrow then installs macOS once into an unbooted *base* (about 20 minutes).
+Barn then installs macOS once into an unbooted *base* (about 20 minutes).
 Every machine is a copy-on-write clone of that base, so later machines start in
 seconds and use disk only for what they change.
 
 ```sh
-farrow mac up --yes                                  # scripts: accept the download
-farrow mac up --ipsw ~/Downloads/UniversalMac_27.0_26A428_Restore.ipsw
-farrow mac setup                                     # prepare the base ahead of time
+barn mac up --yes                                  # scripts: accept the download
+barn mac up --ipsw ~/Downloads/UniversalMac_27.0_26A428_Restore.ipsw
+barn mac setup                                     # prepare the base ahead of time
 ```
 
 A local IPSW on the same APFS volume is cloned into the cache without copying
@@ -55,16 +55,16 @@ a letter. The default is `mac1`. A command without a name acts on the only
 machine, or on `mac1`, and asks you to choose when that is ambiguous.
 
 ```sh
-farrow mac up dev --cpu 8 --memory 16G --share ~/src
-farrow mac up build --user ci --disk 200G
-farrow mac ls
+barn mac up dev --cpu 8 --memory 16G --share ~/src
+barn mac up build --user ci --disk 200G
+barn mac ls
 ```
 
 Defaults are 4 CPUs, 8 GiB of memory and a 100 GiB disk, allocated only as it
 is used. Another `--disk` size prepares one more base of the same macOS once
 (about 20 minutes); the default base stays as it is. Apple allows two macOS virtual machines to run at a time on one Mac,
 including those of other tools and macOS installation itself; you can create
-more machines and start any two. When the limit is reached, Farrow names the
+more machines and start any two. When the limit is reached, Barn names the
 running machines to stop instead of stopping anything itself.
 
 | Command | What it does |
@@ -98,7 +98,7 @@ operations show progress on stderr with the same display as the Linux commands.
 the window changes the guest resolution, and **View → Enter Full Screen** works
 as usual. Closing the window keeps the machine running in the background.
 **Machine → Restart…** and **Machine → Shut Down…** act on the guest;
-**Farrow Mac → Quit Farrow Mac…** asks whether to keep the machine running or
+**Barn Mac → Quit Barn Mac…** asks whether to keep the machine running or
 shut it down. Logging out, restarting or shutting down the Mac shuts running
 machines down normally, powering off any that take more than a minute, and is
 never held up. Keyboard shortcuts go to the guest while its window is focused.
@@ -108,18 +108,18 @@ the guest when you click into its window, and text copied in the guest comes
 back when you switch to another app. It travels over the machine's pinned SSH
 connection; no agent is installed in the guest. Items that password managers
 mark as concealed never leave the host. Turn it off per machine with
-`farrow mac configure NAME --clipboard off`, or for the session with
+`barn mac configure NAME --clipboard off`, or for the session with
 **Machine → Share Clipboard**.
 
 Shared folders appear in the guest under `/Volumes/My Shared Files/<name>`:
 
 ```sh
-farrow mac up dev --share ~/src --share docs=~/Documents:ro
-farrow mac stop dev && farrow mac configure dev --share data=/Volumes/Work/data --unshare docs
+barn mac up dev --share ~/src --share docs=~/Documents:ro
+barn mac stop dev && barn mac configure dev --share data=/Volumes/Work/data --unshare docs
 ```
 
 A share is a real host directory (not a symlink), read-write unless marked
-`:ro`. Farrow never creates or deletes shared directories. macOS guests can
+`:ro`. Barn never creates or deletes shared directories. macOS guests can
 serve stale file contents for a while after the host changes a file; use SSH
 or `exec` when you need an immediately consistent view.
 
@@ -127,19 +127,19 @@ or `exec` when you need an immediately consistent view.
 
 Every machine has its own SSH key pair and a host key pinned on first contact.
 `mac ssh` and `mac exec` always use them, never your personal keys or
-`~/.ssh/config`. After the first machine is ready, Farrow adds one marked
+`~/.ssh/config`. After the first machine is ready, Barn adds one marked
 Include to `~/.ssh/config`, so `ssh mac1`, `scp`, `rsync` and editors with
 Remote-SSH reach each machine by name. `up`, `recreate`, `configure` and
 `destroy` keep those entries current; `mac ssh-config --remove` removes only
-what Farrow added and keeps it out until `mac ssh-config --install`. A name
+what Barn added and keeps it out until `mac ssh-config --install`. A name
 that `~/.ssh/config` already uses for another host stays yours: that
-machine's entry answers only to its address, and Farrow says so. A config
-managed by a dotfile tool through a link is never edited; Farrow prints the
+machine's entry answers only to its address, and Barn says so. A config
+managed by a dotfile tool through a link is never edited; Barn prints the
 Include line to add instead.
 
 macOS Local Network privacy blocks third-party programs from the machines'
 private networks unless their app is allowed under **System Settings → Privacy &
-Security → Local Network**; the symptom is "No route to host". Farrow connects
+Security → Local Network**; the symptom is "No route to host". Barn connects
 through Apple's own `/usr/bin/nc` and `/usr/bin/ssh`, which are exempt, so
 `mac ssh`, `mac exec` and plain `/usr/bin/ssh mac1` always work.
 
@@ -147,7 +147,7 @@ through Apple's own `/usr/bin/nc` and `/usr/bin/ssh`, which are exempt, so
 
 The administrator account defaults to your macOS user name; choose another with
 `--user` when creating a machine. Apple's first-boot provisioning creates it,
-turns on automatic desktop login and Remote Login. Farrow then installs the SSH
+turns on automatic desktop login and Remote Login. Barn then installs the SSH
 public key, passwordless sudo and the machine's host name, and turns off SSH
 password login. No Apple Account, host password or personal key is copied into
 the guest.
@@ -156,7 +156,7 @@ The login password is random per machine and needed only for the lock screen
 and administrator prompts in the desktop. It is stored in the machine's
 directory, readable only by you, next to its SSH private key; that key already
 grants passwordless sudo in the guest, so a separate store would not protect
-anything more. Show it with `farrow mac password`, or copy it with `--copy`.
+anything more. Show it with `barn mac password`, or copy it with `--copy`.
 
 ## Network
 
@@ -171,7 +171,7 @@ Machines reach the internet through NAT and the host through its gateway
 address. They are isolated from each other and are not exposed on your LAN.
 Nothing runs as root: the private network needs no helper, daemon or
 administrator prompt. If a VPN later claims a machine's subnet, `start` stops
-before booting and suggests `farrow mac configure NAME --subnet auto`.
+before booting and suggests `barn mac configure NAME --subnet auto`.
 
 First-contact SSH trust comes from this isolation: only the machine can answer
 on its private network, so the host key it presents on first boot is pinned
@@ -180,7 +180,7 @@ and required from then on.
 ## Storage
 
 ```
-$FARROW_HOME/mac/
+$BARN_HOME/mac/
   config.json                      installation identity and default base
   images/ipsw/<build>.ipsw         Apple restore images (resumable .partial while downloading)
   images/base/<id>/                read-only, unbooted macOS bases
@@ -209,9 +209,9 @@ prepares it as the default base; existing machines keep theirs until
 - Apple Account sign-in inside a virtual machine is unreliable, and USB
   devices, snapshots and suspending a machine are not supported.
 - The Mac component is built from source until a release includes a signed,
-  notarized one (see [Install](#install)); `farrow mac doctor` explains a
+  notarized one (see [Install](#install)); `barn mac doctor` explains a
   missing or mismatched component.
 
 `make mac-native-test` runs the native tests; `go test ./internal/macvm
-./cmd/farrow` covers the CLI. Live acceptance evidence is recorded in
+./cmd/barn` covers the CLI. Live acceptance evidence is recorded in
 [the implementation log](mac-implementation-log.md).

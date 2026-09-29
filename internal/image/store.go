@@ -17,13 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/webclient"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/webclient"
 )
 
 const (
@@ -154,7 +154,7 @@ func ensurePrivateDir(pathname string) error {
 	}
 	info, err := os.Lstat(pathname)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("farrow path is unsafe: %s", pathname)
+		return fmt.Errorf("barn path is unsafe: %s", pathname)
 	}
 	return os.Chmod(pathname, 0o700)
 }
@@ -380,7 +380,7 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 		pathname, metadata, err := s.ValidateCached(ctx, entry)
 		if errors.Is(err, ErrIntegrity) {
 			// The cache is keyed by basename: a different file with the same name.
-			return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("the image cache already holds a different %s", entry.CacheFile)).Because("image_name_taken").Then("rename the file to import it alongside, or remove the old one with farrow image prune --yes")
+			return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("the image cache already holds a different %s", entry.CacheFile)).Because("image_name_taken").Then("rename the file to import it alongside, or remove the old one with barn image prune --yes")
 		}
 		return pathname, metadata, err
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -752,7 +752,7 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 		}
 		if target, pathErr := s.Path(entry); pathErr == nil {
 			if _, statErr := os.Lstat(target); statErr == nil {
-				return "", Metadata{}, fmt.Errorf("%w; remove the conflicting cache file %s or run farrow image prune --yes", err, target)
+				return "", Metadata{}, fmt.Errorf("%w; remove the conflicting cache file %s or run barn image prune --yes", err, target)
 			}
 		}
 	}
@@ -823,10 +823,10 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 	message := fmt.Errorf("download image %s %s: %s", entry.Alias, entry.Release, strings.Join(failures, "; "))
 	if gone {
 		if candidates[0].kind == "repository" {
-			return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the selected repository does not carry this catalog artifact", message), "farrow update, choose another repository with --mirror / --repo, or farrow image import a local copy")
+			return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the selected repository does not carry this catalog artifact", message), "barn update, choose another repository with --mirror / --repo, or barn image import a local copy")
 		}
 		// A Store without a repository is a compatibility-only upstream path.
-		return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the pinned artifact is no longer published upstream", message), "farrow update, point --repo at a repository that carries it, or farrow image import a local copy")
+		return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the pinned artifact is no longer published upstream", message), "barn update, point --repo at a repository that carries it, or barn image import a local copy")
 	}
 	return "", Metadata{}, failure.WithNext(message, next)
 }

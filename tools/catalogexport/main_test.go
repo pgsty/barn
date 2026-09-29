@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/image"
+	"github.com/pgsty/barn/internal/image"
 )
 
 func TestExportCatalogWritesExactEmbeddedCatalogOnce(t *testing.T) {

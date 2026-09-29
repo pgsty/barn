@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 // Logs returns the last lines of a machine's runtime log: startup, network,
@@ -25,7 +25,7 @@ func (m *Manager) Logs(name string, lines int) (string, error) {
 	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", failure.New(failure.Conflict, fmt.Errorf("%s has not started yet, so it has no runtime log", name)).Then("farrow mac up " + name)
+		return "", failure.New(failure.Conflict, fmt.Errorf("%s has not started yet, so it has no runtime log", name)).Then("barn mac up " + name)
 	} else if err != nil {
 		return "", err
 	}

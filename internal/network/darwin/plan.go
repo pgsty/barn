@@ -8,25 +8,25 @@ import (
 	"io"
 	"regexp"
 
-	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/barn/internal/network/subnet"
 )
 
 const (
-	InstallRoot         = "/opt/farrow"
-	DaemonPath          = "/opt/farrow/libexec/socket_vmnet"
-	ClientPath          = "/opt/farrow/libexec/socket_vmnet_client"
-	HostsHelperPath     = "/opt/farrow/libexec/farrow-hosts-helper"
-	PlistPath           = "/Library/LaunchDaemons/io.pgsty.farrow.vmnet.plist"
-	SocketPath          = "/private/var/run/farrow-vmnet.sock"
-	PIDPath             = "/private/var/run/farrow-vmnet.pid"
-	LeaseRoot           = "/private/var/run/farrow"
-	StateDir            = "/private/var/db/farrow"
-	StatePath           = "/private/var/db/farrow/network.json"
-	InterfaceStatePath  = "/private/var/db/farrow/network-interface.json"
-	InterfaceMarkerDir  = "/Library/Application Support/io.pgsty.farrow"
-	InterfaceMarkerPath = "/Library/Application Support/io.pgsty.farrow/network-interface.json"
-	LogDir              = "/var/log/farrow-vmnet"
-	ServiceID           = "io.pgsty.farrow.vmnet"
+	InstallRoot         = "/opt/barn"
+	DaemonPath          = "/opt/barn/libexec/socket_vmnet"
+	ClientPath          = "/opt/barn/libexec/socket_vmnet_client"
+	HostsHelperPath     = "/opt/barn/libexec/barn-hosts-helper"
+	PlistPath           = "/Library/LaunchDaemons/io.pgsty.barn.vmnet.plist"
+	SocketPath          = "/private/var/run/barn-vmnet.sock"
+	PIDPath             = "/private/var/run/barn-vmnet.pid"
+	LeaseRoot           = "/private/var/run/barn"
+	StateDir            = "/private/var/db/barn"
+	StatePath           = "/private/var/db/barn/network.json"
+	InterfaceStatePath  = "/private/var/db/barn/network-interface.json"
+	InterfaceMarkerDir  = "/Library/Application Support/io.pgsty.barn"
+	InterfaceMarkerPath = "/Library/Application Support/io.pgsty.barn/network-interface.json"
+	LogDir              = "/var/log/barn-vmnet"
+	ServiceID           = "io.pgsty.barn.vmnet"
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -58,7 +58,7 @@ type NetworkState struct {
 
 // InterfaceMarker is deliberately public and non-secret. Its protected twin
 // at InterfaceStatePath prevents a merely plausible pre-existing BSD
-// interface from being treated as Farrow-owned. It also carries the binary
+// interface from being treated as Barn-owned. It also carries the binary
 // provenance so the unprivileged preflight can verify the installed
 // executables without reading the root-only network state.
 type InterfaceMarker struct {

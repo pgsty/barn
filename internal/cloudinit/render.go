@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/spec"
 
-	"github.com/pgsty/farrow/internal/naming"
+	"github.com/pgsty/barn/internal/naming"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -32,7 +32,7 @@ type Disk struct {
 }
 
 // Share is one QEMU virtio-9p export mounted inside the guest. Tag is a
-// Farrow-generated stable identity, never a user-selected mount option.
+// Barn-generated stable identity, never a user-selected mount option.
 type Share struct {
 	Tag      string
 	Guest    string
@@ -72,7 +72,7 @@ type Files struct {
 var (
 	dnsNamePattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
 	serialPattern   = regexp.MustCompile(`^[a-z2-7]{20}$`)
-	shareTagPattern = regexp.MustCompile(`^farrow-[0-9a-f]{20}$`)
+	shareTagPattern = regexp.MustCompile(`^barn-[0-9a-f]{20}$`)
 	hashPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	userPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 	mountPattern    = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
@@ -83,7 +83,7 @@ func mountPathsOverlap(left, right string) bool {
 }
 
 func reservedMount(path string) bool {
-	for _, root := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/farrow"} {
+	for _, root := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn"} {
 		if path == root || strings.HasPrefix(path, root+"/") {
 			return true
 		}
@@ -99,7 +99,7 @@ func safeShareMount(path, user string) bool {
 	if !mountPattern.MatchString(path) || !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
 		return false
 	}
-	for _, reserved := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/farrow", filepath.Join("/home", user, ".ssh")} {
+	for _, reserved := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn", filepath.Join("/home", user, ".ssh")} {
 		if mountPathsOverlap(path, reserved) {
 			return false
 		}
@@ -188,13 +188,13 @@ func validateInput(input Input) error {
 	seenGuests := make(map[string]struct{}, len(input.Shares))
 	for _, share := range input.Shares {
 		if !shareTagPattern.MatchString(share.Tag) {
-			return fmt.Errorf("invalid Farrow share tag %q", share.Tag)
+			return fmt.Errorf("invalid Barn share tag %q", share.Tag)
 		}
 		if !safeShareMount(share.Guest, input.SSHUser) {
 			return fmt.Errorf("unsafe guest share mount %q", share.Guest)
 		}
 		if _, exists := seenTags[share.Tag]; exists {
-			return fmt.Errorf("duplicate Farrow share tag %q", share.Tag)
+			return fmt.Errorf("duplicate Barn share tag %q", share.Tag)
 		}
 		for existing := range seenGuests {
 			if mountPathsOverlap(existing, share.Guest) {
@@ -272,10 +272,10 @@ reset_disk() {
   # Only the configured whole data device may be reset, and never while any
   # filesystem on it is mounted. An I/O or read-only backend is not fixed by mkfs.
   [[ "$(lsblk -dn -o TYPE "${dev}")" == disk ]] || { echo 'data device is not a whole disk' >&2; return 1; }
-  [[ -z "$(lsblk -nr -o MOUNTPOINT "${dev}" | sed '/^[[:space:]]*$/d')" ]] || { echo 'data disk is still in use; stop its users and run farrow up again' >&2; return 1; }
+  [[ -z "$(lsblk -nr -o MOUNTPOINT "${dev}" | sed '/^[[:space:]]*$/d')" ]] || { echo 'data disk is still in use; stop its users and run barn up again' >&2; return 1; }
   [[ "$(blockdev --getro "${dev}")" == 0 ]] || { echo 'data device is read-only; disk not reset' >&2; return 1; }
   dd if="${dev}" of=/dev/null bs=4096 count=1 status=none || { echo 'data device cannot be read; disk not reset' >&2; return 1; }
-  printf 'Farrow: initializing %s on %s (%s)\n' "${mountpoint}" "${dev}" "${format}"
+  printf 'Barn: initializing %s on %s (%s)\n' "${mountpoint}" "${dev}" "${format}"
   if [[ "${format}" == xfs ]]; then
     timeout --kill-after=5s 60s mkfs.xfs -f "${dev}" || status=$?
   else
@@ -285,10 +285,10 @@ reset_disk() {
     echo 'data disk reset failed; previous contents may have been discarded' >&2
     return 1
   fi
-  if [[ "${fresh}" != true || -e "/var/lib/farrow/disk-${serial}.initialized" ]]; then
-    /usr/local/libexec/farrow-warning disk-reset "${mountpoint}: reset to an empty ${format} filesystem; previous data discarded"
+  if [[ "${fresh}" != true || -e "/var/lib/barn/disk-${serial}.initialized" ]]; then
+    /usr/local/libexec/barn-warning disk-reset "${mountpoint}: reset to an empty ${format} filesystem; previous data discarded"
   fi
-  touch "/var/lib/farrow/disk-${serial}.initialized"
+  touch "/var/lib/barn/disk-${serial}.initialized"
   probe_disk
   [[ -n "${uuid}" && -n "${fstype}" ]]
 }
@@ -316,7 +316,7 @@ filesystem_unusable() {
 init_disk() {
   local serial="$1" mountpoint="$2" requested="$3" fresh="$4" dev="/dev/disk/by-id/$5"
   local uuid= fstype= metadata= mounted_id= expected_id= attempt probe_error
-  probe_error=$(mktemp /var/lib/farrow/probe.err.XXXXXX)
+  probe_error=$(mktemp /var/lib/barn/probe.err.XXXXXX)
   trap "rm -f -- '${probe_error}'" EXIT
   if [[ "${check_only}" == false ]]; then
     for attempt in $(seq 1 10); do
@@ -324,7 +324,7 @@ init_disk() {
       sleep 1
     done
   fi
-  [[ -b "${dev}" ]] || { echo "missing data device ${dev}; run farrow up after it returns" >&2; return 1; }
+  [[ -b "${dev}" ]] || { echo "missing data device ${dev}; run barn up after it returns" >&2; return 1; }
   expected_id=$(lsblk -dn -o MAJ:MIN "${dev}")
   [[ -n "${expected_id}" ]] || return 1
   if mountpoint -q "${mountpoint}"; then
@@ -335,7 +335,7 @@ init_disk() {
       return 0
     fi
     [[ "${check_only}" == false ]] || return 1
-    umount "${mountpoint}" || { echo 'data disk is busy; stop its users and run farrow up again' >&2; return 1; }
+    umount "${mountpoint}" || { echo 'data disk is busy; stop its users and run barn up again' >&2; return 1; }
   fi
   [[ "${check_only}" == false ]] || return 1
   probe_disk
@@ -360,17 +360,17 @@ init_disk() {
     fi
   fi
   local fstab_tmp
-  fstab_tmp=$(mktemp /etc/fstab.farrow.XXXXXX)
+  fstab_tmp=$(mktemp /etc/fstab.barn.XXXXXX)
   awk -v mountpoint="${mountpoint}" 'NF < 2 || $2 != mountpoint { print }' /etc/fstab >"${fstab_tmp}"
   printf 'UUID=%s %s %s defaults,nofail 0 2\n' "${uuid}" "${mountpoint}" "${fstype}" >>"${fstab_tmp}"
   chmod 0644 "${fstab_tmp}"
   mv -f -- "${fstab_tmp}" /etc/fstab
-  touch "/var/lib/farrow/disk-${serial}.initialized"
+  touch "/var/lib/barn/disk-${serial}.initialized"
 }
 
 `)
 	for _, disk := range disks {
-		fmt.Fprintf(&out, `disk_err=$(mktemp /var/lib/farrow/disk.err.XXXXXX)
+		fmt.Fprintf(&out, `disk_err=$(mktemp /var/lib/barn/disk.err.XXXXXX)
 set +e
 ( set -euo pipefail; init_disk %s %s %s %t virtio-%s ) 2>"${disk_err}"
 disk_status=$?
@@ -378,7 +378,7 @@ set -e
 if (( disk_status != 0 )); then
   if [[ "${check_only}" == true ]]; then rm -f -- "${disk_err}"; exit 1; fi
   detail=$(tail -n 1 "${disk_err}")
-  /usr/local/libexec/farrow-warning data-disks "%s: ${detail:-disk setup unavailable}"
+  /usr/local/libexec/barn-warning data-disks "%s: ${detail:-disk setup unavailable}"
 fi
 cat "${disk_err}" >&2
 rm -f -- "${disk_err}"
@@ -392,8 +392,8 @@ func renderShareScript(user string, shares []Share) string {
 		return ""
 	}
 	const (
-		beginMarker = "# BEGIN FARROW SHARES"
-		endMarker   = "# END FARROW SHARES"
+		beginMarker = "# BEGIN BARN SHARES"
+		endMarker   = "# END BARN SHARES"
 		baseOptions = "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid"
 	)
 	var out strings.Builder
@@ -433,7 +433,7 @@ safe_guest_mount() {
   [[ "${path}" =~ ^/[A-Za-z0-9._/-]+$ && "${path}" != / ]]
   canonical=$(realpath -m -- "${path}")
   [[ "${canonical}" == "${path}" ]]
-  for root in /bin /boot /dev /etc /lib /lib64 /proc /root /run /sbin /sys /usr /var/lib/farrow; do
+  for root in /bin /boot /dev /etc /lib /lib64 /proc /root /run /sbin /sys /usr /var/lib/barn; do
     if path_overlap "${path}" "${root}"; then
       return 1
     fi
@@ -455,7 +455,7 @@ fstab_mode=$(stat -c '%a' "${fstab}")
 begin_count=$(grep -Fxc -- "${begin_marker}" "${fstab}" || true)
 end_count=$(grep -Fxc -- "${end_marker}" "${fstab}" || true)
 if (( begin_count != end_count || begin_count > 1 )); then
-  echo 'malformed Farrow share block in /etc/fstab' >&2
+  echo 'malformed Barn share block in /etc/fstab' >&2
   exit 1
 fi
 
@@ -464,20 +464,20 @@ if (( begin_count == 1 )); then
   begin_line=$(grep -Fn -- "${begin_marker}" "${fstab}" | cut -d: -f1)
   end_line=$(grep -Fn -- "${end_marker}" "${fstab}" | cut -d: -f1)
   if (( begin_line >= end_line )); then
-    echo 'misordered Farrow share block in /etc/fstab' >&2
+    echo 'misordered Barn share block in /etc/fstab' >&2
     exit 1
   fi
   while read -r tag guest fstype options dump pass extra; do
-    if [[ -z "${tag}" || -n "${extra:-}" || ! "${tag}" =~ ^farrow-[0-9a-f]{20}$ || "${fstype}" != 9p || "${dump}" != 0 || "${pass}" != 0 ]]; then
-      echo 'unsafe entry in Farrow share block' >&2
+    if [[ -z "${tag}" || -n "${extra:-}" || ! "${tag}" =~ ^barn-[0-9a-f]{20}$ || "${fstype}" != 9p || "${dump}" != 0 || "${pass}" != 0 ]]; then
+      echo 'unsafe entry in Barn share block' >&2
       exit 1
     fi
     normalized_options=${options/access=any/access=client}
     if [[ "${normalized_options}" != "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,rw" && "${normalized_options}" != "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,ro" ]]; then
-      echo 'unexpected options in Farrow share block' >&2
+      echo 'unexpected options in Barn share block' >&2
       exit 1
     fi
-    safe_guest_mount "${guest}" || { echo "unsafe old Farrow share mount ${guest}" >&2; exit 1; }
+    safe_guest_mount "${guest}" || { echo "unsafe old Barn share mount ${guest}" >&2; exit 1; }
     old_shares+=("${tag}|${guest}")
   done < <(awk -v begin="${begin_marker}" -v end="${end_marker}" '
     $0 == begin { inside=1; next }
@@ -504,7 +504,7 @@ for old_share in "${old_shares[@]}"; do
   umount "${old_guest}"
 done
 
-fstab_tmp=$(mktemp /etc/.fstab.farrow-shares.XXXXXX)
+fstab_tmp=$(mktemp /etc/.fstab.barn-shares.XXXXXX)
 awk -v begin="${begin_marker}" -v end="${end_marker}" '
   $0 == begin { inside=1; next }
   $0 == end { inside=0; next }
@@ -554,21 +554,21 @@ probe_share() {
   runuser -u "${share_user}" -- test -r "${mountpoint}" || return 1
   runuser -u "${share_user}" -- test -x "${mountpoint}" || return 1
   if [[ "${readonly}" == true ]]; then
-    if active_probe=$(runuser -u "${share_user}" -- mktemp "${mountpoint}/.farrow-write-probe.XXXXXX" 2>/dev/null); then
+    if active_probe=$(runuser -u "${share_user}" -- mktemp "${mountpoint}/.barn-write-probe.XXXXXX" 2>/dev/null); then
       if ! rm -f -- "${active_probe}" || [[ -e "${active_probe}" || -L "${active_probe}" ]]; then
         echo "failed to clean unexpected read-only share probe ${active_probe}" >&2
         return 1
       fi
       active_probe=
-      echo "read-only Farrow share is writable by ${share_user}: ${mountpoint}" >&2
+      echo "read-only Barn share is writable by ${share_user}: ${mountpoint}" >&2
       return 1
     fi
     active_probe=
     return 0
   fi
 
-  active_probe=$(runuser -u "${share_user}" -- mktemp "${mountpoint}/.farrow-write-probe.XXXXXX") || return 1
-  runuser -u "${share_user}" -- /bin/sh -c 'printf "%s\n" farrow-share-probe > "$1"' farrow-probe "${active_probe}" || return 1
+  active_probe=$(runuser -u "${share_user}" -- mktemp "${mountpoint}/.barn-write-probe.XXXXXX") || return 1
+  runuser -u "${share_user}" -- /bin/sh -c 'printf "%s\n" barn-share-probe > "$1"' barn-probe "${active_probe}" || return 1
   runuser -u "${share_user}" -- rm -f -- "${active_probe}" || return 1
   [[ ! -e "${active_probe}" && ! -L "${active_probe}" ]] || return 1
   active_probe=
@@ -588,7 +588,7 @@ check_share_access() {
     verify_mount "${tag}" "${mountpoint}" true
     # Keep the actual fallback across reboots. A subsequent finalize rewrites
     # the desired options and retries writable access.
-    fstab_tmp=$(mktemp /etc/.fstab.farrow-shares.XXXXXX)
+    fstab_tmp=$(mktemp /etc/.fstab.barn-shares.XXXXXX)
     awk -v tag="${tag}" -v target="${mountpoint}" -v begin="${begin_marker}" -v end="${end_marker}" '
       $0 == begin { inside=1 }
       $0 == end { inside=0 }
@@ -637,7 +637,7 @@ init_share() {
     return 0
   fi
   if find "${mountpoint}" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
-    echo "refuse non-empty Farrow share mountpoint ${mountpoint}" >&2
+    echo "refuse non-empty Barn share mountpoint ${mountpoint}" >&2
     return 1
   fi
   mount "${mountpoint}"
@@ -649,14 +649,14 @@ init_share() {
 	for _, share := range shares {
 		// Run each mount in an independent strict subshell. Putting a shell
 		// function in an if/|| condition would disable errexit inside it.
-		fmt.Fprintf(&out, `share_err=$(mktemp /var/lib/farrow/share.err.XXXXXX)
+		fmt.Fprintf(&out, `share_err=$(mktemp /var/lib/barn/share.err.XXXXXX)
 set +e
 ( set -Eeuo pipefail; init_share %q %q %t ) 2>"${share_err}"
 share_status=$?
 set -e
 if (( share_status != 0 )); then
   detail=$(tail -n 1 "${share_err}")
-  /usr/local/libexec/farrow-warning shares "${detail:-%s: mount unavailable}"
+  /usr/local/libexec/barn-warning shares "${detail:-%s: mount unavailable}"
 fi
 cat "${share_err}" >&2
 rm -f -- "${share_err}"
@@ -665,15 +665,14 @@ rm -f -- "${share_err}"
 	return out.String()
 }
 
-// Compatibility expiry: guest-hosts-marker-v0 in CONTRIBUTING.md#compatibility-expiry.
 func RenderHostsScript(hosts []Host) string {
 	sorted := append([]Host(nil), hosts...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	var out strings.Builder
 	out.WriteString("#!/bin/bash\nset -euo pipefail\n")
-	out.WriteString("sed -i.bak -e '/# farrow-project-host$/d' -e '/# farrow-deployment-host$/d' /etc/hosts\n")
+	out.WriteString("sed -i.bak '/# barn-deployment-host$/d' /etc/hosts\n")
 	for _, host := range sorted {
-		fmt.Fprintf(&out, "printf '%%s %%s # farrow-deployment-host\\n' %s %s >> /etc/hosts\n", host.Address, host.Name)
+		fmt.Fprintf(&out, "printf '%%s %%s # barn-deployment-host\\n' %s %s >> /etc/hosts\n", host.Address, host.Name)
 	}
 	return out.String()
 }
@@ -681,7 +680,7 @@ func RenderHostsScript(hosts []Host) string {
 // RenderControlSSHConfig is shared by initial cloud-init and later topology updates.
 func RenderControlSSHConfig(user string, hosts []Host) string {
 	// Local lab nodes are routinely recreated at the same names and addresses.
-	return "# BEGIN FARROW\nHost " + strings.Join(hostNames(hosts), " ") + "\n  User " + user + "\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\nHost *\n# END FARROW\n"
+	return "# BEGIN BARN\nHost " + strings.Join(hostNames(hosts), " ") + "\n  User " + user + "\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\nHost *\n# END BARN\n"
 }
 
 func renderNetworkCheckScript() string {
@@ -750,14 +749,14 @@ elif command -v nmcli >/dev/null 2>&1; then
     exit 1
   fi
 fi
-printf 'farrow-arp-refresh\n' >"/dev/udp/${expected_host}/9"
+printf 'barn-arp-refresh\n' >"/dev/udp/${expected_host}/9"
 printf 'private interface %%s %%s is up with no default route or DNS\n' "${interface}" "${expected}"
 `, fmt.Sprintf("%s/%d", network.Address, network.Prefix), network.HostAddress, strings.ToLower(network.MAC))
 }
 
 func renderControlSSHInstallScript(user string) string {
-	keySource := "/var/lib/farrow/control-id_ed25519"
-	configSource := "/var/lib/farrow/control-ssh-config"
+	keySource := "/var/lib/barn/control-id_ed25519"
+	configSource := "/var/lib/barn/control-ssh-config"
 	return fmt.Sprintf(`#!/bin/bash
 set -euo pipefail
 user=%q
@@ -822,14 +821,14 @@ func renderFinalizeScript(controlSSH, privateNetwork, shares bool) string {
 	var out strings.Builder
 	out.WriteString(`#!/bin/bash
 set -euo pipefail
-install -d -o root -g root -m 0755 /var/lib/farrow
-exec 9>/var/lib/farrow/finalize.lock
+install -d -o root -g root -m 0755 /var/lib/barn
+exec 9>/var/lib/barn/finalize.lock
 flock -n 9 || { echo 'guest setup is already running' >&2; exit 1; }
 # Empty selection runs initial setup; up passes only stages needing a retry.
 selected=" $* "
-previous_warnings=$(cat /var/lib/farrow/warnings.jsonl 2>/dev/null || true)
+previous_warnings=$(cat /var/lib/barn/warnings.jsonl 2>/dev/null || true)
 stage=identity
-stage_err=/var/lib/farrow/stage.err
+stage_err=/var/lib/barn/stage.err
 finalize_exit() {
   local status=$?
   local error_tmp= detail=
@@ -838,10 +837,10 @@ finalize_exit() {
     if [[ -s "${stage_err}" ]]; then
       detail=$(tail -n 1 "${stage_err}" | LC_ALL=C tr -d '\r\n' | LC_ALL=C tr '\000-\037\177' ' ' | cut -c1-200 | sed 's/\\/\\\\/g; s/"/\\"/g')
     fi
-    if error_tmp=$(mktemp /var/lib/farrow/error.json.XXXXXX); then
+    if error_tmp=$(mktemp /var/lib/barn/error.json.XXXXXX); then
       if printf '{"exit_status":%d,"stage":"%s","detail":"%s"}\n' "${status}" "${stage}" "${detail}" > "${error_tmp}" &&
         chown root:root "${error_tmp}" && chmod 0644 "${error_tmp}"; then
-        mv -f -- "${error_tmp}" /var/lib/farrow/error.json || rm -f -- "${error_tmp}" || true
+        mv -f -- "${error_tmp}" /var/lib/barn/error.json || rm -f -- "${error_tmp}" || true
       else
         rm -f -- "${error_tmp}" || true
       fi
@@ -869,36 +868,36 @@ run_optional() {
   shift 2
   if [[ "${selected}" != '  ' && "${selected}" != *" ${name} "* ]]; then
     # Retain unselected limitations, but reset notices describe only one run.
-    printf '%s\n' "${previous_warnings}" | grep -F "\"stage\":\"${name}\"" >>/var/lib/farrow/warnings.jsonl || true
+    printf '%s\n' "${previous_warnings}" | grep -F "\"stage\":\"${name}\"" >>/var/lib/barn/warnings.jsonl || true
     return 0
   fi
   if run_stage "${name}" timeout --kill-after=5s "${budget}" "$@"; then
     return 0
   fi
   detail=$(tail -n 1 "${stage_err}")
-  /usr/local/libexec/farrow-warning "${name}" "${detail:-setup unavailable or timed out}"
+  /usr/local/libexec/barn-warning "${name}" "${detail:-setup unavailable or timed out}"
 }
 trap finalize_exit EXIT
-rm -f -- /var/lib/farrow/ready.json /var/lib/farrow/error.json
-: >/var/lib/farrow/warnings.jsonl
-chmod 0644 /var/lib/farrow/warnings.jsonl
-run_stage identity /usr/local/libexec/farrow-identity-contract
-run_optional hosts 30s /usr/local/libexec/farrow-hosts
+rm -f -- /var/lib/barn/ready.json /var/lib/barn/error.json
+: >/var/lib/barn/warnings.jsonl
+chmod 0644 /var/lib/barn/warnings.jsonl
+run_stage identity /usr/local/libexec/barn-identity-contract
+run_optional hosts 30s /usr/local/libexec/barn-hosts
 # Internet access is diagnostic only: an offline lab must still initialize its
-# disks, shares and private network. farrow-network-check remains available for
+# disks, shares and private network. barn-network-check remains available for
 # an explicit guest connectivity check.
-run_optional data-disks 90s /usr/local/libexec/farrow-init-disks
+run_optional data-disks 90s /usr/local/libexec/barn-init-disks
 `)
 	if shares {
-		out.WriteString("run_optional shares 30s /usr/local/libexec/farrow-init-shares\n")
+		out.WriteString("run_optional shares 30s /usr/local/libexec/barn-init-shares\n")
 	}
 	if controlSSH {
-		out.WriteString("run_optional control-ssh 30s /usr/local/libexec/farrow-install-control-ssh\n")
+		out.WriteString("run_optional control-ssh 30s /usr/local/libexec/barn-install-control-ssh\n")
 	}
 	if privateNetwork {
-		out.WriteString("run_optional private-network 30s /usr/local/libexec/farrow-private-contract\n")
+		out.WriteString("run_optional private-network 30s /usr/local/libexec/barn-private-contract\n")
 	}
-	out.WriteString("run_stage ready /usr/local/libexec/farrow-ready\n")
+	out.WriteString("run_stage ready /usr/local/libexec/barn-ready\n")
 	return out.String()
 }
 
@@ -915,14 +914,14 @@ func renderReadyScript(input Input) (string, error) {
 	}
 	return fmt.Sprintf(`#!/bin/bash
 set -euo pipefail
-install -d -m 0755 /var/lib/farrow
+install -d -m 0755 /var/lib/barn
 warnings=
-if [[ -f /var/lib/farrow/warnings.jsonl ]]; then
-  warnings=$(paste -sd, /var/lib/farrow/warnings.jsonl)
+if [[ -f /var/lib/barn/warnings.jsonl ]]; then
+  warnings=$(paste -sd, /var/lib/barn/warnings.jsonl)
 fi
-printf '%%s,"warnings":[%%s]}\n' %s "${warnings}" > /var/lib/farrow/ready.json.tmp
-chmod 0644 /var/lib/farrow/ready.json.tmp
-mv /var/lib/farrow/ready.json.tmp /var/lib/farrow/ready.json
+printf '%%s,"warnings":[%%s]}\n' %s "${warnings}" > /var/lib/barn/ready.json.tmp
+chmod 0644 /var/lib/barn/ready.json.tmp
+mv /var/lib/barn/ready.json.tmp /var/lib/barn/ready.json
 `, yamlQuote(strings.TrimSuffix(string(data), "}"))), nil
 }
 
@@ -932,12 +931,12 @@ set -euo pipefail
 json_string() {
   printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c1-400 | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
-printf '{"stage":"%s","detail":"%s"}\n' "$(json_string "$1")" "$(json_string "$2")" >>/var/lib/farrow/warnings.jsonl
+printf '{"stage":"%s","detail":"%s"}\n' "$(json_string "$1")" "$(json_string "$2")" >>/var/lib/barn/warnings.jsonl
 `
 }
 
 func renderMetaData(input Input) []byte {
-	return []byte(fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n", yamlQuote(fmt.Sprintf("farrow-%s-g%d", input.Node, input.Generation)), yamlQuote(input.Hostname)))
+	return []byte(fmt.Sprintf("instance-id: %s\nlocal-hostname: %s\n", yamlQuote(fmt.Sprintf("barn-%s-g%d", input.Node, input.Generation)), yamlQuote(input.Hostname)))
 }
 
 func renderNetwork(input Input) []byte {
@@ -985,30 +984,30 @@ func renderUserData(input Input) ([]byte, error) {
 		out.WriteString("\n    content: |\n")
 		out.WriteString(indent(content, 6))
 	}
-	writeFile("/usr/local/libexec/farrow-init-disks", "root:root", "0755", renderDiskScript(input.Disks))
-	writeFile("/usr/local/libexec/farrow-warning", "root:root", "0755", renderWarningScript())
+	writeFile("/usr/local/libexec/barn-init-disks", "root:root", "0755", renderDiskScript(input.Disks))
+	writeFile("/usr/local/libexec/barn-warning", "root:root", "0755", renderWarningScript())
 	if len(input.Shares) != 0 {
-		writeFile("/usr/local/libexec/farrow-init-shares", "root:root", "0755", renderShareScript(input.SSHUser, input.Shares))
+		writeFile("/usr/local/libexec/barn-init-shares", "root:root", "0755", renderShareScript(input.SSHUser, input.Shares))
 	}
-	writeFile("/usr/local/libexec/farrow-hosts", "root:root", "0755", RenderHostsScript(input.Hosts))
-	writeFile("/usr/local/libexec/farrow-network-check", "root:root", "0755", renderNetworkCheckScript())
-	writeFile("/usr/local/libexec/farrow-identity-contract", "root:root", "0755", renderIdentityContractScript(input.SSHUser))
+	writeFile("/usr/local/libexec/barn-hosts", "root:root", "0755", RenderHostsScript(input.Hosts))
+	writeFile("/usr/local/libexec/barn-network-check", "root:root", "0755", renderNetworkCheckScript())
+	writeFile("/usr/local/libexec/barn-identity-contract", "root:root", "0755", renderIdentityContractScript(input.SSHUser))
 	if input.Private != nil {
-		writeFile("/usr/local/libexec/farrow-private-contract", "root:root", "0755", renderPrivateContractScript(*input.Private))
+		writeFile("/usr/local/libexec/barn-private-contract", "root:root", "0755", renderPrivateContractScript(*input.Private))
 	}
-	writeFile("/usr/local/libexec/farrow-ready", "root:root", "0755", readyScript)
+	writeFile("/usr/local/libexec/barn-ready", "root:root", "0755", readyScript)
 	if input.PrivateKey != "" {
 		// write_files runs before users-groups on supported cloud-init images.
 		// Stage the secret as root, then install it only after the login user
 		// exists. Referring to the future user as write_files owner makes the
 		// entire module fail and can leave a deceptively usable guest.
-		writeFile("/var/lib/farrow/control-id_ed25519", "root:root", "0600", input.PrivateKey)
+		writeFile("/var/lib/barn/control-id_ed25519", "root:root", "0600", input.PrivateKey)
 		sshConfig := RenderControlSSHConfig(input.SSHUser, input.Hosts)
-		writeFile("/var/lib/farrow/control-ssh-config", "root:root", "0600", sshConfig)
-		writeFile("/usr/local/libexec/farrow-install-control-ssh", "root:root", "0700", renderControlSSHInstallScript(input.SSHUser))
+		writeFile("/var/lib/barn/control-ssh-config", "root:root", "0600", sshConfig)
+		writeFile("/usr/local/libexec/barn-install-control-ssh", "root:root", "0700", renderControlSSHInstallScript(input.SSHUser))
 	}
-	writeFile("/usr/local/libexec/farrow-finalize", "root:root", "0755", renderFinalizeScript(input.PrivateKey != "", input.Private != nil, len(input.Shares) != 0))
-	out.WriteString("runcmd:\n  - ['/usr/local/libexec/farrow-finalize']\n")
+	writeFile("/usr/local/libexec/barn-finalize", "root:root", "0755", renderFinalizeScript(input.PrivateKey != "", input.Private != nil, len(input.Shares) != 0))
+	out.WriteString("runcmd:\n  - ['/usr/local/libexec/barn-finalize']\n")
 	return []byte(out.String()), nil
 }
 

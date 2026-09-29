@@ -27,7 +27,7 @@ func writeRecoveryKeys(t *testing.T, root string) (string, string) {
 
 func TestExistingStartRestoresPublicKeyWithoutChangingIdentity(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	key, original := writeRecoveryKeys(t, fixture.Deployment.Root)
 	if err := os.Remove(key + ".pub"); err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestExistingStartRestoresPublicKeyWithoutChangingIdentity(t *testing.T) {
 
 func TestExistingDeploymentNeverGeneratesReplacementPrivateKey(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	manager := privateShareCapabilityManager(t, fixture, unavailableSharePeerRunner{})
 	_, _, _, err := manager.ensureKeys(context.Background(), fixture.Deployment)
 	if err == nil || !strings.Contains(err.Error(), "restore") || !strings.Contains(err.Error(), "private SSH key") {

@@ -1,4 +1,4 @@
-// Package spec contains Farrow's typed, resolved inventory model.
+// Package spec contains Barn's typed, resolved inventory model.
 package spec
 
 import (
@@ -100,7 +100,7 @@ type Share struct {
 // below QEMU's 31-byte mount-tag limit.
 func ShareTag(share Share) string {
 	digest := sha256.Sum256([]byte(share.Host + "\x00" + share.Guest + "\x00" + strconv.FormatBool(share.Readonly)))
-	return "farrow-" + hex.EncodeToString(digest[:])[:20]
+	return "barn-" + hex.EncodeToString(digest[:])[:20]
 }
 
 type Node struct {

@@ -18,8 +18,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/qemu"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/qemu"
 )
 
 type Identity struct {
@@ -32,7 +32,7 @@ type Identity struct {
 var numericStartPattern = regexp.MustCompile(`^(?:procstat:[0-9]+|kinfo:[0-9]+\.[0-9]{6})$`)
 
 // ExpectedArgvHash binds one native, NUL-delimited process argv to the exact
-// typed invocation Farrow persisted before launch; no locale rendering or
+// typed invocation Barn persisted before launch; no locale rendering or
 // shell parsing is involved.
 func ExpectedArgvHash(invocation qemu.Invocation) string {
 	parts := make([]string, 0, len(invocation.Args)+1)

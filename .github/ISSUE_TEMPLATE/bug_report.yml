@@ -1,19 +1,19 @@
 name: Bug report
-description: Something Farrow does is wrong, and you can show it.
+description: Something Barn does is wrong, and you can show it.
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
         Do not report a suspected vulnerability here — follow
-        [SECURITY.md](https://github.com/pgsty/farrow/blob/main/SECURITY.md).
+        [SECURITY.md](https://github.com/pgsty/barn/blob/main/SECURITY.md).
   - type: textarea
     id: what-happened
     attributes:
       label: What happened
       description: What you ran, what you expected, and what you got instead.
       placeholder: |
-        $ farrow up
+        $ barn up
         error: ...
     validations:
       required: true
@@ -21,15 +21,15 @@ body:
     id: version
     attributes:
       label: Version and host
-      description: Output of `farrow --json version`.
+      description: Output of `barn --json version`.
       render: json
     validations:
       required: true
   - type: textarea
     id: doctor
     attributes:
-      label: farrow doctor
-      description: Output of `farrow doctor`. This usually identifies the cause on its own.
+      label: barn doctor
+      description: Output of `barn doctor`. This usually identifies the cause on its own.
       render: shell
     validations:
       required: true
@@ -37,7 +37,7 @@ body:
     id: inventory
     attributes:
       label: Inventory
-      description: The smallest `farrow.yml` that reproduces this. Remove anything sensitive.
+      description: The smallest `barn.yml` that reproduces this. Remove anything sensitive.
       render: yaml
   - type: textarea
     id: verbose

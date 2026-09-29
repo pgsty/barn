@@ -16,12 +16,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
-	linuxnet "github.com/pgsty/farrow/internal/network/linux"
-	"github.com/pgsty/farrow/internal/network/subnet"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/execx"
+	darwinnet "github.com/pgsty/barn/internal/network/darwin"
+	linuxnet "github.com/pgsty/barn/internal/network/linux"
+	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 type CapabilityError struct {
@@ -277,7 +277,7 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 		}
 		override, overrideErr := runner.Run(ctx, "/usr/bin/dpkg-statoverride", "--list", helper)
 		if overrideErr != nil || strings.TrimSpace(string(override.Stdout)) != "root "+group.Name+" 4750 "+helper {
-			return Backend{}, errors.New("qemu-bridge-helper dpkg override does not match Farrow policy")
+			return Backend{}, errors.New("qemu-bridge-helper dpkg override does not match Barn policy")
 		}
 	} else {
 		packageOwner, packageErr := runner.Run(ctx, "/usr/bin/rpm", "-qf", helper)
@@ -316,10 +316,10 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 		return Backend{}, publicErr
 	}
 	if backend == linuxnet.BackendNetworkd {
-		if err := requireExactRootFile(linuxnet.NetDevPath, "[NetDev]\nName=farrow0\nKind=bridge\n", 0o644); err != nil {
+		if err := requireExactRootFile(linuxnet.NetDevPath, "[NetDev]\nName=barn0\nKind=bridge\n", 0o644); err != nil {
 			return Backend{}, err
 		}
-		wantNetwork := fmt.Sprintf("[Match]\nName=farrow0\n\n[Network]\nAddress=%s/24\nConfigureWithoutCarrier=yes\nLinkLocalAddressing=no\nIPv6AcceptRA=no\n\n[Link]\nRequiredForOnline=no\n", layout.HostAddress())
+		wantNetwork := fmt.Sprintf("[Match]\nName=barn0\n\n[Network]\nAddress=%s/24\nConfigureWithoutCarrier=yes\nLinkLocalAddressing=no\nIPv6AcceptRA=no\n\n[Link]\nRequiredForOnline=no\n", layout.HostAddress())
 		if err := requireExactRootFile(linuxnet.NetworkPath, wantNetwork, 0o644); err != nil {
 			return Backend{}, err
 		}
@@ -328,10 +328,10 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 		return Backend{}, err
 	}
 	bridgeConf, err := os.ReadFile(linuxnet.BridgeConfPath)
-	if err != nil || !strings.Contains(string(bridgeConf), "# BEGIN FARROW MANAGED: farrow0\nallow farrow0\n# END FARROW MANAGED: farrow0\n") {
-		return Backend{}, errors.New("qemu bridge.conf lacks the exact Farrow marker block")
+	if err != nil || !strings.Contains(string(bridgeConf), "# BEGIN BARN MANAGED: barn0\nallow barn0\n# END BARN MANAGED: barn0\n") {
+		return Backend{}, errors.New("qemu bridge.conf lacks the exact Barn marker block")
 	}
-	if _, err := rootOwned("/var/lib/farrow", 0o700, "directory"); err != nil {
+	if _, err := rootOwned("/var/lib/barn", 0o700, "directory"); err != nil {
 		return Backend{}, err
 	}
 	service := "systemd-networkd.service"
@@ -352,16 +352,16 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 			found = found || name == linuxnet.BridgeName
 		}
 		if !found {
-			return Backend{}, errors.New("NetworkManager has no farrow0 connection")
+			return Backend{}, errors.New("NetworkManager has no barn0 connection")
 		}
 	}
 	link, err := runner.Run(ctx, "/usr/sbin/ip", "-d", "link", "show", "dev", linuxnet.BridgeName)
 	if err != nil || !strings.Contains(string(link.Stdout), "bridge") {
-		return Backend{}, errors.New("farrow0 is absent or not a bridge")
+		return Backend{}, errors.New("barn0 is absent or not a bridge")
 	}
 	address, err := runner.Run(ctx, "/usr/sbin/ip", "-4", "-o", "address", "show", "dev", linuxnet.BridgeName)
 	if err != nil || !strings.Contains(string(address.Stdout), layout.HostAddress()+"/24") {
-		return Backend{}, fmt.Errorf("farrow0 does not own %s/24", layout.HostAddress())
+		return Backend{}, fmt.Errorf("barn0 does not own %s/24", layout.HostAddress())
 	}
 	return Backend{LinuxBridgeHelper: helper, NetworkCIDR: layout.CIDR(), HostAddress: layout.HostAddress(), DHCPEnd: layout.DHCPEnd()}, nil
 }

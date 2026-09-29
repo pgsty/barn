@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func commitFixture(t *testing.T, disks DiskOps) (Deployment, PrepareConfig, []PrepareOutcome) {

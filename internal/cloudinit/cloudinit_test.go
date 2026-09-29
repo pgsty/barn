@@ -16,7 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-const testPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEbV2dummydummydummydummydummydummydummy farrow-test"
+const testPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEbV2dummydummydummydummydummydummydummy barn-test"
 
 func testInput() Input {
 	return Input{
@@ -41,7 +41,7 @@ func testKeyPair(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublic))) + " farrow-test", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}))
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublic))) + " barn-test", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}))
 }
 
 func TestRenderQuickContract(t *testing.T) {
@@ -56,7 +56,7 @@ func TestRenderQuickContract(t *testing.T) {
 		}
 	}
 	userData := string(files.UserData)
-	for _, want := range []string{"#cloud-config", `name: "dba"`, "uid: 88", "primary_group: admin", "create_groups: false", "/usr/sbin/groupadd --gid 88 admin", "/usr/sbin/groupmod --gid 88 admin", "lock_passwd: true", "ssh_deletekeys: false", "ntp:\n  enabled: true", "/dev/disk/by-id/", "UUID=%s", "defaults,nofail", `mountpoint -q "${mountpoint}"`, "filesystem probe failed", "previous data discarded", "e2fsck -fn", "xfs_repair -n", "/usr/local/libexec/farrow-network-check", "/usr/local/libexec/farrow-identity-contract", "login identity", "for attempt in 1 2 3", "timeout 10s /bin/bash", "/dev/tcp/example.com/80", "/var/lib/farrow/ready.json", "/var/lib/farrow/error.json", "run_optional data-disks"} {
+	for _, want := range []string{"#cloud-config", `name: "dba"`, "uid: 88", "primary_group: admin", "create_groups: false", "/usr/sbin/groupadd --gid 88 admin", "/usr/sbin/groupmod --gid 88 admin", "lock_passwd: true", "ssh_deletekeys: false", "ntp:\n  enabled: true", "/dev/disk/by-id/", "UUID=%s", "defaults,nofail", `mountpoint -q "${mountpoint}"`, "filesystem probe failed", "previous data discarded", "e2fsck -fn", "xfs_repair -n", "/usr/local/libexec/barn-network-check", "/usr/local/libexec/barn-identity-contract", "login identity", "for attempt in 1 2 3", "timeout 10s /bin/bash", "/dev/tcp/example.com/80", "/var/lib/barn/ready.json", "/var/lib/barn/error.json", "run_optional data-disks"} {
 		if !strings.Contains(userData, want) {
 			t.Errorf("user-data missing %q", want)
 		}
@@ -64,7 +64,7 @@ func TestRenderQuickContract(t *testing.T) {
 	if strings.Contains(userData, "BEGIN OPENSSH PRIVATE KEY") || strings.Contains(userData, "StrictHostKeyChecking no") {
 		t.Fatal("quick seed contains a private key or disables host-key checking")
 	}
-	if strings.Contains(userData, "farrow-init-shares") || strings.Contains(userData, "FARROW SHARES") {
+	if strings.Contains(userData, "barn-init-shares") || strings.Contains(userData, "BARN SHARES") {
 		t.Fatal("no-share quick seed contains share-specific files or markers")
 	}
 	if strings.Contains(string(files.NetworkConfig), "private:") {
@@ -112,13 +112,13 @@ func TestRenderPrivateControlKeyBoundary(t *testing.T) {
 	if !strings.Contains(string(files.NetworkConfig), `"10.10.10.10/24"`) || !strings.Contains(string(files.NetworkConfig), "accept-ra: false") || !strings.Contains(string(files.NetworkConfig), "link-local: []") || strings.Contains(string(files.NetworkConfig), "gateway") || strings.Contains(string(files.NetworkConfig), "nameservers") {
 		t.Fatalf("private network contract mismatch:\n%s", files.NetworkConfig)
 	}
-	if !bytes.Contains(files.UserData, []byte("farrow-private-contract")) || !bytes.Contains(files.UserData, []byte("private interface ${interface} owns a default route")) || !bytes.Contains(files.UserData, []byte(`expected_mac="02:aa:bb:cc:dd:ee"`)) {
+	if !bytes.Contains(files.UserData, []byte("barn-private-contract")) || !bytes.Contains(files.UserData, []byte("private interface ${interface} owns a default route")) || !bytes.Contains(files.UserData, []byte(`expected_mac="02:aa:bb:cc:dd:ee"`)) {
 		t.Fatal("private runtime contract checker missing")
 	}
 	if bytes.Contains(files.NetworkConfig, []byte("set-name:")) || bytes.Contains(files.NetworkConfig, []byte("mgmt0")) || bytes.Contains(files.NetworkConfig, []byte("private0")) {
 		t.Fatalf("network config still renames interfaces:\n%s", files.NetworkConfig)
 	}
-	if bytes.Contains(files.UserData, []byte(`ping -c`)) || !bytes.Contains(files.UserData, []byte(`printf 'farrow-arp-refresh\n' >"/dev/udp/${expected_host}/9"`)) || !bytes.Contains(files.UserData, []byte(`expected_host="10.10.10.1"`)) {
+	if bytes.Contains(files.UserData, []byte(`ping -c`)) || !bytes.Contains(files.UserData, []byte(`printf 'barn-arp-refresh\n' >"/dev/udp/${expected_host}/9"`)) || !bytes.Contains(files.UserData, []byte(`expected_host="10.10.10.1"`)) {
 		t.Fatal("private ready contract does not refresh/verify the host neighbor path")
 	}
 	if !bytes.Contains(files.UserData, []byte("-----BEGIN PRIVATE KEY-----")) ||
@@ -127,14 +127,14 @@ func TestRenderPrivateControlKeyBoundary(t *testing.T) {
 		t.Fatal("control lateral SSH contract missing")
 	}
 	for _, want := range []string{
-		`path: "/var/lib/farrow/control-id_ed25519"`,
-		`path: "/var/lib/farrow/control-ssh-config"`,
-		`path: "/usr/local/libexec/farrow-install-control-ssh"`,
+		`path: "/var/lib/barn/control-id_ed25519"`,
+		`path: "/var/lib/barn/control-ssh-config"`,
+		`path: "/usr/local/libexec/barn-install-control-ssh"`,
 		`entry=$(getent passwd "${user}")`,
 		`install -d -o "${uid}" -g "${gid}" -m 0700 "${ssh_dir}"`,
-		`rm -f -- /var/lib/farrow/control-id_ed25519 /var/lib/farrow/control-ssh-config`,
-		`path: "/usr/local/libexec/farrow-finalize"`,
-		`- ['/usr/local/libexec/farrow-finalize']`,
+		`rm -f -- /var/lib/barn/control-id_ed25519 /var/lib/barn/control-ssh-config`,
+		`path: "/usr/local/libexec/barn-finalize"`,
+		`- ['/usr/local/libexec/barn-finalize']`,
 	} {
 		if !bytes.Contains(files.UserData, []byte(want)) {
 			t.Errorf("control seed missing %q", want)
@@ -145,12 +145,12 @@ func TestRenderPrivateControlKeyBoundary(t *testing.T) {
 		t.Fatal("write_files refers to the login user before users-groups creates it")
 	}
 	finalizer := renderFinalizeScript(true, true, true)
-	identityIndex := strings.Index(finalizer, "/usr/local/libexec/farrow-identity-contract")
-	diskIndex := strings.Index(finalizer, "/usr/local/libexec/farrow-init-disks")
-	shareIndex := strings.Index(finalizer, "/usr/local/libexec/farrow-init-shares")
-	installIndex := strings.Index(finalizer, "/usr/local/libexec/farrow-install-control-ssh")
-	privateIndex := strings.Index(finalizer, "/usr/local/libexec/farrow-private-contract")
-	readyIndex := strings.Index(finalizer, "/usr/local/libexec/farrow-ready")
+	identityIndex := strings.Index(finalizer, "/usr/local/libexec/barn-identity-contract")
+	diskIndex := strings.Index(finalizer, "/usr/local/libexec/barn-init-disks")
+	shareIndex := strings.Index(finalizer, "/usr/local/libexec/barn-init-shares")
+	installIndex := strings.Index(finalizer, "/usr/local/libexec/barn-install-control-ssh")
+	privateIndex := strings.Index(finalizer, "/usr/local/libexec/barn-private-contract")
+	readyIndex := strings.Index(finalizer, "/usr/local/libexec/barn-ready")
 	if identityIndex < 0 || diskIndex <= identityIndex || shareIndex <= diskIndex || installIndex <= shareIndex || privateIndex <= installIndex || readyIndex <= privateIndex {
 		t.Fatalf("private finalizer stages are out of order:\n%s", finalizer)
 	}
@@ -161,18 +161,13 @@ func TestRenderPrivateControlKeyBoundary(t *testing.T) {
 	}
 }
 
-func TestRenderHostsMarkerMigration(t *testing.T) {
+func TestRenderHostsRefreshesManagedEntries(t *testing.T) {
 	t.Parallel()
 	script := RenderHostsScript([]Host{{Name: "node-1", Address: "10.10.10.11"}, {Name: "meta", Address: "10.10.10.10"}})
-	for _, marker := range []string{"/# farrow-project-host$/d", "/# farrow-deployment-host$/d"} {
-		if !strings.Contains(script, marker) {
-			t.Fatalf("hosts script does not remove marker %q:\n%s", marker, script)
-		}
+	if !strings.Contains(script, "/# barn-deployment-host$/d") {
+		t.Fatalf("hosts script does not remove its managed entries:\n%s", script)
 	}
-	if strings.Contains(script, "printf '%s %s # farrow-project-host") {
-		t.Fatalf("hosts script still writes the retired project marker:\n%s", script)
-	}
-	if strings.Count(script, "# farrow-deployment-host\\n") != 2 {
+	if strings.Count(script, "# barn-deployment-host\\n") != 2 {
 		t.Fatalf("hosts script does not write the deployment marker exactly once per host:\n%s", script)
 	}
 	if strings.Index(script, "10.10.10.10 meta") > strings.Index(script, "10.10.10.11 node-1") {
@@ -198,9 +193,9 @@ func TestRenderCustomUserDoesNotClaimPigstyIdentity(t *testing.T) {
 }
 
 func TestWriteUserDataForExternalSchemaValidation(t *testing.T) {
-	output := os.Getenv("FARROW_CLOUD_CONFIG_OUTPUT")
+	output := os.Getenv("BARN_CLOUD_CONFIG_OUTPUT")
 	if output == "" {
-		t.Skip("set FARROW_CLOUD_CONFIG_OUTPUT to write a test-only cloud-config fixture")
+		t.Skip("set BARN_CLOUD_CONFIG_OUTPUT to write a test-only cloud-config fixture")
 	}
 	files, err := Render(testInput())
 	if err != nil {
@@ -213,7 +208,7 @@ func TestWriteUserDataForExternalSchemaValidation(t *testing.T) {
 
 func TestRenderRejectsUnsafeMounts(t *testing.T) {
 	t.Parallel()
-	for _, mount := range []string{"/data/../../etc", "/data/..", "/data//nested", "/proc/data", "/var/lib/farrow/data"} {
+	for _, mount := range []string{"/data/../../etc", "/data/..", "/data//nested", "/proc/data", "/var/lib/barn/data"} {
 		input := testInput()
 		input.Disks[0].Mount = mount
 		if _, err := Render(input); err == nil {
@@ -226,8 +221,8 @@ func TestRenderShareContract(t *testing.T) {
 	t.Parallel()
 	input := testInput()
 	input.Shares = []Share{
-		{Tag: "farrow-0123456789abcdef0123", Guest: "/src", Readonly: false},
-		{Tag: "farrow-fedcba9876543210fedc", Guest: "/reference", Readonly: true},
+		{Tag: "barn-0123456789abcdef0123", Guest: "/src", Readonly: false},
+		{Tag: "barn-fedcba9876543210fedc", Guest: "/reference", Readonly: true},
 	}
 	files, err := Render(input)
 	if err != nil {
@@ -235,15 +230,15 @@ func TestRenderShareContract(t *testing.T) {
 	}
 	userData := string(files.UserData)
 	for _, want := range []string{
-		`path: "/usr/local/libexec/farrow-init-shares"`,
-		`# BEGIN FARROW SHARES`,
-		`# END FARROW SHARES`,
-		`farrow-0123456789abcdef0123 /src 9p version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,rw 0 0`,
-		`farrow-fedcba9876543210fedc /reference 9p version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,ro 0 0`,
+		`path: "/usr/local/libexec/barn-init-shares"`,
+		`# BEGIN BARN SHARES`,
+		`# END BARN SHARES`,
+		`barn-0123456789abcdef0123 /src 9p version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,rw 0 0`,
+		`barn-fedcba9876543210fedc /reference 9p version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,ro 0 0`,
 		`runuser -u "${share_user}" -- mktemp`,
 		`has_mount_option "${mounted_options}" ro`,
 		`has_mount_option "${mounted_options}" rw`,
-		`refuse non-empty Farrow share mountpoint`,
+		`refuse non-empty Barn share mountpoint`,
 		`mv -f -- "${fstab_tmp}" "${fstab}"`,
 		`printf '{"exit_status":%d,"stage":"%s","detail":"%s"}\n'`,
 	} {
@@ -285,13 +280,13 @@ func TestRenderRejectsUnsafeShareTagsAndMountOverlap(t *testing.T) {
 		shares []Share
 	}{
 		{name: "user selected tag", shares: []Share{{Tag: "source", Guest: "/src"}}},
-		{name: "reserved ancestor", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/var"}}},
-		{name: "ssh ancestor", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/home/dba"}}},
-		{name: "ssh descendant", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/home/dba/.ssh/cache"}}},
-		{name: "disk nested", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/data/src"}}},
-		{name: "duplicate tag", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/src"}, {Tag: "farrow-0123456789abcdef0123", Guest: "/work"}}},
-		{name: "duplicate guest", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/src"}, {Tag: "farrow-fedcba9876543210fedc", Guest: "/src"}}},
-		{name: "nested guests", shares: []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/src"}, {Tag: "farrow-fedcba9876543210fedc", Guest: "/src/nested"}}},
+		{name: "reserved ancestor", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/var"}}},
+		{name: "ssh ancestor", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/home/dba"}}},
+		{name: "ssh descendant", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/home/dba/.ssh/cache"}}},
+		{name: "disk nested", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/data/src"}}},
+		{name: "duplicate tag", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/src"}, {Tag: "barn-0123456789abcdef0123", Guest: "/work"}}},
+		{name: "duplicate guest", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/src"}, {Tag: "barn-fedcba9876543210fedc", Guest: "/src"}}},
+		{name: "nested guests", shares: []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/src"}, {Tag: "barn-fedcba9876543210fedc", Guest: "/src/nested"}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -304,7 +299,7 @@ func TestRenderRejectsUnsafeShareTagsAndMountOverlap(t *testing.T) {
 	}
 	input := testInput()
 	input.Disks[0].Mount = "/data/nested"
-	input.Shares = []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/data"}}
+	input.Shares = []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/data"}}
 	if _, err := Render(input); err == nil {
 		t.Fatal("share ancestor of a data disk mount was accepted")
 	}
@@ -385,7 +380,7 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 		t.Run("failure-"+failure, func(t *testing.T) {
 			dir := t.TempDir()
 			trace := filepath.Join(dir, "trace")
-			replace := strings.NewReplacer("/var/lib/farrow", dir, "/usr/local/libexec", dir,
+			replace := strings.NewReplacer("/var/lib/barn", dir, "/usr/local/libexec", dir,
 				"install -d -o root -g root -m 0755", "mkdir -p", "chown root:root", "true",
 				"timeout --kill-after=5s \"${budget}\" ", "", "flock -n 9", "true")
 			for _, name := range []string{"identity-contract", "hosts", "init-disks", "init-shares", "install-control-ssh", "private-contract", "network-check"} {
@@ -397,7 +392,7 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 				} else if name == failure || name == "network-check" {
 					script += "echo 'fixture \"unavailable\"' >&2\nexit 23\n"
 				}
-				if err := os.WriteFile(filepath.Join(dir, "farrow-"+name), []byte(script), 0700); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, "barn-"+name), []byte(script), 0700); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -406,7 +401,7 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			for name, script := range map[string]string{"warning": renderWarningScript(), "ready": ready} {
-				if err := os.WriteFile(filepath.Join(dir, "farrow-"+name), []byte(replace.Replace(script)), 0700); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, "barn-"+name), []byte(replace.Replace(script)), 0700); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -461,12 +456,12 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 
 func TestFinalizeRetryKeepsUnselectedStagesAndWarnings(t *testing.T) {
 	dir := t.TempDir()
-	replace := strings.NewReplacer("/var/lib/farrow", dir, "/usr/local/libexec", dir,
+	replace := strings.NewReplacer("/var/lib/barn", dir, "/usr/local/libexec", dir,
 		"install -d -o root -g root -m 0755", "mkdir -p", "chown root:root", "true",
 		"timeout --kill-after=5s \"${budget}\" ", "", "flock -n 9", "true")
 	for _, stage := range []string{"identity-contract", "hosts", "init-disks", "init-shares", "install-control-ssh", "private-contract"} {
 		script := "#!/bin/bash\nprintf '%s\\n' " + stage + " >> '" + filepath.Join(dir, "trace") + "'\n"
-		if err := os.WriteFile(filepath.Join(dir, "farrow-"+stage), []byte(script), 0700); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "barn-"+stage), []byte(script), 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -474,7 +469,7 @@ func TestFinalizeRetryKeepsUnselectedStagesAndWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "farrow-ready"), []byte(replace.Replace(ready)), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "barn-ready"), []byte(replace.Replace(ready)), 0700); err != nil {
 		t.Fatal(err)
 	}
 	warnings := `{"stage":"shares","detail":"retry me"}

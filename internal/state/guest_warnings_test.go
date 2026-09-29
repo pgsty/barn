@@ -13,7 +13,7 @@ func warningFixture(t *testing.T) (Store, NodeState) {
 	t.Helper()
 	store := testStore(t)
 	now := time.Now().UTC()
-	node := NodeState{Schema: NodeSchema, FarrowVersion: "0.7.0", Node: "meta", VMUUID: "original", Phase: Running, Generation: 1, SpecHash: strings.Repeat("a", 64), CreatedAt: now, UpdatedAt: now}
+	node := NodeState{Schema: NodeSchema, BarnVersion: "0.7.0", Node: "meta", VMUUID: "original", Phase: Running, Generation: 1, SpecHash: strings.Repeat("a", 64), CreatedAt: now, UpdatedAt: now}
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}

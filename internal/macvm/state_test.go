@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/pgsty/farrow/internal/failure"
 )
 
 func TestMachineNames(t *testing.T) {
@@ -106,7 +104,7 @@ func TestDefaultMachineRules(t *testing.T) {
 	}
 }
 
-func TestLegacyLayoutIsRefusedWithMigrateNext(t *testing.T) {
+func TestUnsupportedSchemaIsRefused(t *testing.T) {
 	s := testStore(t)
 	if _, err := s.mkdir("slots", "mac1"); err != nil {
 		t.Fatal(err)
@@ -119,9 +117,8 @@ func TestLegacyLayoutIsRefusedWithMigrateNext(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, err := range []error{func() error { _, err := s.LoadConfig(); return err }(), func() error { _, err := s.LoadMachine("mac1"); return err }(), func() error { _, err := s.ListMachines(); return err }()} {
-		class, reason, next := failure.Classify(err)
-		if class != failure.Conflict || reason != "mac_legacy_state" || next != "farrow mac migrate" {
-			t.Fatalf("legacy data not refused: %v %s %s %s", err, class, reason, next)
+		if err == nil || !strings.Contains(err.Error(), "unsupported mac metadata schema 1") {
+			t.Fatalf("unsupported schema was not refused: %v", err)
 		}
 	}
 }

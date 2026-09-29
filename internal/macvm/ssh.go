@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/openssh"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/openssh"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -39,7 +39,7 @@ func DefaultUsername() string {
 	if caller != nil && ValidUsername(caller.Username) {
 		return caller.Username
 	}
-	return "farrow"
+	return "barn"
 }
 
 func ensureSSHKey(directory string) (ssh.Signer, []byte, error) {
@@ -104,7 +104,7 @@ func (m *Manager) connection(machine *Machine) (Connection, error) {
 
 // OpenSSHArgs pins the instance host key through its alias, never the address.
 func (c Connection) OpenSSHArgs(interactive bool) []string {
-	// OpenSSH splits -o values on whitespace, so a FARROW_HOME with spaces
+	// OpenSSH splits -o values on whitespace, so a BARN_HOME with spaces
 	// needs the path quoted.
 	knownHosts, err := openssh.QuoteConfigValue(c.KnownHosts)
 	if err != nil {
@@ -126,7 +126,7 @@ func (m *Manager) sshIdentity(machine *Machine) (ssh.Signer, ssh.HostKeyCallback
 	if err != nil {
 		return nil, nil, err
 	}
-	repair := fmt.Sprintf("farrow mac start %s --no-wait, then farrow mac open %s", machine.Name, machine.Name)
+	repair := fmt.Sprintf("barn mac start %s --no-wait, then barn mac open %s", machine.Name, machine.Name)
 	data, err := os.ReadFile(filepath.Join(dir, "id_ed25519"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s SSH private key is unavailable; restore %s from your backup, or repair SSH access in the guest desktop (%s); no replacement key was generated: %w", machine.Name, filepath.Join(dir, "id_ed25519"), repair, err)
@@ -165,12 +165,12 @@ func permanentSSHError(machine *Machine, err error) error {
 	var keyError *knownhosts.KeyError
 	var revoked *knownhosts.RevokedError
 	if errors.As(err, &keyError) || errors.As(err, &revoked) {
-		return fmt.Errorf("%s SSH host key does not match its saved pin; inspect the guest with farrow mac open %s and verify its identity before repairing known_hosts; the saved pin was preserved: %w", machine.Name, machine.Name, err)
+		return fmt.Errorf("%s SSH host key does not match its saved pin; inspect the guest with barn mac open %s and verify its identity before repairing known_hosts; the saved pin was preserved: %w", machine.Name, machine.Name, err)
 	}
 	// x/crypto/ssh has no exported client-authentication error type. Match its
 	// terminal authentication error, not disconnects or transient TCP failures.
 	if strings.Contains(err.Error(), "ssh: unable to authenticate, attempted methods ") && strings.Contains(err.Error(), ", no supported methods remain") {
-		return fmt.Errorf("%s SSH authentication was rejected for user %s; open farrow mac open %s to check the account and authorized_keys, and restore the original local SSH private key if it changed: %w", machine.Name, machine.User, machine.Name, err)
+		return fmt.Errorf("%s SSH authentication was rejected for user %s; open barn mac open %s to check the account and authorized_keys, and restore the original local SSH private key if it changed: %w", machine.Name, machine.User, machine.Name, err)
 	}
 	return nil
 }
@@ -261,14 +261,14 @@ home=$(/usr/bin/dscl . -read /Users/` + username + ` NFSHomeDirectory | /usr/bin
 /bin/chmod 600 "$home/.ssh/authorized_keys"
 /usr/sbin/chown -R ` + shellQuote(username+":staff") + ` "$home/.ssh"
 /bin/mkdir -p /private/etc/sudoers.d
-sudoers=$(/usr/bin/mktemp /private/etc/sudoers.d/.farrow.XXXXXX)
+sudoers=$(/usr/bin/mktemp /private/etc/sudoers.d/.barn.XXXXXX)
 trap '/bin/rm -f "$sudoers"' EXIT
 /usr/bin/printf '%s\n' ` + shellQuote(username+" ALL=(ALL) NOPASSWD: ALL") + ` > "$sudoers"
 /bin/chmod 440 "$sudoers"
 /usr/sbin/visudo -cf "$sudoers" >/dev/null
-/bin/mv "$sudoers" /private/etc/sudoers.d/80-farrow
+/bin/mv "$sudoers" /private/etc/sudoers.d/80-barn
 /usr/sbin/scutil --set ComputerName ` + shellQuote(name) + `
-/usr/sbin/scutil --set LocalHostName ` + shellQuote("farrow-"+name) + `
+/usr/sbin/scutil --set LocalHostName ` + shellQuote("barn-"+name) + `
 /usr/bin/pmset -a sleep 0 disksleep 0 displaysleep 0
 `
 }
@@ -276,7 +276,7 @@ trap '/bin/rm -f "$sudoers"' EXIT
 func disableSSHPasswords(ctx context.Context, client *ssh.Client) error {
 	_, err := sshScript(ctx, client, "sudo -n /bin/sh -s", strings.NewReader(`set -eu
 /bin/mkdir -p /etc/ssh/sshd_config.d
-/usr/bin/printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitRootLogin no' > /etc/ssh/sshd_config.d/000-farrow.conf
+/usr/bin/printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitRootLogin no' > /etc/ssh/sshd_config.d/000-barn.conf
 /usr/sbin/sshd -t
 `))
 	return err

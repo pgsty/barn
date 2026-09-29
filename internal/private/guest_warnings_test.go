@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestLimitedGuestIsUsableAndWarningsClearAfterRepair(t *testing.T) {

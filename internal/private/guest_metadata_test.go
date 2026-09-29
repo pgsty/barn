@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func TestGuestMetadataExpansionRemovalAndUserConfig(t *testing.T) {
@@ -19,7 +19,7 @@ func TestGuestMetadataExpansionRemovalAndUserConfig(t *testing.T) {
 	if err := os.Mkdir(sshDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	hostsPath, scriptPath := filepath.Join(root, "hosts"), filepath.Join(root, "farrow-hosts")
+	hostsPath, scriptPath := filepath.Join(root, "hosts"), filepath.Join(root, "barn-hosts")
 	if err := os.WriteFile(hostsPath, []byte("127.0.0.1 localhost\n192.0.2.1 custom-host\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +34,8 @@ func TestGuestMetadataExpansionRemovalAndUserConfig(t *testing.T) {
 		original := cloudinit.RenderHostsScript(deploymentHosts(resolved))
 		local := strings.ReplaceAll(original, "/etc/hosts", strconv.Quote(hostsPath))
 		command = strings.ReplaceAll(command, base64.StdEncoding.EncodeToString([]byte(original)), base64.StdEncoding.EncodeToString([]byte(local)))
-		command = strings.ReplaceAll(command, "sudo -n tee /usr/local/libexec/farrow-hosts", "tee "+strconv.Quote(scriptPath))
-		command = strings.ReplaceAll(command, "sudo -n /usr/local/libexec/farrow-hosts", "bash "+strconv.Quote(scriptPath))
+		command = strings.ReplaceAll(command, "sudo -n tee /usr/local/libexec/barn-hosts", "tee "+strconv.Quote(scriptPath))
+		command = strings.ReplaceAll(command, "sudo -n /usr/local/libexec/barn-hosts", "bash "+strconv.Quote(scriptPath))
 		command = strings.ReplaceAll(command, "$HOME/.ssh", sshDir)
 		if output, err := exec.Command("bash", "-c", command).CombinedOutput(); err != nil {
 			t.Fatalf("guest update: %s, %v", output, err)
@@ -73,7 +73,7 @@ func TestGuestMetadataExpansionRemovalAndUserConfig(t *testing.T) {
 	if strings.Contains(string(hosts), "node-1") || strings.Contains(string(config), "node-1") {
 		t.Fatal("removed peer is still present")
 	}
-	if !strings.Contains(string(hosts), "custom-host") || !strings.Contains(string(config), "User developer") || strings.Count(string(config), "# BEGIN FARROW") != 1 {
+	if !strings.Contains(string(hosts), "custom-host") || !strings.Contains(string(config), "User developer") || strings.Count(string(config), "# BEGIN BARN") != 1 {
 		t.Fatal("refresh changed user content or duplicated its managed block")
 	}
 	// Comments do not end an OpenSSH Host block. The refreshed fragment must

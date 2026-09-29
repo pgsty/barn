@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/qmp"
+	"github.com/pgsty/barn/internal/qmp"
 )
 
 type lockedBuffer struct {
@@ -64,7 +64,7 @@ func startNetworkQEMU(t *testing.T, ctx context.Context, binary, qmpSocket strin
 		"-cpu", "host",
 		"-display", "none",
 		"-nodefaults",
-		"-name", "farrow-network-probe",
+		"-name", "barn-network-probe",
 		"-uuid", "018f4b8e-1234-7abc-9def-0123456789ab",
 		"-qmp", "unix:" + qmpSocket + ",server=on,wait=off",
 		"-S",
@@ -110,11 +110,11 @@ func waitForQMPName(ctx context.Context, socket, expected string, timeout time.D
 
 func quitNetworkQEMU(t *testing.T, ctx context.Context, socket string, cmd *exec.Cmd, stderr *lockedBuffer) {
 	t.Helper()
-	name, err := waitForQMPName(ctx, socket, "farrow-network-probe", 3*time.Second)
+	name, err := waitForQMPName(ctx, socket, "barn-network-probe", 3*time.Second)
 	if err != nil {
 		t.Fatalf("query real QEMU name: %v: %s", err, stderr.String())
 	}
-	if name.Name != "farrow-network-probe" {
+	if name.Name != "barn-network-probe" {
 		t.Fatalf("unexpected QMP name %#v", name)
 	}
 	if err := (&qmp.Client{Timeout: 2 * time.Second}).Quit(ctx, socket); err != nil {
@@ -133,7 +133,7 @@ func TestIntegrationQEMUStreamReconnectMS(t *testing.T) {
 	if err != nil {
 		t.Skip("qemu-system-aarch64 is not installed")
 	}
-	dir, err := os.MkdirTemp("/tmp", "farrow-stream-")
+	dir, err := os.MkdirTemp("/tmp", "barn-stream-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestIntegrationQEMUSocketFD3SurvivesDaemonize(t *testing.T) {
 	if err != nil {
 		t.Skip("qemu-system-aarch64 is not installed")
 	}
-	dir, err := os.MkdirTemp("/tmp", "farrow-fd-daemon-")
+	dir, err := os.MkdirTemp("/tmp", "barn-fd-daemon-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestIntegrationQEMUSocketFD3SurvivesDaemonize(t *testing.T) {
 	cmd := exec.CommandContext(ctx, binary,
 		"-machine", "virt", "-accel", "hvf", "-cpu", "host",
 		"-display", "none", "-nodefaults", "-S", "-daemonize",
-		"-name", "farrow-network-probe",
+		"-name", "barn-network-probe",
 		"-uuid", "018f4b8e-1234-7abc-9def-0123456789ab",
 		"-qmp", "unix:"+qmpSocket+",server=on,wait=off",
 		"-pidfile", pidfile,
@@ -255,7 +255,7 @@ func TestIntegrationQEMUSocketFD3SurvivesDaemonize(t *testing.T) {
 	}
 	client := qmp.Client{Timeout: 2 * time.Second}
 	name, err := client.QueryName(ctx, qmpSocket)
-	if err != nil || name.Name != "farrow-network-probe" {
+	if err != nil || name.Name != "barn-network-probe" {
 		t.Fatalf("daemonized QMP identity: %#v %v", name, err)
 	}
 	if err := client.Quit(ctx, qmpSocket); err != nil {
@@ -279,7 +279,7 @@ func TestIntegrationQEMUSocketFD3Fallback(t *testing.T) {
 	if err != nil {
 		t.Skip("qemu-system-aarch64 is not installed")
 	}
-	dir, err := os.MkdirTemp("/tmp", "farrow-fd-")
+	dir, err := os.MkdirTemp("/tmp", "barn-fd-")
 	if err != nil {
 		t.Fatal(err)
 	}

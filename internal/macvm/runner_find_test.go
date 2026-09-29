@@ -10,14 +10,14 @@ import (
 )
 
 func TestFindRunnerProcessFixture(t *testing.T) {
-	if os.Getenv("FARROW_TEST_FIND_RUNNER") != "1" {
+	if os.Getenv("BARN_TEST_FIND_RUNNER") != "1" {
 		return
 	}
 	found, err := FindRunner()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := os.Getenv("FARROW_TEST_FIND_RUNNER_WANT"); found != want {
+	if want := os.Getenv("BARN_TEST_FIND_RUNNER_WANT"); found != want {
 		t.Fatalf("FindRunner() = %q, want %q", found, want)
 	}
 }
@@ -34,13 +34,13 @@ func TestFindRunnerCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const bundle = "bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner"
-	const localBundle = "bin/libexec/Farrow Mac.app/Contents/MacOS/farrow-mac-runner"
-	const brewBundle = "libexec/Farrow Mac.app/Contents/MacOS/farrow-mac-runner"
-	const bare = "bin/farrow-mac-runner"
-	const localLibexec = "bin/libexec/farrow-mac-runner"
-	const parentLibexec = "libexec/farrow-mac-runner"
-	const override = "explicit/farrow-mac-runner"
+	const bundle = "bin/Barn Mac.app/Contents/MacOS/barn-mac-runner"
+	const localBundle = "bin/libexec/Barn Mac.app/Contents/MacOS/barn-mac-runner"
+	const brewBundle = "libexec/Barn Mac.app/Contents/MacOS/barn-mac-runner"
+	const bare = "bin/barn-mac-runner"
+	const localLibexec = "bin/libexec/barn-mac-runner"
+	const parentLibexec = "libexec/barn-mac-runner"
+	const override = "explicit/barn-mac-runner"
 	for _, tc := range []struct {
 		name       string
 		candidates []string
@@ -60,7 +60,7 @@ func TestFindRunnerCandidates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			bin := filepath.Join(root, "bin", "farrow-test")
+			bin := filepath.Join(root, "bin", "barn-test")
 			if err := os.MkdirAll(filepath.Dir(bin), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -84,9 +84,9 @@ func TestFindRunnerCandidates(t *testing.T) {
 			defer cancel()
 			cmd := exec.CommandContext(ctx, bin, "-test.run=^TestFindRunnerProcessFixture$", "-test.count=1")
 			cmd.Env = append(os.Environ(),
-				"FARROW_TEST_FIND_RUNNER=1",
-				"FARROW_TEST_FIND_RUNNER_WANT="+filepath.Join(root, tc.want),
-				"FARROW_MAC_RUNNER="+explicit,
+				"BARN_TEST_FIND_RUNNER=1",
+				"BARN_TEST_FIND_RUNNER_WANT="+filepath.Join(root, tc.want),
+				"BARN_MAC_RUNNER="+explicit,
 			)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("runner discovery subprocess: %v\n%s", err, output)

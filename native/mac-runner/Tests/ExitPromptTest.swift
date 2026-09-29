@@ -29,8 +29,8 @@ struct ExitPromptTest {
         let stub = RuntimeStub()
         installRuntimeMenu(application: application, runtime: stub)
         let main = application.mainMenu!
-        precondition(main.items.map(\.title) == ["Farrow Mac", "Machine", "View", "Window"])
-        let quit = main.items[0].submenu!.items.first { $0.title == "Quit Farrow Mac…" }!
+        precondition(main.items.map(\.title) == ["Barn Mac", "Machine", "View", "Window"])
+        let quit = main.items[0].submenu!.items.first { $0.title == "Quit Barn Mac…" }!
         precondition(quit.target === application && quit.action == #selector(NSApplication.terminate(_:)))
         let machine = main.items[1].submenu!
         for item in machine.items where !item.isSeparatorItem {

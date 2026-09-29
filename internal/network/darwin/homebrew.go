@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 // SocketVMNetFormula is the Homebrew formula whose keg provides the pinned

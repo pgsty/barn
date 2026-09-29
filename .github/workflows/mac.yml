@@ -38,19 +38,19 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          export FARROW_COMMIT SOURCE_DATE_EPOCH FARROW_BUILD_DATE
-          FARROW_COMMIT=$(git rev-parse HEAD)
+          export BARN_COMMIT SOURCE_DATE_EPOCH BARN_BUILD_DATE
+          BARN_COMMIT=$(git rev-parse HEAD)
           SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
-          FARROW_BUILD_DATE=$(date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+          BARN_BUILD_DATE=$(date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
           version=${REQUESTED_VERSION#v}
           if [[ -z $version ]]; then
-            goreleaser build --snapshot --single-target --id farrow --id farrow-hosts-helper --parallelism 1
+            goreleaser build --snapshot --single-target --id barn --id barn-hosts-helper --parallelism 1
             version=$(jq -er .version .goreleaser-dist/metadata.json)
           fi
-          printf 'FARROW_VERSION=%s\nFARROW_COMMIT=%s\nSOURCE_DATE_EPOCH=%s\n' "$version" "$FARROW_COMMIT" "$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+          printf 'BARN_VERSION=%s\nBARN_COMMIT=%s\nSOURCE_DATE_EPOCH=%s\n' "$version" "$BARN_COMMIT" "$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
       - name: Mac Go and native component regression
         run: |
-          go test -race ./internal/macvm ./cmd/farrow
+          go test -race ./internal/macvm ./cmd/barn
           make mac-native-test
       - name: Configure release signing and notarization
         if: inputs.notarize
@@ -68,29 +68,29 @@ jobs:
             exit 1
           }
           umask 077
-          keychain="$RUNNER_TEMP/farrow-signing.keychain-db"
+          keychain="$RUNNER_TEMP/barn-signing.keychain-db"
           password=$(uuidgen)
           printf '::add-mask::%s\n' "$password"
-          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/farrow-signing.p12"
-          printf '%s' "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/farrow-notary.p8"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/barn-signing.p12"
+          printf '%s' "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/barn-notary.p8"
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
-          security import "$RUNNER_TEMP/farrow-signing.p12" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -t cert -f pkcs12 -k "$keychain"
+          security import "$RUNNER_TEMP/barn-signing.p12" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -t cert -f pkcs12 -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
-          xcrun notarytool store-credentials farrow-ci --key "$RUNNER_TEMP/farrow-notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
-          printf 'FARROW_CODESIGN_IDENTITY=%s\nFARROW_NOTARY_PROFILE=farrow-ci\nFARROW_MAC_REQUIRE_NOTARIZATION=1\n' "$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          xcrun notarytool store-credentials barn-ci --key "$RUNNER_TEMP/barn-notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+          printf 'BARN_CODESIGN_IDENTITY=%s\nBARN_NOTARY_PROFILE=barn-ci\nBARN_MAC_REQUIRE_NOTARIZATION=1\n' "$SIGNING_IDENTITY" >> "$GITHUB_ENV"
       - name: Build and verify the exported native payload
         run: |
-          python3 packaging/mac-release.py build "$FARROW_VERSION" "$FARROW_COMMIT" "$SOURCE_DATE_EPOCH" "$RUNNER_TEMP/mac-native.tar.gz"
+          python3 packaging/mac-release.py build "$BARN_VERSION" "$BARN_COMMIT" "$SOURCE_DATE_EPOCH" "$RUNNER_TEMP/mac-native.tar.gz"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: farrow-mac-native
+          name: barn-mac-native
           path: ${{ runner.temp }}/mac-native.tar.gz
           retention-days: 7
       - name: Remove temporary signing material
         if: always() && inputs.notarize
         run: |
-          security delete-keychain "$RUNNER_TEMP/farrow-signing.keychain-db" || true
-          rm -f "$RUNNER_TEMP/farrow-signing.p12" "$RUNNER_TEMP/farrow-notary.p8"
+          security delete-keychain "$RUNNER_TEMP/barn-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/barn-signing.p12" "$RUNNER_TEMP/barn-notary.p8"

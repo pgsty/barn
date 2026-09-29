@@ -15,9 +15,9 @@ enum RuntimeAction {
 func installRuntimeMenu(application: NSApplication, runtime: AnyObject) {
     let main = NSMenu()
 
-    let appItem = NSMenuItem(title: "Farrow Mac", action: nil, keyEquivalent: "")
-    let appMenu = NSMenu(title: "Farrow Mac")
-    let quit = NSMenuItem(title: "Quit Farrow Mac…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+    let appItem = NSMenuItem(title: "Barn Mac", action: nil, keyEquivalent: "")
+    let appMenu = NSMenu(title: "Barn Mac")
+    let quit = NSMenuItem(title: "Quit Barn Mac…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
     quit.target = application
     appMenu.addItem(quit)
     appItem.submenu = appMenu

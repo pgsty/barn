@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 // Info is the security-relevant subset of qemu-img's JSON output.

@@ -1,11 +1,11 @@
 .DS_Store
-/farrow
-/farrow-hosts-helper
+/barn
+/barn-hosts-helper
 /catalogsign
 /bin/
 /dist/
 /.goreleaser-*/
-/.farrow-*.*/
+/.barn-*.*/
 *.test
 *.out
 *.log

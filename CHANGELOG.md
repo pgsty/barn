@@ -6,16 +6,24 @@ Notable user-visible changes. This project follows
 
 ## [Unreleased]
 
-Farrow 0.9.0 candidate: one error model, recoverable interrupted operations,
+Barn 0.9.0 candidate: one error model, recoverable interrupted operations,
 messages that say what went wrong and what to do, and a preview of macOS
 guests.
+
+The project is renamed from Farrow to **Barn** in one cutover. Executables,
+configuration discovery, environment variables, state fields, host resources,
+package names, Go module paths and current documentation use Barn. There are
+no Farrow aliases, old-state readers, compatibility paths or Mac migration
+command. Existing internal labs must be retired with their original binary
+and recreated under Barn after saving needed data. Historical release notes
+and signed image provenance retain the identity of their original builds.
 
 **For scripts:** exit codes and the JSON error envelope changed, and the `rm`
 alias is gone; see Changed and Removed.
 
 ### Added
 
-- Preview: `farrow mac` runs named macOS 27 virtual machines on Apple Silicon
+- Preview: `barn mac` runs named macOS 27 virtual machines on Apple Silicon
   with macOS 27 or later. `mac up [name]` creates and starts a machine and
   waits for SSH and sudo; `mac open` shows its desktop; `mac ssh`/`exec` reach
   it with its own pinned key. Machines are copy-on-write clones of one unbooted
@@ -34,7 +42,7 @@ alias is gone; see Changed and Removed.
 - `mac ssh-config --install` adds the machines to `~/.ssh/config`, and the first
   ready machine installs it automatically, so `ssh mac1` and editors with
   Remote-SSH work; lifecycle commands keep it current.
-- `farrow mac` needs its native component, `Farrow Mac.app`. Releases include
+- `barn mac` needs its native component, `Barn Mac.app`. Releases include
   it only once it is Developer ID signed and notarized by Apple; until then
   `make mac-build` (Xcode 27) builds both into `bin/mac`, and a release without
   it still publishes.
@@ -62,13 +70,13 @@ alias is gone; see Changed and Removed.
   `ssh-config` failures use the same envelope. `resource_conflict` is now
   `resource`. JSON output no longer escapes
   `<`, `>`, and `&`.
-- A second farrow command waits up to 10 minutes behind a running one and says
-  which (`farrow up (pid 4821, since 14:02:31)`); on timeout it exits 4 with
+- A second barn command waits up to 10 minutes behind a running one and says
+  which (`barn up (pid 4821, since 14:02:31)`); on timeout it exits 4 with
   reason `deployment_busy`. `status`, `ssh`, `exec`, `ssh-config`, and `hosts`
   do not wait: they show the recorded state with a `note:`.
 - `network` and `hosts` install/uninstall ask for confirmation on a terminal
   (`[Y/n]` for install, `[y/N]` for uninstall). `hosts` plans without sudo, and
-  `network install` on a Mac without a Farrow network points to `farrow setup`
+  `network install` on a Mac without a Barn network points to `barn setup`
   before any sudo prompt. Setup's plan states when it will use sudo and where
   socket_vmnet comes from; if it must switch to another /24 after the
   confirmation, it says so and asks again (unless `--yes`).
@@ -76,8 +84,8 @@ alias is gone; see Changed and Removed.
   Sizes drop a trailing `.0` and use TiB from 1024 GiB.
 - `logs --source events|qemu` prints one readable line per record; the QEMU
   argv appears only with `--verbose`.
-- Bare `farrow` and a plain `destroy` without a deployment succeed;
-  `destroy --delete-persistent/--purge` without state points to `farrow purge`,
+- Bare `barn` and a plain `destroy` without a deployment succeed;
+  `destroy --delete-persistent/--purge` without state points to `barn purge`,
   which removes retained disks. `--version` is accepted. `-f` completes YAML
   files only. `validate` accepts `--repo` to check images against that
   repository's catalog; an unreadable catalog is a warning, and imported local
@@ -99,7 +107,7 @@ alias is gone; see Changed and Removed.
   after a host reboot) is recognized as stopped instead of blocking every
   command with advice to stop that process by hand.
 - An interrupted `stop` whose VM kept running resumes as running; interrupted
-  transitions name the finishing command instead of looping on `farrow status`.
+  transitions name the finishing command instead of looping on `barn status`.
   `destroy` settles interrupted transitions itself.
 - A failed first `up` recovers after the inventory is edited; unfinished node
   directories are rolled back by their journaled artifacts, not their old spec.
@@ -113,9 +121,9 @@ alias is gone; see Changed and Removed.
 - A mistyped destroy/recreate confirmation says what was typed and that nothing
   changed.
 - A symlinked or hard-linked `~/.ssh/config` (dotfile managers) is never edited;
-  Farrow publishes its fragment and asks once for the `Include` line.
+  Barn publishes its fragment and asks once for the `Include` line.
 - Doctor no longer recommends `destroy --force` for unreadable state or
-  `recreate --force` for an unfinished create; `farrow up` finishes the latter.
+  `recreate --force` for an unfinished create; `barn up` finishes the latter.
 - `install.sh` reports an unreachable GitHub as a network failure instead of
   "no stable release is published".
 
@@ -550,12 +558,12 @@ Pigsty-compatible local labs.
   Cosign is available, and explains that pre-1.0 GitHub pre-releases require an
   explicit `FARROW_VERSION`.
 
-[Unreleased]: https://github.com/pgsty/farrow/compare/v0.8.0...HEAD
-[0.8.0]: https://github.com/pgsty/farrow/releases/tag/v0.8.0
-[0.7.0]: https://github.com/pgsty/farrow/releases/tag/v0.7.0
-[0.6.0]: https://github.com/pgsty/farrow/releases/tag/v0.6.0
-[0.5.0]: https://github.com/pgsty/farrow/releases/tag/v0.5.0
-[0.4.0]: https://github.com/pgsty/farrow/releases/tag/v0.4.0
-[0.3.0]: https://github.com/pgsty/farrow/releases/tag/v0.3.0
-[0.2.0]: https://github.com/pgsty/farrow/releases/tag/v0.2.0
-[0.1.0]: https://github.com/pgsty/farrow/releases/tag/v0.1.0
+[Unreleased]: https://github.com/pgsty/barn/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/pgsty/barn/releases/tag/v0.8.0
+[0.7.0]: https://github.com/pgsty/barn/releases/tag/v0.7.0
+[0.6.0]: https://github.com/pgsty/barn/releases/tag/v0.6.0
+[0.5.0]: https://github.com/pgsty/barn/releases/tag/v0.5.0
+[0.4.0]: https://github.com/pgsty/barn/releases/tag/v0.4.0
+[0.3.0]: https://github.com/pgsty/barn/releases/tag/v0.3.0
+[0.2.0]: https://github.com/pgsty/barn/releases/tag/v0.2.0
+[0.1.0]: https://github.com/pgsty/barn/releases/tag/v0.1.0

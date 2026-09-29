@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 const testInterfaceID = "018f4b8e-1234-7abc-9def-0123456789ab"
@@ -277,7 +277,7 @@ func TestPlanInstallFromHomebrewRecordsProvenance(t *testing.T) {
 	t.Parallel()
 	// planInstall inspects the real host installation paths.
 	if _, err := os.Lstat(InstallRoot); err == nil {
-		t.Skip("host has an existing /opt/farrow installation")
+		t.Skip("host has an existing /opt/barn installation")
 	}
 	directory := t.TempDir()
 	socketPath := filepath.Join(directory, "socket_vmnet")

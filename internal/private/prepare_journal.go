@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/identity"
-	"github.com/pgsty/farrow/internal/naming"
+	"github.com/pgsty/barn/internal/identity"
+	"github.com/pgsty/barn/internal/naming"
 )
 
 const maxPrepareJournalBytes = 1 << 20

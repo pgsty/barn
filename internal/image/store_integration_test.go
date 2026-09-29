@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 func makeQCOW2(t *testing.T, path string, backing string) {
@@ -500,7 +500,7 @@ func TestIntegrationRotatedAwayUpstreamExplainsTheRemedy(t *testing.T) {
 		t.Fatal("missing upstream artifact was accepted")
 	}
 	_, _, next := failure.Classify(err)
-	for _, want := range []string{"no longer published upstream", "farrow update", "--repo", "farrow image import"} {
+	for _, want := range []string{"no longer published upstream", "barn update", "--repo", "barn image import"} {
 		if !strings.Contains(err.Error()+" next: "+next, want) {
 			t.Errorf("rotated-away upstream error is missing %q:\n%v next: %s", want, err, next)
 		}

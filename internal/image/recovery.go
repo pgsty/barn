@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/state"
 )
 
 type sourceHTTPError struct {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 type logFileInfo struct {
@@ -17,7 +17,7 @@ type logFileInfo struct {
 	uid, gid uint32
 }
 
-func (f logFileInfo) Name() string       { return "farrow-vmnet" }
+func (f logFileInfo) Name() string       { return "barn-vmnet" }
 func (f logFileInfo) Size() int64        { return 0 }
 func (f logFileInfo) Mode() os.FileMode  { return f.mode }
 func (f logFileInfo) ModTime() time.Time { return time.Time{} }

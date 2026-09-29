@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 func TestStatusReadsRecordedStateWhileAnotherCommandHoldsTheLock(t *testing.T) {
@@ -20,7 +20,7 @@ func TestStatusReadsRecordedStateWhileAnotherCommandHoldsTheLock(t *testing.T) {
 	defer func() { _ = held.Release() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	status, err := (Manager{FarrowVersion: "test"}).Status(ctx)
+	status, err := (Manager{BarnVersion: "test"}).Status(ctx)
 	if err != nil {
 		t.Fatalf("status queued or failed behind the holder: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestMutatingCommandNamesTheHolderAndGivesUpAsConflict(t *testing.T) {
 	if class != failure.Conflict || reason != "deployment_busy" || !strings.Contains(err.Error(), "(pid ") {
 		t.Fatalf("busy lock = %q %q %v", class, reason, err)
 	}
-	if !strings.HasPrefix(waiting, "Waiting for another farrow command: ") || !strings.Contains(waiting, ", since ") {
+	if !strings.HasPrefix(waiting, "Waiting for another barn command: ") || !strings.Contains(waiting, ", since ") {
 		t.Fatalf("wait was not reported: %q", waiting)
 	}
 }
@@ -55,14 +55,14 @@ func TestMutatingCommandNamesTheHolderAndGivesUpAsConflict(t *testing.T) {
 func TestLongCommandLineStillTakesTheLock(t *testing.T) {
 	config, _ := statusFixture(t)
 	previous := os.Args
-	os.Args = []string{"farrow", "exec", "meta", "--", "bash", "-c", strings.Repeat("x", 4096)}
+	os.Args = []string{"barn", "exec", "meta", "--", "bash", "-c", strings.Repeat("x", 4096)}
 	t.Cleanup(func() { os.Args = previous })
 	held, holder, err := tryDeploymentLock(config.Deployment.Root, false)
 	if err != nil || held == nil || holder != "" {
 		t.Fatalf("long exec could not take the free lock: held=%v holder=%q err=%v", held != nil, holder, err)
 	}
 	defer func() { _ = held.Release() }()
-	if described := lockHolder(deploymentLockPath(config.Deployment.Root)); !strings.Contains(described, "farrow exec meta") || len(described) > 400 {
+	if described := lockHolder(deploymentLockPath(config.Deployment.Root)); !strings.Contains(described, "barn exec meta") || len(described) > 400 {
 		t.Fatalf("holder = %q", described)
 	}
 }

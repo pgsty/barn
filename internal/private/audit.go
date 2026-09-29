@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/qmp"
-	"github.com/pgsty/farrow/internal/runtimepath"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qmp"
+	"github.com/pgsty/barn/internal/runtimepath"
+	"github.com/pgsty/barn/internal/state"
 )
 
 // Observation is one liveness verdict about a node's recorded runtime.

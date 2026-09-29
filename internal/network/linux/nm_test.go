@@ -34,11 +34,11 @@ func TestNetworkManagerBackendPlan(t *testing.T) {
 	}
 	commands := planCommandText(plan)
 	for _, want := range []string{
-		"nmcli connection add type bridge con-name farrow0 ifname farrow0",
+		"nmcli connection add type bridge con-name barn0 ifname barn0",
 		"ipv4.addresses 10.10.10.1/24",
 		"ipv6.method disabled",
 		"connection.autoconnect yes",
-		"nmcli connection up farrow0",
+		"nmcli connection up barn0",
 	} {
 		if !strings.Contains(commands, want) {
 			t.Errorf("NM plan missing %q:\n%s", want, commands)
@@ -83,7 +83,7 @@ func TestNetworkManagerBackendFirewalldZoneAndExistingConnection(t *testing.T) {
 	// An unowned existing connection is never adopted.
 	foreign := nmFacts()
 	foreign.NMConnectionExists = true
-	if _, err := NewInstallPlan(foreign, testConfig()); err == nil || !strings.Contains(err.Error(), "NetworkManager connection that Farrow did not create") {
+	if _, err := NewInstallPlan(foreign, testConfig()); err == nil || !strings.Contains(err.Error(), "NetworkManager connection that Barn did not create") {
 		t.Fatalf("foreign connection adoption error = %v", err)
 	}
 }
@@ -117,7 +117,7 @@ func TestNetworkManagerManifestRoundTripAndUninstall(t *testing.T) {
 	for _, command := range uninstall.Commands {
 		commands += command.Binary + " " + strings.Join(command.Args, " ") + "\n"
 	}
-	if !strings.Contains(commands, "nmcli connection delete farrow0") || strings.Contains(commands, "networkctl") {
+	if !strings.Contains(commands, "nmcli connection delete barn0") || strings.Contains(commands, "networkctl") {
 		t.Fatalf("NM uninstall commands = %q", commands)
 	}
 	removed := strings.Join(uninstall.RemoveFiles, "\n")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the eight digest-pinned Farrow official-image candidates."""
+"""Build the eight digest-pinned Barn official-image candidates."""
 
 from __future__ import annotations
 
@@ -154,7 +154,7 @@ def fetch_locked(url: str, destination: Path, maximum: int, expected: Mapping[st
     partial = destination.parent / f".{destination.name}.partial-{os.getpid()}"
     if os.path.lexists(partial):
         raise OfficialBuildError(f"refuse existing partial download: {partial}")
-    request = urllib.request.Request(url, headers={"User-Agent": "farrow-official-image-builder/1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "barn-official-image-builder/1"})
     size = 0
     digests = {name: hashlib.new(name) for name in expected}
     try:
@@ -411,7 +411,7 @@ def render_candidate_repo(
             package_lock_digest = validation["package_inputs"]["lock_sha256"]
             package_note = f"; package-lock sha256:{package_lock_digest}" if package_lock_digest else ""
             provenance = (
-                f"Farrow official-image candidate recipe v1 from {target['source_uri']} "
+                f"Barn official-image candidate recipe v1 from {target['source_uri']} "
                 f"sha256:{target['source_sha256']}{package_note}; upstream is build provenance only; "
                 "unsigned testing candidate requiring native smoke and production signing"
             )
@@ -431,7 +431,7 @@ def assemble_repository(
     indexed: Mapping[str, Dict[str, Any]],
     bundle_roots: Sequence[Path],
     output_value: str,
-    farrow: str,
+    barn: str,
 ) -> None:
     output, parent = safe_new_directory(output_value, "repository output")
     candidates: Dict[str, Dict[str, Any]] = {}
@@ -458,9 +458,9 @@ def assemble_repository(
         repo_bytes = render_candidate_repo(matrix, candidates)
         (staging / "repo.yaml").write_bytes(repo_bytes)
         os.chmod(staging / "repo.yaml", 0o644)
-        executable = shutil.which(farrow) if os.sep not in farrow else str(Path(farrow).resolve(strict=True))
+        executable = shutil.which(barn) if os.sep not in barn else str(Path(barn).resolve(strict=True))
         if not executable:
-            raise OfficialBuildError(f"required Farrow executable is missing: {farrow}")
+            raise OfficialBuildError(f"required Barn executable is missing: {barn}")
         subprocess.run((executable, "repo", "build", str(staging)), check=True)
         subprocess.run((executable, "repo", "verify", str(staging)), check=True)
         checksum_files = [staging / "repo.yaml", staging / "catalog.json", *sorted(images.iterdir())]
@@ -488,7 +488,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--fetch", action="store_true", help="fetch missing inputs from their digest-pinned HTTPS URLs")
     result.add_argument("--list", action="store_true", help="list the fixed matrix without building")
     result.add_argument("--assemble-from", action="append", default=[], help="bundle root; repeat to assemble all eight into one candidate repository")
-    result.add_argument("--farrow", default="farrow", help="Farrow executable used for candidate repo build/verify")
+    result.add_argument("--barn", default="barn", help="Barn executable used for candidate repo build/verify")
     return result
 
 
@@ -504,9 +504,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         if args.assemble_from:
             if args.fetch or args.target or args.source_cache or args.package_cache or not args.output:
-                raise OfficialBuildError("repository assembly accepts only --assemble-from, --output, and --farrow")
+                raise OfficialBuildError("repository assembly accepts only --assemble-from, --output, and --barn")
             roots = [safe_directory(value, "bundle root") for value in args.assemble_from]
-            assemble_repository(matrix, indexed, roots, args.output, args.farrow)
+            assemble_repository(matrix, indexed, roots, args.output, args.barn)
             return 0
         if not args.source_cache or not args.package_cache or not args.output:
             raise OfficialBuildError("--source-cache, --package-cache, and --output are required for builds")

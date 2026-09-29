@@ -4,11 +4,11 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 pipeline=${repo}/packaging/image-pipeline/build.sh
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
-temporary=$(mktemp -d "${temporary_parent}/farrow-image-pipeline-test.XXXXXX")
+temporary=$(mktemp -d "${temporary_parent}/barn-image-pipeline-test.XXXXXX")
 temporary=$(cd "${temporary}" && pwd -P)
 cleanup() {
   case ${temporary} in
-    "${temporary_parent}"/farrow-image-pipeline-test.*) rm -rf -- "${temporary}" ;;
+    "${temporary_parent}"/barn-image-pipeline-test.*) rm -rf -- "${temporary}" ;;
     *) printf 'refuse unsafe test cleanup: %s\n' "${temporary}" >&2 ;;
   esac
 }
@@ -123,8 +123,8 @@ fi
 [[ ${profile} == el8 || ${profile} == el9 ]] && legacy_network_status=removed
 [[ ${profile} == el8 ]] && sshd_include_status=verified
 case ${guest_path} in
-  /var/lib/farrow-image/normalization.json)
-    printf '{"schema":1,"recipe":"farrow-official-image-normalization-v1","profile":"%s","source_user":"ubuntu","source_date_epoch":1787486400,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","legacy_network":"%s","sshd_include":"%s","locale_default":"%s","locale_en_us":"%s"}\n' \
+  /var/lib/barn-image/normalization.json)
+    printf '{"schema":1,"recipe":"barn-official-image-normalization-v1","profile":"%s","source_user":"ubuntu","source_date_epoch":1787486400,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","legacy_network":"%s","sshd_include":"%s","locale_default":"%s","locale_en_us":"%s"}\n' \
       "${profile}" "${python3_status}" "${xfsprogs_status}" "${legacy_network_status}" "${sshd_include_status}" "${locale_default_status}" "${locale_en_us_status}"
     ;;
   /etc/passwd) printf 'root:x:0:0:root:/root:/bin/bash\ndba:x:88:88::/home/dba:/bin/bash\n' ;;
@@ -267,13 +267,13 @@ import json
 from pathlib import Path
 import sys
 
-spec = importlib.util.spec_from_file_location("farrow_pipeline", sys.argv[1])
+spec = importlib.util.spec_from_file_location("barn_pipeline", sys.argv[1])
 pipeline_module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = pipeline_module
 spec.loader.exec_module(pipeline_module)
 for profile in ("d12", "d13"):
     valid = {
-        "schema": 1, "recipe": "farrow-official-image-normalization-v1",
+        "schema": 1, "recipe": "barn-official-image-normalization-v1",
         "profile": profile, "source_user": "debian", "source_date_epoch": 1787486400,
         "dba_uid": 88, "admin_gid": 88, "credential_hygiene": "applied",
         "python3": "not-requested", "xfsprogs": "verified",
@@ -289,7 +289,7 @@ for profile in ("d12", "d13"):
         cases.append((invalid, False))
     for marker, accepted in cases:
         def fake_tool(arguments, *unused):
-            if arguments[-1] == "/var/lib/farrow-image/normalization.json":
+            if arguments[-1] == "/var/lib/barn-image/normalization.json":
                 return json.dumps(marker).encode()
             if arguments[-1] == "/etc/passwd":
                 return b"dba:x:88:88::/home/dba:/bin/bash\n"

@@ -43,8 +43,8 @@ func TestInstallIdempotentAndRemovePreservesUserConfig(t *testing.T) {
 		t.Fatalf("fragment = %s", fragment)
 	}
 	installedConfig, _ := os.ReadFile(configPath)
-	if strings.Index(string(installedConfig), "# farrow:") > strings.Index(string(installedConfig), "Host user-owned") {
-		t.Fatalf("Farrow Include was placed inside a user Host stanza:\n%s", installedConfig)
+	if strings.Index(string(installedConfig), "# barn:") > strings.Index(string(installedConfig), "Host user-owned") {
+		t.Fatalf("Barn Include was placed inside a user Host stanza:\n%s", installedConfig)
 	}
 	if ssh, err := exec.LookPath("ssh"); err == nil {
 		effective, err := exec.Command(ssh, "-G", "-F", configPath, "lab-meta").CombinedOutput()
@@ -144,7 +144,7 @@ func TestInstallRefusesMalformedOwnedInclude(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
-	marker := "# farrow:include\n"
+	marker := "# barn:include\n"
 	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(marker+"Host unrelated\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -211,9 +211,9 @@ func TestLinkedConfigIsNeverEditedAndAcceptsManualInclude(t *testing.T) {
 	if err := os.Symlink(managed, filepath.Join(sshDir, "config")); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Name: "farrow", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	entry := Entry{Name: "barn", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
 	result, err := Install(home, entry)
-	if err == nil || !strings.Contains(err.Error(), "managed outside Farrow") || !result.Changed {
+	if err == nil || !strings.Contains(err.Error(), "managed outside Barn") || !result.Changed {
 		t.Fatalf("linked install = %#v, %v", result, err)
 	}
 	if data, _ := os.ReadFile(managed); string(data) != userContent {
@@ -222,16 +222,16 @@ func TestLinkedConfigIsNeverEditedAndAcceptsManualInclude(t *testing.T) {
 	if _, err := os.Stat(result.Fragment); err != nil {
 		t.Fatalf("fragment not published: %v", err)
 	}
-	if err := os.WriteFile(managed, []byte("Include ~/.ssh/farrow_config\n"+userContent), 0o600); err != nil {
+	if err := os.WriteFile(managed, []byte("Include ~/.ssh/barn_config\n"+userContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Install(home, entry); err != nil {
 		t.Fatalf("manual Include must satisfy install: %v", err)
 	}
-	if _, err := Remove(home, "farrow"); err != nil {
+	if _, err := Remove(home, "barn"); err != nil {
 		t.Fatalf("remove with linked config: %v", err)
 	}
-	if data, _ := os.ReadFile(managed); !strings.HasPrefix(string(data), "Include ~/.ssh/farrow_config") {
+	if data, _ := os.ReadFile(managed); !strings.HasPrefix(string(data), "Include ~/.ssh/barn_config") {
 		t.Fatalf("linked config was edited on remove: %q", data)
 	}
 }

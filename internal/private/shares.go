@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/hostshare"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/hostshare"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func openPrivateNodeShares(value Deployment, sharesByNode map[string][]spec.Share, node state.NodeState) (*hostshare.Bundle, error) {

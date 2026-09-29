@@ -39,7 +39,7 @@ func TestAtomicWriteAndSymlinkRefusal(t *testing.T) {
 func TestAtomicCreateDoesNotReplaceConcurrentTarget(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	target := filepath.Join(directory, "farrow.yaml")
+	target := filepath.Join(directory, "barn.yaml")
 	if err := AtomicCreate(target, []byte("first\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

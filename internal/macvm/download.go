@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 type IPSWSpec struct {
@@ -387,13 +387,13 @@ func cachedInstaller(ctx context.Context, path string, spec IPSWSpec) (*Installe
 	err := readJSON(path+".json", &cached)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) || spec.SHA256 == "" {
-			return nil, fmt.Errorf("cached IPSW metadata unavailable; inspect with farrow mac image ls, then remove damaged installers with farrow mac image prune --installers --yes: %v", err)
+			return nil, fmt.Errorf("cached IPSW metadata unavailable; inspect with barn mac image ls, then remove damaged installers with barn mac image prune --installers --yes: %v", err)
 		}
 		// Recover a crash between publishing the complete file and metadata only
 		// when there is an independently expected digest, never merely a length.
 		cached = Installer{SchemaVersion: imageSchemaVersion, Version: spec.Version, Build: spec.Build, URL: spec.URL, SizeBytes: spec.SizeBytes, SHA256: strings.ToLower(spec.SHA256), Path: path, CreatedAt: time.Now().UTC()}
 	} else if cached.SchemaVersion != imageSchemaVersion || cached.Build != spec.Build || cached.Version != spec.Version || cached.SizeBytes != spec.SizeBytes || !validSHA256(cached.SHA256) {
-		return nil, errors.New("cached IPSW metadata differs from the requested image; inspect with farrow mac image ls, then run farrow mac image prune --installers --yes before retrying")
+		return nil, errors.New("cached IPSW metadata differs from the requested image; inspect with barn mac image ls, then run barn mac image prune --installers --yes before retrying")
 	}
 	digest, err := hashFile(ctx, path, spec.SizeBytes)
 	if err != nil {
@@ -406,7 +406,7 @@ func cachedInstaller(ctx context.Context, path string, spec IPSWSpec) (*Installe
 	if digest != strings.ToLower(cached.SHA256) || spec.SHA256 != "" && digest != strings.ToLower(spec.SHA256) {
 		cached.VerificationError = "cached IPSW SHA256 mismatch"
 		_ = writeJSON(path+".json", &cached)
-		return nil, failure.New(failure.Integrity, errors.New("the cached macOS restore image does not match its recorded SHA-256")).Then("farrow mac image prune --installers --yes, then retry")
+		return nil, failure.New(failure.Integrity, errors.New("the cached macOS restore image does not match its recorded SHA-256")).Then("barn mac image prune --installers --yes, then retry")
 	}
 	cached.VerificationError = ""
 	cached.Path = path
@@ -422,7 +422,7 @@ func finishInstaller(ctx context.Context, final, partial string, spec IPSWSpec, 
 		return nil, err
 	}
 	if spec.SHA256 != "" && digest != strings.ToLower(spec.SHA256) {
-		return nil, failure.New(failure.Integrity, errors.New("the macOS restore image does not match Apple's published SHA-256; the file was kept for inspection")).Then("farrow mac image prune --installers --yes, then retry")
+		return nil, failure.New(failure.Integrity, errors.New("the macOS restore image does not match Apple's published SHA-256; the file was kept for inspection")).Then("barn mac image prune --installers --yes, then retry")
 	}
 	installer := &Installer{SchemaVersion: imageSchemaVersion, Version: spec.Version, Build: spec.Build, URL: spec.URL, SizeBytes: spec.SizeBytes, SHA256: digest, ETag: meta.ETag, LastModified: meta.LastModified, Path: final, CreatedAt: time.Now().UTC()}
 	if err := os.Rename(partial, final); err != nil {

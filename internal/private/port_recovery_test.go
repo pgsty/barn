@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestManagementPortRecoveryKeepsGuestAndExplicitForwards(t *testing.T) {

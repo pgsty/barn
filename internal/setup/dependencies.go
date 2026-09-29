@@ -1,4 +1,4 @@
-// Package setup plans the bounded host preparation performed by `farrow setup`.
+// Package setup plans the bounded host preparation performed by `barn setup`.
 // It deliberately keeps package-manager selection and argv construction out of
 // the CLI presentation layer so the plan can be tested without changing a host.
 package setup
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/pgsty/farrow/internal/platform"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 type Command struct {
@@ -194,7 +194,7 @@ func (p DependencyProbe) missing(profile platform.Profile, private bool) []strin
 			missing = append(missing, name)
 		}
 	}
-	// Every embedded Farrow image is UEFI, including linux/amd64 where the
+	// Every embedded Barn image is UEFI, including linux/amd64 where the
 	// accelerator profile itself does not require UEFI.
 	if !p.firmwareExists(profile) {
 		missing = append(missing, "uefi-firmware")
@@ -272,7 +272,7 @@ func PlanDependencies(probe DependencyProbe, private bool) (DependencyPlan, erro
 		brew, lookErr := probe.lookPath("brew")
 		if lookErr != nil {
 			plan.Unsupported = true
-			plan.Resolution = "install Homebrew from https://brew.sh, then rerun farrow setup"
+			plan.Resolution = "install Homebrew from https://brew.sh, then rerun barn setup"
 			return plan, nil
 		}
 		plan.Manager = "homebrew"

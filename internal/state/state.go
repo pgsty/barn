@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/naming"
-	"github.com/pgsty/farrow/internal/network/subnet"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/naming"
+	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 const (
@@ -49,11 +49,11 @@ func validPhase(phase Phase) bool {
 
 // DeploymentState is the applied desired state of the one global deployment.
 type DeploymentState struct {
-	Schema        int           `json:"schema"`
-	FarrowVersion string        `json:"farrow_version"`
-	SpecHash      string        `json:"spec_hash"`
-	Resolved      spec.Resolved `json:"resolved"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	Schema      int           `json:"schema"`
+	BarnVersion string        `json:"barn_version"`
+	SpecHash    string        `json:"spec_hash"`
+	Resolved    spec.Resolved `json:"resolved"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 type Image struct {
@@ -98,7 +98,7 @@ type GuestWarning struct {
 type NodeState struct {
 	GuestWarnings []GuestWarning  `json:"-"`
 	Schema        int             `json:"schema"`
-	FarrowVersion string          `json:"farrow_version"`
+	BarnVersion   string          `json:"barn_version"`
 	Node          string          `json:"node"`
 	VMUUID        string          `json:"vm_uuid"`
 	Phase         Phase           `json:"phase"`
@@ -124,15 +124,15 @@ type Action struct {
 }
 
 type Transaction struct {
-	Schema        int       `json:"schema"`
-	FarrowVersion string    `json:"farrow_version"`
-	OperationID   string    `json:"operation_id"`
-	Node          string    `json:"node"`
-	From          Phase     `json:"from"`
-	To            Phase     `json:"to"`
-	Completed     []Action  `json:"completed,omitempty"`
-	StartedAt     time.Time `json:"started_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	Schema      int       `json:"schema"`
+	BarnVersion string    `json:"barn_version"`
+	OperationID string    `json:"operation_id"`
+	Node        string    `json:"node"`
+	From        Phase     `json:"from"`
+	To          Phase     `json:"to"`
+	Completed   []Action  `json:"completed,omitempty"`
+	StartedAt   time.Time `json:"started_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Store reads and writes the deployment documents under one data root.
@@ -234,7 +234,7 @@ func validateDeployment(value DeploymentState) error {
 	if value.Schema != DeploymentSchema {
 		return fmt.Errorf("unsupported deployment state schema %d", value.Schema)
 	}
-	if value.FarrowVersion == "" || value.SpecHash == "" || value.UpdatedAt.IsZero() {
+	if value.BarnVersion == "" || value.SpecHash == "" || value.UpdatedAt.IsZero() {
 		return errors.New("deployment state version/hash/time is invalid")
 	}
 	actualHash, err := spec.Hash(value.Resolved)
@@ -293,7 +293,7 @@ func validateNode(value NodeState, expectedNode string) error {
 	if value.Schema != NodeSchema {
 		return fmt.Errorf("unsupported node state schema %d", value.Schema)
 	}
-	if value.FarrowVersion == "" || value.Node != expectedNode || value.VMUUID == "" || !validPhase(value.Phase) || value.Generation == 0 || value.SpecHash == "" || value.CreatedAt.IsZero() || value.UpdatedAt.IsZero() {
+	if value.BarnVersion == "" || value.Node != expectedNode || value.VMUUID == "" || !validPhase(value.Phase) || value.Generation == 0 || value.SpecHash == "" || value.CreatedAt.IsZero() || value.UpdatedAt.IsZero() {
 		return errors.New("node state version, identity, phase, generation, hash, or time is invalid")
 	}
 	for _, disk := range value.DataDisks {
@@ -340,7 +340,7 @@ func (s Store) ReadNode(name string) (NodeState, error) {
 }
 
 func validateTransaction(value Transaction) error {
-	if value.Schema != TransactionSchema || value.FarrowVersion == "" || value.OperationID == "" || value.Node == "" || !validPhase(value.From) || !validPhase(value.To) || value.StartedAt.IsZero() || value.UpdatedAt.IsZero() {
+	if value.Schema != TransactionSchema || value.BarnVersion == "" || value.OperationID == "" || value.Node == "" || !validPhase(value.From) || !validPhase(value.To) || value.StartedAt.IsZero() || value.UpdatedAt.IsZero() {
 		return errors.New("transaction schema, version, or fields are invalid")
 	}
 	return nil

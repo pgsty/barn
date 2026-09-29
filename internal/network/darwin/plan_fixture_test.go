@@ -1,6 +1,6 @@
 package darwin
 
-import "github.com/pgsty/farrow/internal/network/subnet"
+import "github.com/pgsty/barn/internal/network/subnet"
 
 func NewInstallPlan(arch, interfaceID string) (InstallPlan, error) {
 	return NewInstallPlanMode(arch, interfaceID, "host")

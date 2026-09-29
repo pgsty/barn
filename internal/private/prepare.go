@@ -13,15 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/hostshare"
-	"github.com/pgsty/farrow/internal/identity"
-	"github.com/pgsty/farrow/internal/persistent"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/hostshare"
+	"github.com/pgsty/barn/internal/identity"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 type DiskOps interface {
@@ -213,7 +213,7 @@ func privateBackend(config PrepareConfig, node NodePlan) *qemu.PrivateNetwork {
 		}
 		return &qemu.PrivateNetwork{MAC: node.PrivateMAC, StreamSocket: config.Backend.DarwinSocket, ReconnectMS: config.Backend.ReconnectMS}
 	}
-	return &qemu.PrivateNetwork{MAC: node.PrivateMAC, Bridge: "farrow0", BridgeHelper: config.Backend.LinuxBridgeHelper}
+	return &qemu.PrivateNetwork{MAC: node.PrivateMAC, Bridge: "barn0", BridgeHelper: config.Backend.LinuxBridgeHelper}
 }
 
 func PrepareNode(ctx context.Context, config PrepareConfig, name string) (NodeArtifacts, error) {
@@ -304,7 +304,7 @@ func PrepareNode(ctx context.Context, config PrepareConfig, name string) (NodeAr
 			}
 			for _, path := range []string{nodePlan.Runtime.QMP, nodePlan.Runtime.PIDFile} {
 				if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-					return NodeArtifacts{}, fmt.Errorf("unfinished node %s has runtime artifacts; run farrow status before retrying", name)
+					return NodeArtifacts{}, fmt.Errorf("unfinished node %s has runtime artifacts; run barn status before retrying", name)
 				}
 			}
 			if _, err := RollbackPrepared(privatePrepareDeployment(config), name, true); err != nil {

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 type DoctorCheck struct {
@@ -62,15 +62,9 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 		err = fmt.Errorf("%.1f GiB free; preparing macOS needs about 40 GiB", float64(free)/(1<<30))
 	}
 	report.add("disk", err, fmt.Sprintf("%.1f GiB free", float64(free)/(1<<30)))
-	if legacy, err := m.legacyHelperInstalled(ctx); err != nil || legacy {
-		if err == nil {
-			err = fmt.Errorf("the root network helper of the earlier Mac layout is still installed")
-		}
-		report.add("legacy_helper", failure.WithNext(err, "farrow mac migrate"), "")
-	}
 	config, err := m.Store.LoadConfig()
 	if errors.Is(err, os.ErrNotExist) {
-		report.add("data", nil, "no Mac machines yet; farrow mac up creates the first")
+		report.add("data", nil, "no Mac machines yet; barn mac up creates the first")
 		return report
 	}
 	report.add("data", err, m.Store.Root)
@@ -126,7 +120,7 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 			if view.Error != "" {
 				err = fmt.Errorf("%w: %s", err, view.Error)
 			}
-			report.add(machine.Name, failure.WithNext(err, "farrow mac logs "+machine.Name), "")
+			report.add(machine.Name, failure.WithNext(err, "barn mac logs "+machine.Name), "")
 		}
 	}
 	return report

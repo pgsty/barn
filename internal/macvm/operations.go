@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 // Lock order is a machine operation, then shared state, then the native

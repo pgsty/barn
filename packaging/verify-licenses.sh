@@ -7,7 +7,7 @@ done
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 # shellcheck disable=SC1091
 source "${repo}/packaging/toolchain.env"
-[[ $(go env GOVERSION) == "go${FARROW_GO_VERSION}" ]] || { printf 'Go toolchain version differs from the license-review pin\n' >&2; exit 1; }
+[[ $(go env GOVERSION) == "go${BARN_GO_VERSION}" ]] || { printf 'Go toolchain version differs from the license-review pin\n' >&2; exit 1; }
 expected=$(printf '%s\n' \
   $'aead.dev/minisign\tv0.3.0' \
   $'github.com/diskfs/go-diskfs\tv1.9.4' \
@@ -22,18 +22,18 @@ expected=$(printf '%s\n' \
   $'golang.org/x/text\tv0.42.0' | LC_ALL=C sort)
 actual=$(
   cd "${repo}"
-  go list -deps -json ./cmd/farrow ./cmd/farrow-hosts-helper |
+  go list -deps -json ./cmd/barn ./cmd/barn-hosts-helper |
     jq -r 'select(.Module != null and .Module.Main != true) | [.Module.Path,.Module.Version] | @tsv' |
     LC_ALL=C sort -u
 )
 [[ ${actual} == "${expected}" ]] || { printf 'reachable module inventory differs\n' >&2; diff -u <(printf '%s\n' "${expected}") <(printf '%s\n' "${actual}") >&2 || true; exit 1; }
 
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
-temporary=$(mktemp -d "${temporary_parent}/farrow-license-verify.XXXXXX")
+temporary=$(mktemp -d "${temporary_parent}/barn-license-verify.XXXXXX")
 temporary=$(cd "${temporary}" && pwd -P)
 cleanup() {
   case ${temporary} in
-    "${temporary_parent}"/farrow-license-verify.*) rm -rf -- "${temporary}" ;;
+    "${temporary_parent}"/barn-license-verify.*) rm -rf -- "${temporary}" ;;
     *) printf 'refuse unsafe dependency-license verification cleanup: %s\n' "${temporary}" >&2 ;;
   esac
 }
@@ -51,4 +51,4 @@ actual_license_list=$(find "${license_corpus}" -mindepth 1 -maxdepth 1 -type f -
   printf 'generated dependency license corpus contains a non-regular entry\n' >&2
   exit 1
 }
-printf 'verified eleven reachable module versions, Go %s stdlib license, and exact upstream license/notice bytes\n' "${FARROW_GO_VERSION}"
+printf 'verified eleven reachable module versions, Go %s stdlib license, and exact upstream license/notice bytes\n' "${BARN_GO_VERSION}"

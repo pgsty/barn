@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
-	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
-	linuxnet "github.com/pgsty/farrow/internal/network/linux"
-	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/barn/internal/execx"
+	darwinnet "github.com/pgsty/barn/internal/network/darwin"
+	linuxnet "github.com/pgsty/barn/internal/network/linux"
+	"github.com/pgsty/barn/internal/network/subnet"
 )
 
 type sharingRunner struct{}
@@ -19,7 +19,7 @@ func (sharingRunner) Run(_ context.Context, binary string, args ...string) (exec
 	command := binary + " " + strings.Join(args, " ")
 	switch {
 	case strings.HasPrefix(command, "/usr/bin/tail "):
-		return execx.Result{}, errors.New("no Farrow log")
+		return execx.Result{}, errors.New("no Barn log")
 	case command == "/bin/launchctl print system/com.apple.NetworkSharing":
 		return execx.Result{Stdout: []byte("active count = 2\n")}, nil
 	case strings.Contains(command, "-extract Host_Net_Address"):
@@ -56,7 +56,7 @@ func TestDarwinInterfaceOwnershipNeverAdoptsForeignExactAddress(t *testing.T) {
 	marker := darwinnet.InterfaceMarker{Schema: 1, InterfaceID: "018f4b8e-1234-7abc-9def-0123456789ab", CIDR: layout.CIDR(), HostAddress: layout.HostAddress(), BSDName: "bridge100"}
 	foreign := []InterfaceAddress{{Address: netip.MustParseAddr(layout.HostAddress()), Prefix: layout.Prefix(), Interface: "vboxnet0", Evidence: "foreign VirtualBox host-only interface"}}
 	if darwinInterfaceObserved(foreign, layout, marker) {
-		t.Fatal("foreign vboxnet0 exact .1/24 was adopted as the Farrow interface")
+		t.Fatal("foreign vboxnet0 exact .1/24 was adopted as the Barn interface")
 	}
 	owned := append(foreign, InterfaceAddress{Address: netip.MustParseAddr(layout.HostAddress()), Prefix: layout.Prefix(), Interface: "bridge100", Evidence: "marker-bound interface"})
 	if !darwinInterfaceObserved(owned, layout, marker) {
@@ -73,11 +73,11 @@ func TestDarwinInterfaceOwnershipNeverAdoptsForeignExactAddress(t *testing.T) {
 }
 
 func TestParseLinuxInterfacesAndRoutes(t *testing.T) {
-	interfaces := parseLinuxInterfaces("2: eth0    inet 192.168.0.10/24 brd 192.168.0.255 scope global eth0\n3: farrow0    inet 172.31.251.1/24 scope global farrow0\n")
-	if len(interfaces) != 2 || interfaces[1].Interface != "farrow0" || interfaces[1].Address.String() != "172.31.251.1" {
+	interfaces := parseLinuxInterfaces("2: eth0    inet 192.168.0.10/24 brd 192.168.0.255 scope global eth0\n3: barn0    inet 172.31.251.1/24 scope global barn0\n")
+	if len(interfaces) != 2 || interfaces[1].Interface != "barn0" || interfaces[1].Address.String() != "172.31.251.1" {
 		t.Fatalf("interfaces=%#v", interfaces)
 	}
-	routes := parseLinuxRoutes("default via 192.168.0.1 dev eth0\n172.31.251.0/24 dev farrow0 proto kernel scope link src 172.31.251.1\nlocal 172.31.251.1 dev farrow0 table local proto kernel scope host\nblackhole 172.31.251.128/25 metric 10\nunreachable 172.31.251.64/26 metric 20\nbroadcast 172.31.251.255 dev farrow0 table local\n")
+	routes := parseLinuxRoutes("default via 192.168.0.1 dev eth0\n172.31.251.0/24 dev barn0 proto kernel scope link src 172.31.251.1\nlocal 172.31.251.1 dev barn0 table local proto kernel scope host\nblackhole 172.31.251.128/25 metric 10\nunreachable 172.31.251.64/26 metric 20\nbroadcast 172.31.251.255 dev barn0 table local\n")
 	if len(routes) != 4 || routes[0].Prefix.String() != "172.31.251.0/24" || routes[1].Prefix.String() != "172.31.251.1/32" || routes[1].Kind != "local" || routes[2].Kind != "blackhole" || routes[2].Prefix.String() != "172.31.251.128/25" || routes[3].Kind != "unreachable" {
 		t.Fatalf("routes=%#v", routes)
 	}
@@ -86,8 +86,8 @@ func TestParseLinuxInterfacesAndRoutes(t *testing.T) {
 func TestSimplifiedLinuxInstallShapesDoNotRequireRetiredLeaseFiles(t *testing.T) {
 	t.Parallel()
 	for name, targets := range map[string][]linuxPublicTarget{
-		"networkmanager": linuxRequiredTargets(true, "/var/lib/farrow"),
-		"networkd":       linuxRequiredTargets(false, "/var/lib/farrow"),
+		"networkmanager": linuxRequiredTargets(true, "/var/lib/barn"),
+		"networkd":       linuxRequiredTargets(false, "/var/lib/barn"),
 	} {
 		for _, target := range targets {
 			if target.path == linuxnet.TmpfilesPath || target.path == linuxnet.LeaseRoot || target.path == linuxnet.LeaseLockPath {
@@ -98,7 +98,7 @@ func TestSimplifiedLinuxInstallShapesDoNotRequireRetiredLeaseFiles(t *testing.T)
 }
 
 func TestPlistArgumentsAndLinuxUnit(t *testing.T) {
-	data := []byte(`["/opt/farrow/libexec/socket_vmnet","--vmnet-mode=shared","--vmnet-gateway=172.31.251.1","--vmnet-dhcp-end=172.31.251.8","--vmnet-interface-id=018f4b8e-1234-7abc-9def-0123456789ab"]`)
+	data := []byte(`["/opt/barn/libexec/socket_vmnet","--vmnet-mode=shared","--vmnet-gateway=172.31.251.1","--vmnet-dhcp-end=172.31.251.8","--vmnet-interface-id=018f4b8e-1234-7abc-9def-0123456789ab"]`)
 	mode, _, gateway, dhcp, err := plistArguments(data)
 	if err != nil || mode != "shared" || gateway != "172.31.251.1" || dhcp != "172.31.251.8" {
 		t.Fatalf("mode=%q gateway=%q dhcp=%q err=%v", mode, gateway, dhcp, err)
@@ -130,7 +130,7 @@ func TestActiveNetworkSharingAndLinuxFamily(t *testing.T) {
 		t.Fatalf("sharing problem=%q", problem)
 	}
 	if conflict, problem := (Probe{Runner: sharingRunner{}}).darwinSharingConflict(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Use, Layout: subnet.Default()}, Installation{Status: "protected", CIDR: subnet.DefaultCIDR, Healthy: true}); conflict != "" || problem != "" {
-		t.Fatalf("healthy protected Farrow install was treated as external sharing: %q", conflict)
+		t.Fatalf("healthy protected Barn install was treated as external sharing: %q", conflict)
 	}
 }
 

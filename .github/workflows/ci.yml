@@ -27,7 +27,7 @@ jobs:
           go-version: "1.27.1"
           check-latest: false
           cache: true
-      - run: go test -race ./internal/macvm ./cmd/farrow
+      - run: go test -race ./internal/macvm ./cmd/barn
       - run: make mac-native-test
   source:
     name: Go 1.27 source gates
@@ -68,7 +68,7 @@ jobs:
           set -euo pipefail
           source packaging/toolchain.env
           ./packaging/check-toolchain.sh quality
-          test "$(goreleaser --version | awk '/GitVersion:/ {sub(/^v/, "", $2); print $2; exit}')" = "${FARROW_GORELEASER_VERSION}"
+          test "$(goreleaser --version | awk '/GitVersion:/ {sub(/^v/, "", $2); print $2; exit}')" = "${BARN_GORELEASER_VERSION}"
 
       - name: Source hygiene and module integrity
         shell: bash

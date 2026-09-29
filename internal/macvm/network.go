@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 // Each machine gets its own private /24. The runner creates it with vmnet when
@@ -268,10 +268,7 @@ func (m *Manager) checkRoutesFree(machine *Machine, routes []DarwinRoute) error 
 	}
 	for _, route := range routes {
 		if route.Prefix.IsValid() && route.Prefix.Addr().Is4() && route.Prefix.Bits() != 0 && route.Prefix.Overlaps(subnet) {
-			next := fmt.Sprintf("farrow mac configure %s --subnet auto", machine.Name)
-			if legacyNetwork(route, subnet) {
-				next = "farrow mac migrate"
-			}
+			next := fmt.Sprintf("barn mac configure %s --subnet auto", machine.Name)
 			return failure.New(failure.Resource, fmt.Errorf("%s network %s overlaps route %s on %s", machine.Name, subnet, route.Prefix, route.Interface)).
 				Because("mac_subnet_in_use").Then(next)
 		}

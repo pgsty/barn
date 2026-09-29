@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 func readinessManager(t *testing.T) *Manager {

@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 // Host directories are shared read-write or read-only with VirtioFS. A macOS
@@ -65,7 +65,7 @@ func ParseShare(spec string) (Share, error) {
 }
 
 // checkShareSource verifies a host directory right before the VM uses it.
-// Farrow never creates, changes or deletes a shared host directory.
+// Barn never creates, changes or deletes a shared host directory.
 func checkShareSource(share Share) error {
 	info, err := os.Lstat(share.Path)
 	if errors.Is(err, os.ErrNotExist) {

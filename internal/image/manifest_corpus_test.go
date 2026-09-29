@@ -18,11 +18,11 @@ import (
 // constants against a locally retained source corpus. It is opt-in because it
 // hashes all 17 in-scope artifacts and requires qemu-img; release evidence should run:
 //
-// FARROW_IMAGE_CORPUS=/path/to/image go test ./internal/image -run LocalCorpus
+// BARN_IMAGE_CORPUS=/path/to/image go test ./internal/image -run LocalCorpus
 func TestIntegrationEmbeddedMatchesLocalCorpus(t *testing.T) {
-	root := os.Getenv("FARROW_IMAGE_CORPUS")
+	root := os.Getenv("BARN_IMAGE_CORPUS")
 	if root == "" {
-		t.Skip("FARROW_IMAGE_CORPUS is not set")
+		t.Skip("BARN_IMAGE_CORPUS is not set")
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {

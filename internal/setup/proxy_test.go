@@ -11,7 +11,7 @@ func TestProxyEnvironmentNamesReturnsOnlyConfiguredStandardNames(t *testing.T) {
 	}
 	t.Setenv("HTTP_PROXY", "http://127.0.0.1:8118")
 	t.Setenv("no_proxy", "localhost,127.0.0.1")
-	t.Setenv("FARROW_NOT_A_PROXY", "must-not-cross-sudo")
+	t.Setenv("BARN_NOT_A_PROXY", "must-not-cross-sudo")
 
 	want := []string{"HTTP_PROXY", "no_proxy"}
 	if got := ProxyEnvironmentNames(); !reflect.DeepEqual(got, want) {

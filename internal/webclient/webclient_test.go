@@ -12,10 +12,10 @@ func TestProxyEnvironment(t *testing.T) {
 		name, target, want string
 		env                map[string]string
 	}{
-		{"all", "https://repo.pigsty.io/farrow", "socks5://127.0.0.1:1080", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080"}},
+		{"all", "https://repo.pigsty.io/barn", "socks5://127.0.0.1:1080", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080"}},
 		{"lowercase", "http://example.com", "http://proxy.example:8080", map[string]string{"all_proxy": "http://proxy.example:8080"}},
 		{"scheme wins", "https://example.com", "http://https-proxy:8080", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080", "HTTPS_PROXY": "http://https-proxy:8080"}},
-		{"excluded domain", "https://repo.pigsty.io/farrow", "", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080", "NO_PROXY": "pigsty.io"}},
+		{"excluded domain", "https://repo.pigsty.io/barn", "", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080", "NO_PROXY": "pigsty.io"}},
 		{"excluded network", "https://10.10.10.10", "", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080", "NO_PROXY": "10.0.0.0/8"}},
 		{"localhost", "http://127.0.0.1:8080", "", map[string]string{"ALL_PROXY": "socks5://127.0.0.1:1080"}},
 	} {

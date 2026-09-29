@@ -1,4 +1,4 @@
-// Package image owns Farrow image references, signed catalogs, repository
+// Package image owns Barn image references, signed catalogs, repository
 // authoring, and the verified local image store.
 package image
 

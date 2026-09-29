@@ -1,6 +1,6 @@
 package state
 
-import "github.com/pgsty/farrow/internal/spec"
+import "github.com/pgsty/barn/internal/spec"
 
 func quickResolved(withDataDisk, withDefaultForwards bool) spec.Resolved {
 	node := spec.Node{Name: "meta", Control: true, CPUs: 2, Memory: 4 * spec.GiB, RootDisk: 64 * spec.GiB}

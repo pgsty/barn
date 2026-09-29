@@ -64,7 +64,7 @@ func signedCatalog(t *testing.T, directory string, version uint64, key minisign.
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	signature := minisign.SignWithComments(key, data, "timestamp:1787486400", "farrow test manifest")
+	signature := minisign.SignWithComments(key, data, "timestamp:1787486400", "barn test manifest")
 	if err := os.WriteFile(path+".minisig", signature, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -100,9 +100,9 @@ func TestManifestManagerFailsClosedWithoutProductionRoots(t *testing.T) {
 // TestExportDevelopmentRepository is an opt-in helper for the disposable M0
 // repository. Production catalogs must be signed by separately held keys.
 func TestExportDevelopmentRepository(t *testing.T) {
-	directory := os.Getenv("FARROW_TEST_REPO_OUTPUT")
+	directory := os.Getenv("BARN_TEST_REPO_OUTPUT")
 	if directory == "" {
-		t.Skip("FARROW_TEST_REPO_OUTPUT is not set")
+		t.Skip("BARN_TEST_REPO_OUTPUT is not set")
 	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
@@ -116,12 +116,12 @@ func TestExportDevelopmentRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := privateKey(t, developmentPrivateRoot1)
-	signature := minisign.SignWithComments(key, data, "timestamp:1787702400", "farrow M0 development catalog")
+	signature := minisign.SignWithComments(key, data, "timestamp:1787702400", "barn M0 development catalog")
 	if err := os.WriteFile(path+".minisig", signature, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var sums strings.Builder
-	if os.Getenv("FARROW_TEST_REPO_COMPLETE") == "1" {
+	if os.Getenv("BARN_TEST_REPO_COMPLETE") == "1" {
 		entries := EmbeddedCatalog().Entries()
 		sort.Slice(entries, func(i, j int) bool { return entries[i].File < entries[j].File })
 		for _, entry := range entries {
@@ -150,7 +150,7 @@ func TestExportDevelopmentRepository(t *testing.T) {
 	if err := os.WriteFile(sumsPath, sumsBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sumsSignature := minisign.SignWithComments(key, sumsBytes, "timestamp:1787702400", "farrow M0 development checksums")
+	sumsSignature := minisign.SignWithComments(key, sumsBytes, "timestamp:1787702400", "barn M0 development checksums")
 	if err := os.WriteFile(sumsPath+".minisig", sumsSignature, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +410,7 @@ func TestPriorSignedStateAdvancesAndCanSyncCurrentBaseline(t *testing.T) {
 	if err := os.WriteFile(currentPath, currentData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	currentSignature := minisign.SignWithComments(key, currentData, "timestamp:1787894400", "farrow current baseline")
+	currentSignature := minisign.SignWithComments(key, currentData, "timestamp:1787894400", "barn current baseline")
 	if err := os.WriteFile(currentPath+".minisig", currentSignature, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestSignedRepositoryRefusesUnsignedDowngradeWithoutExplicitOverride(t *test
 		}
 		signaturePath := path + ".minisig"
 		if signed {
-			signature := minisign.SignWithComments(key, data, "timestamp:1787961600", "farrow signed repository fixture")
+			signature := minisign.SignWithComments(key, data, "timestamp:1787961600", "barn signed repository fixture")
 			if err := os.WriteFile(signaturePath, signature, 0o600); err != nil {
 				t.Fatal(err)
 			}

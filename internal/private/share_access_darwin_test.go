@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestDarwinDirectoryAccessPrecedesRestartStop(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
 	persistPrivateShare(t, store, privateShareFixture(t))
 	before, err := store.ReadNode("meta")

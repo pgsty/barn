@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func testStore(t *testing.T) Store {
@@ -26,7 +26,7 @@ func TestDeploymentAndNodeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	deployment := DeploymentState{Schema: DeploymentSchema, FarrowVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: now}
+	deployment := DeploymentState{Schema: DeploymentSchema, BarnVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: now}
 	if err := store.WriteDeployment(deployment); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestDeploymentAndNodeRoundTrip(t *testing.T) {
 		t.Fatalf("deployment round trip: %#v %v", gotDeployment, err)
 	}
 	node := NodeState{
-		Schema: NodeSchema, FarrowVersion: "dev",
+		Schema: NodeSchema, BarnVersion: "dev",
 		Node: "meta", VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: Prepared,
 		Generation: 1, SpecHash: hash,
 		Image:    Image{Alias: "u24", Release: "20260801", Digest: "abc", VirtualSize: 1},
@@ -46,7 +46,7 @@ func TestDeploymentAndNodeRoundTrip(t *testing.T) {
 		}},
 		Seed: filepath.Join(store.Root, "nodes", "meta", "seed.iso"), SSHPort: 2222,
 		Forwards:   []qemu.Forward{{Bind: "127.0.0.1", Host: 2222, Guest: 22}},
-		Runtime:    RuntimePaths{Directory: "/tmp/farrow", QMP: "/tmp/farrow/qmp.sock", PIDFile: "/tmp/farrow/qemu.pid"},
+		Runtime:    RuntimePaths{Directory: "/tmp/barn", QMP: "/tmp/barn/qmp.sock", PIDFile: "/tmp/barn/qemu.pid"},
 		Invocation: qemu.Invocation{Binary: "/opt/qemu", Args: []string{"-S"}},
 		CreatedAt:  now, UpdatedAt: now,
 	}
@@ -69,7 +69,7 @@ func TestDataDiskFilesystemFieldsAreBackwardCompatible(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	node := NodeState{
-		Schema: NodeSchema, FarrowVersion: "dev",
+		Schema: NodeSchema, BarnVersion: "dev",
 		Node: "meta", VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: Prepared,
 		Generation: 1, SpecHash: hash, Image: Image{Alias: "u24", Release: "test", Digest: "abc", VirtualSize: 1},
 		RootDisk: filepath.Join(store.Root, "nodes", "meta", "root.qcow2"),
@@ -79,7 +79,7 @@ func TestDataDiskFilesystemFieldsAreBackwardCompatible(t *testing.T) {
 		}},
 		Seed: filepath.Join(store.Root, "nodes", "meta", "seed.iso"), SSHPort: 2222,
 		Forwards:   []qemu.Forward{{Bind: "127.0.0.1", Host: 2222, Guest: 22}},
-		Runtime:    RuntimePaths{Directory: "/tmp/farrow", QMP: "/tmp/farrow/qmp.sock", PIDFile: "/tmp/farrow/qemu.pid"},
+		Runtime:    RuntimePaths{Directory: "/tmp/barn", QMP: "/tmp/barn/qmp.sock", PIDFile: "/tmp/barn/qemu.pid"},
 		Invocation: qemu.Invocation{Binary: "/opt/qemu", Args: []string{"-S"}}, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := store.WriteNode(node); err != nil {
@@ -113,11 +113,11 @@ func TestDataDiskFilesystemStatePreservesContradictoryEvidence(t *testing.T) {
 	hash, _ := spec.Hash(resolved)
 	now := time.Now().UTC()
 	node := NodeState{
-		Schema: NodeSchema, FarrowVersion: "dev",
+		Schema: NodeSchema, BarnVersion: "dev",
 		Node: "meta", VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: Prepared,
 		Generation: 1, SpecHash: hash, Image: Image{Alias: "u24"}, RootDisk: "/root.qcow2", Seed: "/seed.iso", SSHPort: 2222,
 		DataDisks: []DataDisk{{Name: "data", Path: "/data.qcow2", Serial: "abcdefghijklmnopqrst", Size: spec.GiB, Mount: "/data", RequestedFilesystem: "ext4", ActualFilesystem: "xfs"}},
-		Forwards:  []qemu.Forward{}, Runtime: RuntimePaths{Directory: "/tmp/farrow", QMP: "/tmp/farrow/qmp.sock", PIDFile: "/tmp/farrow/qemu.pid"},
+		Forwards:  []qemu.Forward{}, Runtime: RuntimePaths{Directory: "/tmp/barn", QMP: "/tmp/barn/qmp.sock", PIDFile: "/tmp/barn/qemu.pid"},
 		Invocation: qemu.Invocation{Binary: "/opt/qemu", Args: []string{"-S"}}, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := store.WriteNode(node); err != nil {
@@ -138,7 +138,7 @@ func TestDeploymentForwardRequestEvidenceAndLegacyCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	value := DeploymentState{Schema: DeploymentSchema, FarrowVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Now().UTC()}
+	value := DeploymentState{Schema: DeploymentSchema, BarnVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Now().UTC()}
 	if err := store.WriteDeployment(value); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestStrictStateAndHashValidation(t *testing.T) {
 	store := testStore(t)
 	resolved := quickResolved(true, true)
 	hash, _ := spec.Hash(resolved)
-	value := DeploymentState{Schema: DeploymentSchema, FarrowVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Now().UTC()}
+	value := DeploymentState{Schema: DeploymentSchema, BarnVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Now().UTC()}
 	if err := store.WriteDeployment(value); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestStrictStateAndHashValidation(t *testing.T) {
 		t.Fatal("incorrect spec hash unexpectedly written")
 	}
 	value.SpecHash = hash
-	value.FarrowVersion = ""
+	value.BarnVersion = ""
 	if err := store.WriteDeployment(value); err == nil {
 		t.Fatal("empty state writer version unexpectedly accepted")
 	}
@@ -232,7 +232,7 @@ func TestTransactionRoundTrip(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	now := time.Now().UTC()
-	transaction := Transaction{Schema: TransactionSchema, FarrowVersion: "dev", OperationID: "op-1", Node: "meta", From: Absent, To: Preparing, Completed: []Action{{Name: "reserve-port", Resource: "2222"}}, StartedAt: now, UpdatedAt: now}
+	transaction := Transaction{Schema: TransactionSchema, BarnVersion: "dev", OperationID: "op-1", Node: "meta", From: Absent, To: Preparing, Completed: []Action{{Name: "reserve-port", Resource: "2222"}}, StartedAt: now, UpdatedAt: now}
 	if err := store.WriteTransaction(transaction); err != nil {
 		t.Fatal(err)
 	}
@@ -242,9 +242,9 @@ func TestTransactionRoundTrip(t *testing.T) {
 	}
 }
 
-func TestResolveDataRootRejectsPreSimplificationLayout(t *testing.T) {
+func TestResolveDataRootRejectsUnsupportedLayout(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	resolved, err := ResolveDataRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -255,13 +255,13 @@ func TestResolveDataRootRejectsPreSimplificationLayout(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "projects"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveDataRoot(); err == nil || !strings.Contains(err.Error(), "pre-simplification") {
-		t.Fatalf("pre-simplification layout was accepted: %v", err)
+	if _, err := ResolveDataRoot(); err == nil || !strings.Contains(err.Error(), "unsupported multiple-deployment") {
+		t.Fatalf("unsupported layout was accepted: %v", err)
 	} else if strings.Contains(err.Error(), "rm -rf") || !strings.Contains(err.Error(), "preserve this directory") {
 		t.Fatalf("legacy guidance risks deleting VM disks: %v", err)
 	}
-	t.Setenv("FARROW_HOME", "relative/path")
+	t.Setenv("BARN_HOME", "relative/path")
 	if _, err := ResolveDataRoot(); err == nil {
-		t.Fatal("relative FARROW_HOME was accepted")
+		t.Fatal("relative BARN_HOME was accepted")
 	}
 }

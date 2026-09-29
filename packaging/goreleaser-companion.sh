@@ -61,12 +61,12 @@ resolved_stage=$(cd "${stage}" && pwd -P)
 [[ ${resolved_stage} == "${expected_root}/${goos}_${goarch}" && -O ${resolved_stage} ]] || { printf 'companion target stage is unsafe: %s\n' "${resolved_stage}" >&2; exit 7; }
 stage=${resolved_stage}
 
-helper=${stage}/farrow-hosts-helper
+helper=${stage}/barn-hosts-helper
 (
   cd "${repo}"
   CGO_ENABLED=0 GOOS=${goos} GOARCH=${goarch} GOFLAGS=-mod=readonly \
     go build -trimpath -buildvcs=false -ldflags '-buildid= -s -w' \
-      -o "${helper}" ./cmd/farrow-hosts-helper
+      -o "${helper}" ./cmd/barn-hosts-helper
 )
 if command -v sha256sum >/dev/null 2>&1; then
   helper_sha=$(sha256sum "${helper}" | awk '{print $1}')

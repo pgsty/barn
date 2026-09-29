@@ -15,16 +15,16 @@ require_version() {
 
 check_go() {
   command -v go >/dev/null || { printf 'go is missing\n' >&2; exit 3; }
-  require_version go "$(go env GOVERSION | sed 's/^go//')" "${FARROW_GO_VERSION}"
+  require_version go "$(go env GOVERSION | sed 's/^go//')" "${BARN_GO_VERSION}"
 }
 check_goreleaser() {
   command -v goreleaser >/dev/null || { printf 'goreleaser is missing\n' >&2; exit 3; }
   command -v jq >/dev/null || { printf 'jq is missing\n' >&2; exit 3; }
   local binary embedded_nfpm
   binary=$(command -v goreleaser)
-  require_version goreleaser "$(goreleaser --version | awk '/GitVersion:/ {gsub(/^v/, "", $2); print $2; exit}')" "${FARROW_GORELEASER_VERSION}"
+  require_version goreleaser "$(goreleaser --version | awk '/GitVersion:/ {gsub(/^v/, "", $2); print $2; exit}')" "${BARN_GORELEASER_VERSION}"
   embedded_nfpm=$(go version -m "${binary}" | awk '$1 == "dep" && $2 == "github.com/goreleaser/nfpm/v2" {sub(/^v/, "", $3); print $3; exit}')
-  require_version 'goreleaser embedded nFPM' "${embedded_nfpm}" "${FARROW_GORELEASER_NFPM_VERSION}"
+  require_version 'goreleaser embedded nFPM' "${embedded_nfpm}" "${BARN_GORELEASER_NFPM_VERSION}"
   printf 'jq %s\n' "$(jq --version | sed 's/^jq-//')"
 }
 check_nfpm() {
@@ -42,18 +42,18 @@ check_nfpm() {
   fi
   [[ -n ${version} ]] || {
     printf 'cannot identify the nfpm version of %s; install the pinned one with: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v%s\n' \
-      "${binary}" "${FARROW_NFPM_VERSION}" >&2
+      "${binary}" "${BARN_NFPM_VERSION}" >&2
     exit 3
   }
-  require_version nfpm "${version}" "${FARROW_NFPM_VERSION}"
+  require_version nfpm "${version}" "${BARN_NFPM_VERSION}"
 }
 check_syft() {
   command -v syft >/dev/null || { printf 'syft is missing\n' >&2; exit 3; }
-  require_version syft "$(syft version | awk '/^Version:/ {gsub(/^v/, "", $2); print $2; exit}')" "${FARROW_SYFT_VERSION}"
+  require_version syft "$(syft version | awk '/^Version:/ {gsub(/^v/, "", $2); print $2; exit}')" "${BARN_SYFT_VERSION}"
 }
 check_staticcheck() {
   command -v staticcheck >/dev/null || { printf 'staticcheck is missing\n' >&2; exit 3; }
-  require_version staticcheck "$(staticcheck -version | awk '{print $2; exit}')" "${FARROW_STATICCHECK_VERSION}"
+  require_version staticcheck "$(staticcheck -version | awk '{print $2; exit}')" "${BARN_STATICCHECK_VERSION}"
 }
 check_go_module_tool() {
   local tool=$1 module=$2 expected=$3 install_path=$4 binary version
@@ -64,14 +64,14 @@ check_go_module_tool() {
   require_version "${tool}" "${version}" "${expected}"
 }
 check_deadcode() {
-  check_go_module_tool deadcode golang.org/x/tools "${FARROW_DEADCODE_VERSION}" golang.org/x/tools/cmd/deadcode
+  check_go_module_tool deadcode golang.org/x/tools "${BARN_DEADCODE_VERSION}" golang.org/x/tools/cmd/deadcode
 }
 check_golangci_lint() {
-  check_go_module_tool golangci-lint github.com/golangci/golangci-lint/v2 "${FARROW_GOLANGCI_LINT_VERSION}" github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+  check_go_module_tool golangci-lint github.com/golangci/golangci-lint/v2 "${BARN_GOLANGCI_LINT_VERSION}" github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 }
 check_govulncheck() {
   command -v govulncheck >/dev/null || { printf 'govulncheck is missing\n' >&2; exit 3; }
-  require_version govulncheck "$(govulncheck -version | awk -F'@v' '/^Scanner:/ {print $2; exit}')" "${FARROW_GOVULNCHECK_VERSION}"
+  require_version govulncheck "$(govulncheck -version | awk -F'@v' '/^Scanner:/ {print $2; exit}')" "${BARN_GOVULNCHECK_VERSION}"
 }
 
 case ${mode} in

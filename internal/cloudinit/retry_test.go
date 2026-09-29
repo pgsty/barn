@@ -10,7 +10,7 @@ import (
 func TestRepairUpdatesHelpersWithoutReplacingGuestIdentityOrKeys(t *testing.T) {
 	input := testInput()
 	input.Control = true
-	input.Shares = []Share{{Tag: "farrow-0123456789abcdef0123", Guest: "/shared"}}
+	input.Shares = []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/shared"}}
 	script, err := RetryScript(input)
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +20,7 @@ func TestRepairUpdatesHelpersWithoutReplacingGuestIdentityOrKeys(t *testing.T) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("script syntax: %v %s", err, output)
 	}
-	for _, name := range []string{"farrow-warning", "farrow-init-disks", "farrow-init-shares", "farrow-install-control-ssh", "farrow-ready", "farrow-finalize"} {
+	for _, name := range []string{"barn-warning", "barn-init-disks", "barn-init-shares", "barn-install-control-ssh", "barn-ready", "barn-finalize"} {
 		if !strings.Contains(script, "/usr/local/libexec/"+name) {
 			t.Fatalf("missing helper %s", name)
 		}

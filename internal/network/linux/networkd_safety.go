@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 var networkdConfigurationDirectories = []string{
@@ -113,11 +113,11 @@ func discoverNetworkdLinks(ctx context.Context, runner execx.Runner, sysClassNet
 			}
 		}
 		sort.Strings(alternatives)
-		links = append(links, NetworkdLink{Name: record.Name, AlternativeNames: alternatives, Kind: record.LinkInfo.Kind, Type: linkType, FarrowOwned: record.Name == BridgeName})
+		links = append(links, NetworkdLink{Name: record.Name, AlternativeNames: alternatives, Kind: record.LinkInfo.Kind, Type: linkType, BarnOwned: record.Name == BridgeName})
 		seen[record.Name] = struct{}{}
 	}
 	if _, exists := seen[BridgeName]; !exists {
-		links = append(links, NetworkdLink{Name: BridgeName, Kind: "bridge", Type: "bridge", FarrowOwned: true})
+		links = append(links, NetworkdLink{Name: BridgeName, Kind: "bridge", Type: "bridge", BarnOwned: true})
 	}
 	sort.Slice(links, func(i, j int) bool { return links[i].Name < links[j].Name })
 	return links, nil
@@ -234,7 +234,7 @@ func trustedNetworkdDirectory(directory string) bool {
 		return false
 	}
 	uid, _, _, err := hostStatIdentity(info)
-	return err == nil && uid == 0 && safeRootParents(filepath.Join(directory, ".farrow-safety-probe"))
+	return err == nil && uid == 0 && safeRootParents(filepath.Join(directory, ".barn-safety-probe"))
 }
 
 func readNetworkdFile(pathname string, requireTrusted bool) ([]byte, bool, string) {
@@ -330,7 +330,7 @@ func inspectNetworkdActivation(directories []string, links []NetworkdLink, owned
 			}
 			if digest, owned := ownedDigests[pathname]; owned {
 				if fileDigest(string(data)) != digest {
-					safety.Conflicts = append(safety.Conflicts, NetworkdActivationConflict{Path: pathname, Reason: "Farrow-owned networkd configuration changed"})
+					safety.Conflicts = append(safety.Conflicts, NetworkdActivationConflict{Path: pathname, Reason: "Barn-owned networkd configuration changed"})
 				}
 				continue
 			}
@@ -340,7 +340,7 @@ func inspectNetworkdActivation(directories []string, links []NetworkdLink, owned
 			}
 			if strings.HasSuffix(name, ".netdev") {
 				safety.Configurations = append(safety.Configurations, NetworkdConfiguration{Path: pathname, Kind: "netdev"})
-				safety.Conflicts = append(safety.Conflicts, NetworkdActivationConflict{Path: pathname, Reason: "non-Farrow .netdev may create or change a virtual link"})
+				safety.Conflicts = append(safety.Conflicts, NetworkdActivationConflict{Path: pathname, Reason: "non-Barn .netdev may create or change a virtual link"})
 				continue
 			}
 			configuration := parseNetworkdConfiguration(pathname, data)
@@ -348,8 +348,8 @@ func inspectNetworkdActivation(directories []string, links []NetworkdLink, owned
 			for _, link := range links {
 				if configurationCouldMatch(configuration, link) {
 					reason := "effective .network file is not provably disjoint from the link"
-					if link.FarrowOwned {
-						reason = "unowned .network file could take precedence for the Farrow bridge"
+					if link.BarnOwned {
+						reason = "unowned .network file could take precedence for the Barn bridge"
 					}
 					safety.Conflicts = append(safety.Conflicts, NetworkdActivationConflict{Path: pathname, Link: link.Name, Reason: reason})
 				}

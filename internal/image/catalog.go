@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 const (
@@ -117,7 +117,7 @@ func strictCatalog(data []byte) (Catalog, error) {
 		return Catalog{}, fmt.Errorf("decode image catalog header: %w", err)
 	}
 	if header.Schema != ManifestSchema {
-		return Catalog{}, fmt.Errorf("unsupported image catalog schema %d; this Farrow reads schema %d", header.Schema, ManifestSchema)
+		return Catalog{}, fmt.Errorf("unsupported image catalog schema %d; this Barn reads schema %d", header.Schema, ManifestSchema)
 	}
 	var catalog Catalog
 	if err := strictDecode(data, &catalog); err != nil {

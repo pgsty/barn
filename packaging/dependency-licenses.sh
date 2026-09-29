@@ -63,7 +63,7 @@ for tool in find go install sed sort; do
 done
 # shellcheck disable=SC1091
 source "${repo}/packaging/toolchain.env"
-[[ $(go env GOVERSION) == "go${FARROW_GO_VERSION}" ]] || { printf 'Go toolchain version differs from the license-review pin\n' >&2; exit 1; }
+[[ $(go env GOVERSION) == "go${BARN_GO_VERSION}" ]] || { printf 'Go toolchain version differs from the license-review pin\n' >&2; exit 1; }
 (
   cd "${repo}"
   GOFLAGS=-mod=readonly go mod download

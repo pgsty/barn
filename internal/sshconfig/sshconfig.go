@@ -11,9 +11,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/openssh"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/openssh"
 )
 
 const maxConfigBytes = 1 << 20
@@ -22,7 +22,7 @@ var namePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$`)
 var aliasPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
 
 // ValidName reports whether value is safe as both an SSH Host prefix and the
-// basename of a Farrow-owned SSH configuration fragment.
+// basename of a Barn-owned SSH configuration fragment.
 func ValidName(value string) bool { return namePattern.MatchString(value) }
 
 func safeOpenSSHPath(value string) bool {
@@ -71,8 +71,8 @@ func validateEntry(entry Entry) error {
 type marks struct{ begin, end, include string }
 
 var (
-	linuxMarks = marks{"# farrow:begin", "# farrow:end", "# farrow:include"}
-	macMarks   = marks{"# farrow-mac:begin", "# farrow-mac:end", "# farrow-mac:include"}
+	linuxMarks = marks{"# barn:begin", "# barn:end", "# barn:include"}
+	macMarks   = marks{"# barn-mac:begin", "# barn-mac:end", "# barn-mac:include"}
 )
 
 func render(entries []Entry) (string, error) {
@@ -191,7 +191,7 @@ func readOptionalRegular(pathname string) ([]byte, bool, error) {
 }
 
 // managedElsewhere reports a config that is a symlink or hard link, as dotfile
-// managers create. Farrow never rewrites such a file.
+// managers create. Barn never rewrites such a file.
 func managedElsewhere(pathname string) (bool, error) {
 	info, err := os.Lstat(pathname)
 	if errors.Is(err, os.ErrNotExist) {
@@ -273,7 +273,7 @@ func install(home, name, content string, m marks, owned func([]byte) error) (Res
 		return Result{}, err
 	}
 	if fragmentExists && !markerOwned(existingFragment, m) {
-		return Result{}, errors.New("will not overwrite the SSH fragment: it lacks Farrow's markers")
+		return Result{}, errors.New("will not overwrite the SSH fragment: it lacks Barn's markers")
 	}
 	if fragmentExists && owned != nil {
 		if err := owned(existingFragment); err != nil {
@@ -289,7 +289,7 @@ func install(home, name, content string, m marks, owned func([]byte) error) (Res
 		if err != nil {
 			return Result{}, err
 		}
-		// A dotfile manager owns this config; Farrow only publishes its fragment.
+		// A dotfile manager owns this config; Barn only publishes its fragment.
 		fragmentChanged := !fragmentExists || string(existingFragment) != content
 		if fragmentChanged {
 			if err := fsutil.AtomicWrite(fragment, []byte(content), 0o600); err != nil {
@@ -298,7 +298,7 @@ func install(home, name, content string, m marks, owned func([]byte) error) (Res
 		}
 		result := Result{Fragment: fragment, Config: configPath, Changed: fragmentChanged, Action: "install"}
 		if !includesFragment(configPath, filepath.Base(fragment)) {
-			return result, failure.New(failure.Conflict, fmt.Errorf("%s is a link managed outside Farrow; Farrow will not edit it", configPath)).
+			return result, failure.New(failure.Conflict, fmt.Errorf("%s is a link managed outside Barn; Barn will not edit it", configPath)).
 				Because("ssh_config_linked").Then("add this line near the top of that file: " + includeLine)
 		}
 		return result, nil
@@ -312,10 +312,10 @@ func install(home, name, content string, m marks, owned func([]byte) error) (Res
 	markerCount := strings.Count(configText, m.include)
 	blockCount := strings.Count(configText, block)
 	if markerCount > 1 || blockCount > 1 || markerCount != blockCount {
-		return Result{}, errors.New("will not change ~/.ssh/config: its Farrow Include block is malformed")
+		return Result{}, errors.New("will not change ~/.ssh/config: its Barn Include block is malformed")
 	}
 	if strings.Contains(configText, includeLine) && blockCount == 0 {
-		return Result{}, errors.New("will not adopt an Include of the Farrow fragment that Farrow did not mark")
+		return Result{}, errors.New("will not adopt an Include of the Barn fragment that Barn did not mark")
 	}
 	fragmentChanged := !fragmentExists || string(existingFragment) != content
 	canonicalConfig := installGlobalBlock(configText, block)
@@ -371,7 +371,7 @@ func remove(home, name string, m marks, owned func([]byte) error) (Result, error
 		return Result{}, err
 	}
 	if fragmentExists && !markerOwned(fragmentData, m) {
-		return Result{}, errors.New("will not remove the SSH fragment: it lacks Farrow's markers")
+		return Result{}, errors.New("will not remove the SSH fragment: it lacks Barn's markers")
 	}
 	if fragmentExists && owned != nil {
 		if err := owned(fragmentData); err != nil {
@@ -385,7 +385,7 @@ func remove(home, name string, m marks, owned func([]byte) error) (Result, error
 	changed := false
 	if configExists && strings.Contains(configText, m.include) {
 		if strings.Count(configText, m.include) != 1 || strings.Count(configText, block) != 1 {
-			return Result{}, errors.New("will not change ~/.ssh/config: its Farrow Include block is malformed")
+			return Result{}, errors.New("will not change ~/.ssh/config: its Barn Include block is malformed")
 		}
 		updated := strings.Replace(configText, block, "", 1)
 		if err := fsutil.AtomicWrite(configPath, []byte(updated), 0o600); err != nil {

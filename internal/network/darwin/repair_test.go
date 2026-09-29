@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 type repairRunner struct {
@@ -24,7 +24,7 @@ func (r *repairRunner) Run(_ context.Context, binary string, args ...string) (ex
 	return execx.Result{}, nil
 }
 
-func TestRepairRestartsOnlyTheRecordedFarrowService(t *testing.T) {
+func TestRepairRestartsOnlyTheRecordedBarnService(t *testing.T) {
 	for _, absent := range []bool{false, true} {
 		runner := &repairRunner{absent: absent}
 		if err := (Executor{Root: runner}).restartService(context.Background()); err != nil {

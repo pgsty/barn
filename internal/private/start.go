@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/runtimepath"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/runtimepath"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 // NodeLifecycle starts one guest, undoes a start whose state could not be
@@ -153,7 +153,7 @@ func (l NativeLifecycle) WaitReady(ctx context.Context, node state.NodeState, ti
 	if !updateAll && !slices.Contains(stages, "data-disks") && len(node.DataDisks) != 0 {
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		args := vm.SSHArgsForInstance(l.VM.SSHUser, l.PrivateKey, l.KnownHosts, l.VM.HostKeyAlias, node.SSHPort,
-			"sudo", "-n", "/usr/local/libexec/farrow-init-disks", "--check")
+			"sudo", "-n", "/usr/local/libexec/barn-init-disks", "--check")
 		_, checkErr := l.VM.Runner.Run(checkCtx, l.SSHPath, args...)
 		cancel()
 		if ctx.Err() != nil {
@@ -173,7 +173,7 @@ func (l NativeLifecycle) WaitReady(ctx context.Context, node state.NodeState, ti
 	if control && !updateAll && !slices.Contains(stages, "control-ssh") {
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		args := vm.SSHArgsForInstance(l.VM.SSHUser, l.PrivateKey, l.KnownHosts, l.VM.HostKeyAlias, node.SSHPort,
-			"sudo", "-n", "/usr/local/libexec/farrow-install-control-ssh")
+			"sudo", "-n", "/usr/local/libexec/barn-install-control-ssh")
 		_, checkErr := l.VM.Runner.Run(checkCtx, l.SSHPath, args...)
 		cancel()
 		if ctx.Err() != nil {
@@ -254,7 +254,7 @@ func setupRuntime(path string) error {
 		return err
 	}
 	if len(entries) != 0 {
-		return failure.WithNext(errors.New("the node runtime directory is not empty"), "farrow status, then retry")
+		return failure.WithNext(errors.New("the node runtime directory is not empty"), "barn status, then retry")
 	}
 	return nil
 }
@@ -489,7 +489,7 @@ func startOne(ctx context.Context, config StartConfig, store state.Store, node *
 	if err := store.WriteNode(*node); err != nil {
 		message := fmt.Sprintf("persist running state for %s: %v", node.Node, err)
 		if abortErr := config.Lifecycle.AbortStart(ctx, *node, identityValue); abortErr != nil {
-			message += "; compensation failed: " + abortErr.Error() + "; the QEMU process may still be running; run farrow status"
+			message += "; compensation failed: " + abortErr.Error() + "; the QEMU process may still be running; run barn status"
 		} else {
 			message += "; compensation stopped QEMU and removed its runtime files"
 		}

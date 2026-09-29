@@ -10,7 +10,7 @@ func actionableVirtualizationError(_ error: Error) -> Error {
     // down. Keep all other Apple diagnostics intact.
     for _ in 0..<8 {
         if current.domain == VZErrorDomain, current.code == VZError.Code.virtualMachineLimitExceeded.rawValue {
-            return RunnerError("virtual_machine_limit", "macOS allows two macOS virtual machines at a time, shared with other tools and with macOS restore installation. Stop one before retrying; Farrow has not stopped any other VM.")
+            return RunnerError("virtual_machine_limit", "macOS allows two macOS virtual machines at a time, shared with other tools and with macOS restore installation. Stop one before retrying; Barn has not stopped any other VM.")
         }
         guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
         current = underlying

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/persistent"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func writeDestroyKeyFixtures(t *testing.T, root string) string {
@@ -29,9 +29,9 @@ func writeDestroyKeyFixtures(t *testing.T, root string) string {
 func TestPrivateDestroyRemovesOnlyNodesAndPreservesKeysStateCache(t *testing.T) {
 	startConfig, nodes := preparedStartFixture(t)
 	deploymentValue := startConfig.Deployment
-	t.Setenv("FARROW_HOME", deploymentValue.Root)
+	t.Setenv("BARN_HOME", deploymentValue.Root)
 	keysDir := writeDestroyKeyFixtures(t, deploymentValue.Root)
-	manager := Manager{FarrowVersion: "test"}
+	manager := Manager{BarnVersion: "test"}
 	result, err := manager.Destroy(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -58,9 +58,9 @@ func TestPrivateDestroyRemovesOnlyNodesAndPreservesKeysStateCache(t *testing.T) 
 func TestPrivatePartialRecreateDestroyPreservesPeerState(t *testing.T) {
 	startConfig, _ := preparedStartFixture(t)
 	deploymentValue := startConfig.Deployment
-	t.Setenv("FARROW_HOME", deploymentValue.Root)
+	t.Setenv("BARN_HOME", deploymentValue.Root)
 	writeDestroyKeyFixtures(t, deploymentValue.Root)
-	manager := Manager{FarrowVersion: "test", Nodes: []string{"node-1"}, allowPartialDestroy: true}
+	manager := Manager{BarnVersion: "test", Nodes: []string{"node-1"}, allowPartialDestroy: true}
 	result, err := manager.Destroy(context.Background())
 	if err != nil || len(result.Nodes) != 1 || result.Nodes[0].Name != "node-1" || result.Nodes[0].State != state.Absent {
 		t.Fatalf("partial destroy result=%#v err=%v", result, err)
@@ -80,7 +80,7 @@ func TestPrivatePartialRecreateDestroyPreservesPeerState(t *testing.T) {
 func TestControllerRecreatesOnlyMissingSelectedNode(t *testing.T) {
 	lifecycle := &fakeNodeLifecycle{failStart: map[string]bool{}, failReady: map[string]bool{}}
 	controller := controllerFixture(t, &fakePrivateDisks{}, lifecycle)
-	t.Setenv("FARROW_HOME", controller.Deployment.Root)
+	t.Setenv("BARN_HOME", controller.Deployment.Root)
 	created, err := controller.CreateAndStart(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestControllerRecreatesOnlyMissingSelectedNode(t *testing.T) {
 		}
 	}
 	writeDestroyKeyFixtures(t, controller.Deployment.Root)
-	destroyer := Manager{FarrowVersion: "test", Nodes: []string{"node-1"}, allowPartialDestroy: true}
+	destroyer := Manager{BarnVersion: "test", Nodes: []string{"node-1"}, allowPartialDestroy: true}
 	if _, err := destroyer.Destroy(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func markFixtureDiskPersistent(t *testing.T, deploymentValue state.Store) (state
 func TestPrivateDestroyPreservesAndPrepareReattachesPersistentDisk(t *testing.T) {
 	startConfig, _ := preparedStartFixture(t)
 	deploymentValue := startConfig.Deployment
-	t.Setenv("FARROW_HOME", deploymentValue.Root)
+	t.Setenv("BARN_HOME", deploymentValue.Root)
 	store := state.Store{Root: deploymentValue.Root}
 	deploymentState, originalNode := markFixtureDiskPersistent(t, store)
 	originalData, err := os.ReadFile(originalNode.DataDisks[0].Path)
@@ -149,7 +149,7 @@ func TestPrivateDestroyPreservesAndPrepareReattachesPersistentDisk(t *testing.T)
 		t.Fatal(err)
 	}
 	writeDestroyKeyFixtures(t, deploymentValue.Root)
-	manager := Manager{FarrowVersion: "test"}
+	manager := Manager{BarnVersion: "test"}
 	if _, err := manager.Destroy(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -206,9 +206,9 @@ func TestPrivatePersistentValidationAllowsUncreatedDesiredDisk(t *testing.T) {
 func TestPrivatePersistentDeleteRequiresDestroyedNodes(t *testing.T) {
 	startConfig, _ := preparedStartFixture(t)
 	deploymentValue := startConfig.Deployment
-	t.Setenv("FARROW_HOME", deploymentValue.Root)
+	t.Setenv("BARN_HOME", deploymentValue.Root)
 	_, _ = markFixtureDiskPersistent(t, state.Store{Root: deploymentValue.Root})
-	manager := Manager{FarrowVersion: "test"}
+	manager := Manager{BarnVersion: "test"}
 	if _, err := manager.DeletePersistent(context.Background()); err == nil {
 		t.Fatal("persistent disks were deleted while nodes existed")
 	}

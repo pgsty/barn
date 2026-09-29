@@ -16,7 +16,7 @@ import (
 )
 
 // Guest connections go through Apple's own tools. macOS local network privacy
-// stops third-party processes such as farrow from connecting to directly
+// stops third-party processes such as barn from connecting to directly
 // attached subnets, including a machine's private network, unless the app
 // responsible for them was authorized; the failure surfaces as "no route to
 // host". Apple's platform tools are exempt, so the CLI reaches the guest
@@ -110,7 +110,7 @@ func (c *processConn) failure(cause error) error {
 	return fmt.Errorf("connect to %s: %s", c.address, message[i+len("failed: "):])
 }
 
-func (c *processConn) LocalAddr() net.Addr  { return relayAddr("farrow") }
+func (c *processConn) LocalAddr() net.Addr  { return relayAddr("barn") }
 func (c *processConn) RemoteAddr() net.Addr { return relayAddr(c.address) }
 func (c *processConn) SetDeadline(t time.Time) error {
 	return errors.Join(c.reader.SetReadDeadline(t), c.writer.SetWriteDeadline(t))

@@ -21,7 +21,7 @@ func activationTestLinks() []NetworkdLink {
 	return []NetworkdLink{
 		{Name: "eth0", Type: "ether"},
 		{Name: "lo", Type: "loopback"},
-		{Name: BridgeName, Kind: "bridge", Type: "bridge", FarrowOwned: true},
+		{Name: BridgeName, Kind: "bridge", Type: "bridge", BarnOwned: true},
 	}
 }
 

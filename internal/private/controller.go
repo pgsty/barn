@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 type NodeFailure struct {
@@ -64,9 +64,9 @@ func (e *PartialError) Error() string {
 	}
 	message := fmt.Sprintf("%d of %d node(s) failed: %s", len(e.Failures), e.Total, strings.Join(details, "; "))
 	if len(unready) == 1 {
-		message += fmt.Sprintf("; run `farrow logs %s` for the guest console", unready[0])
+		message += fmt.Sprintf("; run `barn logs %s` for the guest console", unready[0])
 	} else if len(unready) > 1 {
-		message += "; run `farrow logs <node>` for the guest console"
+		message += "; run `barn logs <node>` for the guest console"
 	}
 	if len(e.RolledBack) != 0 {
 		message += "; rolled back prepare artifacts for " + strings.Join(e.RolledBack, ", ")

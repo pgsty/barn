@@ -36,28 +36,28 @@ func TestListFallsBackToEmbeddedCatalogWhenDefaultUnavailable(t *testing.T) {
 }
 
 func TestConfiguredRepositoryPrecedence(t *testing.T) {
-	t.Setenv("FARROW_REPO", "")
+	t.Setenv("BARN_REPO", "")
 	service := Service{}
 	repository, explicit, err := service.configuredRepository()
 	if err != nil || repository != DefaultRepositoryURL || explicit {
 		t.Fatalf("default repository = %q explicit=%v err=%v", repository, explicit, err)
 	}
 
-	t.Setenv("FARROW_REPO", "https://environment.example/farrow")
+	t.Setenv("BARN_REPO", "https://environment.example/barn")
 	repository, explicit, err = service.configuredRepository()
-	if err != nil || repository != "https://environment.example/farrow" || !explicit {
+	if err != nil || repository != "https://environment.example/barn" || !explicit {
 		t.Fatalf("environment repository = %q explicit=%v err=%v", repository, explicit, err)
 	}
 
-	service.Repository = "https://command.example/farrow"
+	service.Repository = "https://command.example/barn"
 	repository, explicit, err = service.configuredRepository()
-	if err != nil || repository != "https://command.example/farrow" || !explicit {
+	if err != nil || repository != "https://command.example/barn" || !explicit {
 		t.Fatalf("command repository = %q explicit=%v err=%v", repository, explicit, err)
 	}
 
 	service.Mirror = true
 	repository, explicit, err = service.configuredRepository()
-	if err != nil || repository != "https://command.example/farrow" || !explicit {
+	if err != nil || repository != "https://command.example/barn" || !explicit {
 		t.Fatalf("command repository with mirror = %q explicit=%v err=%v", repository, explicit, err)
 	}
 
@@ -163,10 +163,10 @@ func TestListIncludesStaleForeignLocalAliasWithoutQEMUImg(t *testing.T) {
 	}
 }
 
-func TestSyncAndResetHonorFARROWREPOStateKey(t *testing.T) {
+func TestSyncAndResetHonorBARNREPOStateKey(t *testing.T) {
 	repository := t.TempDir()
 	dataRoot := t.TempDir()
-	t.Setenv("FARROW_REPO", repository)
+	t.Setenv("BARN_REPO", repository)
 	catalog := EmbeddedCatalog()
 	catalog.Version = 1
 	data, err := json.MarshalIndent(catalog, "", "  ")

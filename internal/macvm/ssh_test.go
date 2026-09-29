@@ -20,16 +20,16 @@ import (
 )
 
 func TestOpenSSHArgsPinTheInstanceNotTheAddress(t *testing.T) {
-	connection := Connection{Name: "dev", User: "farrow", Host: "10.10.30.10", Port: 22, PrivateKey: "/VM Lab/id_ed25519", KnownHosts: "/VM Lab/known_hosts", HostKeyAlias: "farrow-mac-abc"}
+	connection := Connection{Name: "dev", User: "barn", Host: "10.10.30.10", Port: 22, PrivateKey: "/VM Lab/id_ed25519", KnownHosts: "/VM Lab/known_hosts", HostKeyAlias: "barn-mac-abc"}
 	args := connection.OpenSSHArgs(true)
 	joined := strings.Join(args, " ")
 	// OpenSSH splits -o values on whitespace: the path must arrive quoted.
-	for _, want := range []string{"-F /dev/null", "StrictHostKeyChecking=yes", `UserKnownHostsFile="/VM Lab/known_hosts"`, "GlobalKnownHostsFile=/dev/null", "HostKeyAlias=farrow-mac-abc", "IdentitiesOnly=yes", "BatchMode=yes", "ForwardAgent=no", "-t"} {
+	for _, want := range []string{"-F /dev/null", "StrictHostKeyChecking=yes", `UserKnownHostsFile="/VM Lab/known_hosts"`, "GlobalKnownHostsFile=/dev/null", "HostKeyAlias=barn-mac-abc", "IdentitiesOnly=yes", "BatchMode=yes", "ForwardAgent=no", "-t"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in %s", want, joined)
 		}
 	}
-	if args[len(args)-1] != "farrow@10.10.30.10" {
+	if args[len(args)-1] != "barn@10.10.30.10" {
 		t.Fatalf("destination %q", args[len(args)-1])
 	}
 	if slices.Contains(connection.OpenSSHArgs(false), "-t") {
@@ -49,10 +49,10 @@ func TestPinnedHostKeyFollowsTheAlias(t *testing.T) {
 	otherPublic, _, _ := ed25519.GenerateKey(rand.Reader)
 	other, _ := ssh.NewPublicKey(otherPublic)
 	path := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(path, []byte(knownhosts.Line([]string{"farrow-mac-abc"}, key)+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(knownhosts.Line([]string{"barn-mac-abc"}, key)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	verify, err := pinnedHostKey(path, "farrow-mac-abc")
+	verify, err := pinnedHostKey(path, "barn-mac-abc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,29 +67,20 @@ func TestPinnedHostKeyFollowsTheAlias(t *testing.T) {
 	if err := verify("10.10.20.10:22", remote, other); !errors.As(err, &keyErr) {
 		t.Fatalf("a different host key was accepted: %v", err)
 	}
-	if permanentSSHError(&Machine{Name: "dev", User: "farrow"}, verify("x", remote, other)) == nil {
+	if permanentSSHError(&Machine{Name: "dev", User: "barn"}, verify("x", remote, other)) == nil {
 		t.Fatal("a host key mismatch was retried as transient")
 	}
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pinnedHostKey(path, "farrow-mac-abc"); err == nil {
+	if _, err := pinnedHostKey(path, "barn-mac-abc"); err == nil {
 		t.Fatal("an empty pin file was accepted")
 	}
 }
 
-func TestAliasKnownHostsRekeysLegacyPins(t *testing.T) {
-	legacy := "10.10.20.10 ecdsa-sha2-nistp256 AAAAE2VjZHNh\n# comment\n@revoked * ssh-ed25519 AAAA\n"
-	got := aliasKnownHosts(legacy, "farrow-mac-953f3ce8")
-	want := "farrow-mac-953f3ce8 ecdsa-sha2-nistp256 AAAAE2VjZHNh\n# comment\n@revoked * ssh-ed25519 AAAA\n"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
-	}
-}
-
 func TestGuestBootstrapNamesTheMachine(t *testing.T) {
-	script := guestBootstrapScript("farrow", "ssh-ed25519 AAAA test", "dev")
-	for _, want := range []string{"--set ComputerName 'dev'", "--set LocalHostName 'farrow-dev'", "NOPASSWD: ALL", "visudo -cf", "authorized_keys"} {
+	script := guestBootstrapScript("barn", "ssh-ed25519 AAAA test", "dev")
+	for _, want := range []string{"--set ComputerName 'dev'", "--set LocalHostName 'barn-dev'", "NOPASSWD: ALL", "visudo -cf", "authorized_keys"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("bootstrap lacks %q", want)
 		}

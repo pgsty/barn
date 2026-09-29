@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/qemu"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/qemu"
 )
 
 func testRunner() execx.Runner { return execx.OSRunner{Timeout: 10 * time.Second} }
@@ -31,7 +31,7 @@ func waitForProcessArgv(t *testing.T, pid int) {
 
 // liveProcess starts a long-lived child and returns its PID and the invocation
 // a caller would have recorded for it.
-// The argument stands in for the per-node `-uuid` that makes every real Farrow
+// The argument stands in for the per-node `-uuid` that makes every real Barn
 // QEMU command line unique.
 func liveProcess(t *testing.T, seconds string) (int, qemu.Invocation) {
 	t.Helper()
@@ -226,7 +226,7 @@ func TestMatchesLiveRejectsARecycledPID(t *testing.T) {
 	// The number still names a live process, but it is running a different
 	// command line. This is the case that would otherwise get an innocent
 	// process killed, and the argv hash is what rules it out: every real QEMU
-	// command line carries that node's own `-uuid`, so no two Farrow guests —
+	// command line carries that node's own `-uuid`, so no two Barn guests —
 	// and no unrelated program — ever hash the same.
 	other, otherInvocation := liveProcess(t, "122")
 	identity.PID = other

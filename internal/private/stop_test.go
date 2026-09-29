@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 type fakeStopLifecycle struct {
@@ -152,7 +152,7 @@ func TestStopRunningAcceptsAlreadyStoppedPeer(t *testing.T) {
 func TestStatusConvergesInterruptedTransitionAndUnblocksDestroy(t *testing.T) {
 	startConfig, nodes := preparedStartFixture(t)
 	deploymentValue := startConfig.Deployment
-	t.Setenv("FARROW_HOME", deploymentValue.Root)
+	t.Setenv("BARN_HOME", deploymentValue.Root)
 	store := state.Store{Root: deploymentValue.Root}
 	// Simulate a CLI killed mid-stop: the node is stranded in a transitional
 	// phase with no live runtime behind it.
@@ -163,7 +163,7 @@ func TestStatusConvergesInterruptedTransitionAndUnblocksDestroy(t *testing.T) {
 	if err := store.WriteNode(stranded); err != nil {
 		t.Fatal(err)
 	}
-	manager := Manager{FarrowVersion: "test"}
+	manager := Manager{BarnVersion: "test"}
 	status, err := manager.Status(context.Background())
 	if err != nil {
 		t.Fatalf("status over an interrupted transition failed: %v", err)
@@ -178,7 +178,7 @@ func TestStatusConvergesInterruptedTransitionAndUnblocksDestroy(t *testing.T) {
 		t.Fatalf("converged state = %#v err=%v", persisted, err)
 	}
 	writeDestroyKeyFixtures(t, deploymentValue.Root)
-	if _, err := (Manager{FarrowVersion: "test"}).Destroy(context.Background()); err != nil {
+	if _, err := (Manager{BarnVersion: "test"}).Destroy(context.Background()); err != nil {
 		t.Fatalf("destroy after convergence failed: %v", err)
 	}
 }

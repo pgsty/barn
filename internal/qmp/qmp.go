@@ -1,5 +1,5 @@
 // Package qmp implements the minimal short-connection QEMU Machine Protocol
-// client required by Farrow lifecycle and identity checks.
+// client required by Barn lifecycle and identity checks.
 package qmp
 
 import (
@@ -117,7 +117,7 @@ func (c *Client) execute(ctx context.Context, decoder *json.Decoder, encoder *js
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	id := fmt.Sprintf("farrow-%d", c.nextID.Add(1))
+	id := fmt.Sprintf("barn-%d", c.nextID.Add(1))
 	if err := encoder.Encode(request{Execute: command, Arguments: arguments, ID: id}); err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}

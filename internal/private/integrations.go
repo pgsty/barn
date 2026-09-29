@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pgsty/farrow/internal/hostconfig"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/qmp"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/sshconfig"
-	"github.com/pgsty/farrow/internal/sshkeys"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/hostconfig"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qmp"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/sshconfig"
+	"github.com/pgsty/barn/internal/sshkeys"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 func integrationHome(home string) (string, error) {

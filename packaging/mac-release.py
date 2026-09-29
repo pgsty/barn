@@ -20,7 +20,7 @@ import tarfile
 import tempfile
 
 REPO = Path(__file__).resolve().parents[1]
-APP = "bin/Farrow Mac.app"
+APP = "bin/Barn Mac.app"
 MANIFEST = "MACOS.json"
 
 
@@ -62,9 +62,9 @@ def validate(files, version, commit=None):
     identity(version, manifest["commit"])
     if commit is not None and manifest["commit"] != commit:
         raise ValueError("Mac payload does not match the CLI source commit")
-    if os.environ.get("FARROW_MAC_REQUIRE_NOTARIZATION") == "1" and (manifest.get("signing") != "developer_id" or manifest.get("notarized") is not True):
+    if os.environ.get("BARN_MAC_REQUIRE_NOTARIZATION") == "1" and (manifest.get("signing") != "developer_id" or manifest.get("notarized") is not True):
         raise ValueError("formal Mac release requires a Developer ID signed, notarized app")
-    required = {APP + "/Contents/Info.plist", APP + "/Contents/MacOS/farrow-mac-runner", APP + "/Contents/_CodeSignature/CodeResources", "MACOS.md"}
+    required = {APP + "/Contents/Info.plist", APP + "/Contents/MacOS/barn-mac-runner", APP + "/Contents/_CodeSignature/CodeResources", "MACOS.md"}
     declared = manifest["files"]
     if not isinstance(declared, dict):
         raise ValueError("invalid Mac payload inventory")
@@ -74,11 +74,11 @@ def validate(files, version, commit=None):
         if name != "MACOS.md" and not name.startswith(APP + "/Contents/"):
             raise ValueError("Mac payload escapes its app bundle")
         data, mode = files[name]
-        executable = name in required and name.endswith("/farrow-mac-runner")
+        executable = name in required and name.endswith("/barn-mac-runner")
         if mode != (0o755 if executable else 0o644) or expected != {"sha256": hashlib.sha256(data).hexdigest(), "mode": mode}:
             raise ValueError(f"Mac payload content or mode changed: {name}")
     info = plistlib.loads(files[APP + "/Contents/Info.plist"][0])
-    if info.get("FarrowVersion") != version or info.get("FarrowCommit") != manifest["commit"] or info.get("LSMinimumSystemVersion") != "27.0":
+    if info.get("BarnVersion") != version or info.get("BarnCommit") != manifest["commit"] or info.get("LSMinimumSystemVersion") != "27.0":
         raise ValueError("Mac app identity does not match its manifest")
     return manifest
 
@@ -97,11 +97,11 @@ def build(args):
     with tempfile.TemporaryDirectory(prefix=".mac-release-", dir=bin_root) as temporary:
         stage = Path(temporary)
         (stage / "bin").mkdir()
-        env = dict(os.environ, FARROW_VERSION=args.version, FARROW_COMMIT=args.commit)
+        env = dict(os.environ, BARN_VERSION=args.version, BARN_COMMIT=args.commit)
         subprocess.run(["bash", str(REPO / "packaging/build-mac-app.sh"), str(stage / APP)], env=env, check=True)
         shutil.copyfile(REPO / "docs/mac.md", stage / "MACOS.md")
         signature = subprocess.run(["codesign", "-d", "--verbose=4", str(stage / APP)], capture_output=True, text=True, check=True).stderr
-        notarized = bool(env.get("FARROW_NOTARY_PROFILE"))
+        notarized = bool(env.get("BARN_NOTARY_PROFILE"))
         manifest = {"schema": 1, "version": args.version, "commit": args.commit, "target": "darwin/arm64", "signing": "developer_id" if "Authority=Developer ID Application:" in signature else "ad_hoc", "notarized": notarized, "files": {}}
         files = {}
         for path in sorted(stage.rglob("*")):
@@ -139,7 +139,7 @@ def build(args):
 def attach(args):
     identity(args.version, args.commit)
     dist = Path(args.dist).resolve(strict=True)
-    root = f"farrow_{args.version}_darwin_arm64"
+    root = f"barn_{args.version}_darwin_arm64"
     name = root + ".tar.gz"
     payload = members(args.payload)
     validate(payload, args.version, args.commit)
@@ -169,10 +169,10 @@ def attach(args):
 
 def inventory(args):
     files = members(args.archive)
-    root = f"farrow_{args.version}_darwin_arm64/"
+    root = f"barn_{args.version}_darwin_arm64/"
     payload = {name[len(root):]: value for name, value in files.items() if name.startswith(root) and (name[len(root):].startswith(APP + "/") or name[len(root):] in (MANIFEST, "MACOS.md"))}
     if not payload:
-        if os.environ.get("FARROW_MAC_REQUIRE_PAYLOAD") == "1":
+        if os.environ.get("BARN_MAC_REQUIRE_PAYLOAD") == "1":
             raise ValueError("Darwin arm64 release is missing the native Mac payload")
         return
     validate(payload, args.version, args.commit)

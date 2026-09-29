@@ -8,7 +8,7 @@
 # tokens instead, in any order, and say exactly what was seen when one is
 # missing.
 
-farrow_binary_format_tokens() {
+barn_binary_format_tokens() {
   case $1 in
     darwin/amd64) printf 'Mach-O 64-bit x86_64' ;;
     darwin/arm64) printf 'Mach-O 64-bit arm64' ;;
@@ -18,11 +18,11 @@ farrow_binary_format_tokens() {
   esac
 }
 
-farrow_verify_binary_format() {
+barn_verify_binary_format() {
   local binary=$1 target=$2 described tokens token
   # Resolve the expectation first: an unsupported target must fail the caller,
   # not disappear into a subshell that the loop then reads as "nothing to check".
-  tokens=$(farrow_binary_format_tokens "${target}") || return 1
+  tokens=$(barn_binary_format_tokens "${target}") || return 1
   [[ -f ${binary} ]] || { printf 'binary is missing: %s\n' "${binary}" >&2; return 1; }
   described=$(file -b "${binary}")
   for token in ${tokens}; do

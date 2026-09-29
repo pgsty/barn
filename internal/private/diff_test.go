@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func diffFixtureResolved() spec.Resolved {
 	return spec.Resolved{
-		Schema: 1, Name: "farrow", Image: "u24", Network: "private", SSHUser: "dba",
+		Schema: 1, Name: "barn", Image: "u24", Network: "private", SSHUser: "dba",
 		Private: &spec.PrivateNetwork{CIDR: "10.10.10.0/24", HostAddress: "10.10.10.1", DHCPEnd: "10.10.10.8"},
 		Nodes: []spec.Node{
 			{Name: "meta", Control: true, Address: "10.10.10.10", CPUs: 2, Memory: 4 * spec.GiB, RootDisk: 64 * spec.GiB},
@@ -82,7 +82,7 @@ func deploymentStateFor(t *testing.T, resolved spec.Resolved) state.DeploymentSt
 	if err != nil {
 		t.Fatal(err)
 	}
-	return state.DeploymentState{Schema: state.DeploymentSchema, FarrowVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Unix(1, 0).UTC()}
+	return state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Unix(1, 0).UTC()}
 }
 
 func TestEnsureDeploymentStateAcceptsAdditionsRefusesRemovals(t *testing.T) {
@@ -114,7 +114,7 @@ func TestEnsureDeploymentStateAcceptsAdditionsRefusesRemovals(t *testing.T) {
 	resized.Nodes = append(resized.Nodes, added.Nodes[2])
 	resized.Nodes[1].Memory = 8 * spec.GiB
 	nodeState := state.NodeState{
-		Schema: state.NodeSchema, FarrowVersion: "test",
+		Schema: state.NodeSchema, BarnVersion: "test",
 		Node: "node-1", VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped, Generation: 1,
 		SpecHash: "deadbeef", CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
 	}

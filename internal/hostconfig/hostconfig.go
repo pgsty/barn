@@ -19,16 +19,16 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 const (
 	maxHostsBytes       = 1 << 20
 	ActionInstall       = "install"
 	ActionUninstall     = "uninstall"
-	InstalledHelperPath = "/opt/farrow/libexec/farrow-hosts-helper"
+	InstalledHelperPath = "/opt/barn/libexec/barn-hosts-helper"
 )
 
 // ExpectedHelperSHA256 is injected into packaged/main binaries after the
@@ -38,7 +38,7 @@ const (
 var ExpectedHelperSHA256 string
 
 var (
-	markerPattern = regexp.MustCompile(`^# farrow:(begin|end)$`)
+	markerPattern = regexp.MustCompile(`^# barn:(begin|end)$`)
 	hashPattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	hostPattern   = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,251}[A-Za-z0-9])?$`)
 )
@@ -95,7 +95,7 @@ func digest(data []byte) string {
 }
 
 func markers() (string, string) {
-	return "# farrow:begin", "# farrow:end"
+	return "# barn:begin", "# barn:end"
 }
 
 func parseBlocks(data []byte) ([]ownedBlock, error) {
@@ -118,33 +118,33 @@ func parseBlocks(data []byte) ([]ownedBlock, error) {
 			offset = len(data)
 		}
 		line := string(data[lineStart:lineEnd])
-		if !strings.Contains(line, "# farrow:") {
+		if !strings.Contains(line, "# barn:") {
 			continue
 		}
 		match := markerPattern.FindStringSubmatch(line)
 		if match == nil {
-			return nil, fmt.Errorf("malformed or pre-simplification Farrow hosts marker at byte %d; remove the old block manually", lineStart)
+			return nil, fmt.Errorf("malformed or pre-simplification Barn hosts marker at byte %d; remove the old block manually", lineStart)
 		}
 		kind := match[1]
 		if kind == "begin" {
 			if active != nil {
-				return nil, errors.New("nested Farrow hosts marker blocks are unsafe")
+				return nil, errors.New("nested Barn hosts marker blocks are unsafe")
 			}
 			if len(blocks) != 0 {
-				return nil, errors.New("duplicate Farrow hosts block")
+				return nil, errors.New("duplicate Barn hosts block")
 			}
 			active = &ownedBlock{start: lineStart}
 			continue
 		}
 		if active == nil {
-			return nil, errors.New("unmatched Farrow hosts end marker")
+			return nil, errors.New("unmatched Barn hosts end marker")
 		}
 		active.end = offset
 		blocks = append(blocks, *active)
 		active = nil
 	}
 	if active != nil {
-		return nil, errors.New("unterminated Farrow hosts block")
+		return nil, errors.New("unterminated Barn hosts block")
 	}
 	return blocks, nil
 }
@@ -241,7 +241,7 @@ func validateNoHostConflicts(before []byte, entries []Entry) error {
 		for _, name := range entry.Names {
 			for address := range mappings[name] {
 				if address != entry.Address {
-					return failure.New(failure.Conflict, fmt.Errorf("/etc/hosts already maps %s to %s outside the Farrow block", name, address)).Because("hosts_name_taken").Then(fmt.Sprintf("remove or rename the %s %s line in /etc/hosts, then retry", address, name))
+					return failure.New(failure.Conflict, fmt.Errorf("/etc/hosts already maps %s to %s outside the Barn block", name, address)).Because("hosts_name_taken").Then(fmt.Sprintf("remove or rename the %s %s line in /etc/hosts, then retry", address, name))
 				}
 			}
 		}
@@ -256,7 +256,7 @@ func findBlock(blocks []ownedBlock) (ownedBlock, bool) {
 	return blocks[0], true
 }
 
-// ReconcileContent changes only the exact marker-owned farrow block. Bytes
+// ReconcileContent changes only the exact marker-owned barn block. Bytes
 // outside that block are preserved verbatim.
 func ReconcileContent(before []byte, action string, entries []Entry) ([]byte, []string, bool, error) {
 	blocks, err := parseBlocks(before)
@@ -375,7 +375,7 @@ func (e Executor) Execute(ctx context.Context, action string, entries []Entry, a
 	if helperErr != nil {
 		return Report{}, helperErr
 	}
-	staging, err := os.CreateTemp("", "farrow-hosts-stage-")
+	staging, err := os.CreateTemp("", "barn-hosts-stage-")
 	if err != nil {
 		return Report{}, err
 	}
@@ -479,7 +479,7 @@ func RootOwnedHelperDigest(path string) (string, error) {
 // allowed to provision privileged executable bytes.
 func CompanionHelperDigest(path string) (string, error) {
 	if ExpectedHelperSHA256 == "" || !hashPattern.MatchString(ExpectedHelperSHA256) {
-		return "", errors.New("farrow binary has no valid packaged hosts-helper digest")
+		return "", errors.New("barn binary has no valid packaged hosts-helper digest")
 	}
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return "", errors.New("companion hosts helper path must be canonical and absolute")
@@ -537,7 +537,7 @@ func atomicReplace(target string, data []byte, mode os.FileMode, uid, gid int, e
 	if _, err := os.Lstat(target); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(parent, ".farrow-hosts-apply-")
+	temp, err := os.CreateTemp(parent, ".barn-hosts-apply-")
 	if err != nil {
 		return err
 	}

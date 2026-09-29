@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func controllerFixture(t *testing.T, disks DiskOps, lifecycle NodeLifecycle) Controller {

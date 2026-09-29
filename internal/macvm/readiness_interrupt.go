@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 var errReadinessStopped = errors.New("SSH readiness was interrupted by a stop request")

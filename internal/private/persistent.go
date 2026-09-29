@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/identity"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/persistent"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/identity"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func privateFilesystem(value string) string {

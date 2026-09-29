@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 const sshRunnerTestTimeout = 20 * time.Second

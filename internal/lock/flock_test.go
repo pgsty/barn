@@ -94,13 +94,13 @@ func TestTryAcquireReportsBusyAndOwnerUntilRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := held.Record([]byte("farrow up")); err != nil {
+	if err := held.Record([]byte("barn up")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := TryAcquire(path, true); !errors.Is(err, ErrBusy) {
 		t.Fatalf("second holder = %v, want ErrBusy", err)
 	}
-	if owner := string(Owner(path)); owner != "farrow up" {
+	if owner := string(Owner(path)); owner != "barn up" {
 		t.Fatalf("owner = %q", owner)
 	}
 	if err := held.Release(); err != nil {

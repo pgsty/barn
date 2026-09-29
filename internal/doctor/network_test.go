@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	netpreflight "github.com/pgsty/farrow/internal/network/preflight"
-	"github.com/pgsty/farrow/internal/platform"
+	"github.com/pgsty/barn/internal/execx"
+	netpreflight "github.com/pgsty/barn/internal/network/preflight"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 func TestReadableNetworkInstallationIncludesProtectedState(t *testing.T) {

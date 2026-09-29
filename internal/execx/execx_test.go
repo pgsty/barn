@@ -104,8 +104,8 @@ func TestCommandErrorReportsTimeoutAndSignal(t *testing.T) {
 
 func TestCommandErrorNamesProgramRunThroughSudo(t *testing.T) {
 	t.Parallel()
-	err := &CommandError{Binary: "/usr/bin/sudo", Args: []string{"-n", "--", "/opt/farrow/libexec/farrow-hosts-helper", "--target", "/etc/hosts"}, ExitCode: 1, Stderr: "bad target"}
-	if got, want := err.Error(), "farrow-hosts-helper (via sudo) exited with status 1: bad target"; got != want {
+	err := &CommandError{Binary: "/usr/bin/sudo", Args: []string{"-n", "--", "/opt/barn/libexec/barn-hosts-helper", "--target", "/etc/hosts"}, ExitCode: 1, Stderr: "bad target"}
+	if got, want := err.Error(), "barn-hosts-helper (via sudo) exited with status 1: bad target"; got != want {
 		t.Fatalf("message = %q, want %q", got, want)
 	}
 }

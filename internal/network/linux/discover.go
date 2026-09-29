@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 func hostStatIdentity(info os.FileInfo) (uint32, uint32, uint32, error) {
@@ -65,7 +65,7 @@ func parseUnixID(label, value string) (uint32, error) {
 func sudoGroupIdentity(rawUID, rawGID string, account *user.User, rawGroups []string) (groupIdentity, error) {
 	uid, err := parseUnixID("SUDO_UID", rawUID)
 	if err != nil || uid == 0 {
-		return groupIdentity{}, errors.New("debian network install as root requires a non-root SUDO_UID/SUDO_GID; invoke farrow as the target user")
+		return groupIdentity{}, errors.New("debian network install as root requires a non-root SUDO_UID/SUDO_GID; invoke barn as the target user")
 	}
 	gid, err := parseUnixID("SUDO_GID", rawGID)
 	if err != nil {
@@ -330,7 +330,7 @@ func discoverFacts(ctx context.Context, runner, privileged execx.Runner, needAcc
 	if manifest == nil {
 		for _, path := range []string{NetDevPath, NetworkPath, NetworkManagerPath, TmpfilesPath, PublicStatePath, filepath.Dir(StatePath), StatePath, LeaseRoot, LeaseLockPath} {
 			if _, err := os.Lstat(path); err == nil {
-				return Facts{}, fmt.Errorf("will not overwrite %s: it exists and Farrow did not create it", path)
+				return Facts{}, fmt.Errorf("will not overwrite %s: it exists and Barn did not create it", path)
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return Facts{}, err
 			}
@@ -388,7 +388,7 @@ func discoverFacts(ctx context.Context, runner, privileged execx.Runner, needAcc
 	if info, statErr := os.Lstat(PublicStateDir); statErr == nil {
 		uid, _, _, identityErr := hostStatIdentity(info)
 		if identityErr != nil || uid != 0 || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
-			return Facts{}, errors.New("existing /etc/farrow is unsafe")
+			return Facts{}, errors.New("existing /etc/barn is unsafe")
 		}
 		publicDirExists = true
 	} else if !errors.Is(statErr, os.ErrNotExist) {

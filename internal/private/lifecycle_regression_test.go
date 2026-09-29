@@ -10,18 +10,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/image"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/runtimepath"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/runtimepath"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestSelectedRecreateRefusesPeerDriftBeforeDeletingDisks(t *testing.T) {
 	fixture, nodes := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
 	current, err := store.ReadDeployment()
 	if err != nil {
@@ -32,7 +32,7 @@ func TestSelectedRecreateRefusesPeerDriftBeforeDeletingDisks(t *testing.T) {
 		requested.Nodes[i].Memory *= 2
 	}
 	_, err = (Manager{Nodes: []string{"node-1"}}).RecreateResolved(context.Background(), requested)
-	if !errors.Is(err, ErrRecreateRequired) || !strings.Contains(err.Error(), "farrow recreate node-1 meta") {
+	if !errors.Is(err, ErrRecreateRequired) || !strings.Contains(err.Error(), "barn recreate node-1 meta") {
 		t.Fatalf("recreate: %v", err)
 	}
 	for _, node := range nodes {
@@ -47,7 +47,7 @@ func TestSelectedRecreateRefusesPeerDriftBeforeDeletingDisks(t *testing.T) {
 
 func TestDestroyAndStopReadStateOnlyAfterAcquiringLock(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	held, err := acquireDeploymentLock(context.Background(), fixture.Deployment.Root, false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestDestroyAndStopReadStateOnlyAfterAcquiringLock(t *testing.T) {
 
 func TestDestroyPreservesUnrelatedListeningRuntime(t *testing.T) {
 	fixture, nodes := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	writeDestroyKeyFixtures(t, fixture.Deployment.Root)
 	node := nodes[0]
 	if err := runtimepath.Ensure(node.Runtime.Directory, os.Getuid()); err != nil {
@@ -96,7 +96,7 @@ func TestReloadPreflightsBeforeStoppingExistingNodes(t *testing.T) {
 	for _, failure := range []string{"host unavailable", "image unavailable"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture, nodes := preparedStartFixture(t)
-			t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+			t.Setenv("BARN_HOME", fixture.Deployment.Root)
 			store := state.Store{Root: fixture.Deployment.Root}
 			current, err := store.ReadDeployment()
 			if err != nil {
@@ -131,7 +131,7 @@ func TestReloadPreflightsBeforeStoppingExistingNodes(t *testing.T) {
 
 func TestPlanMixedRunningStoppedAndInvalidImage(t *testing.T) {
 	fixture, nodes := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
 	current, err := store.ReadDeployment()
 	if err != nil {

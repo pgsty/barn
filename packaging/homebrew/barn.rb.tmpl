@@ -1,0 +1,75 @@
+# typed: strict
+# frozen_string_literal: true
+
+# Barn installs the unprivileged native QEMU development-VM runtime.
+class Barn < Formula
+  desc "Native Go/QEMU runtime for Pigsty development VMs"
+  homepage "https://barn.pgsty.com"
+  version "@VERSION@"
+  license "Apache-2.0"
+
+  depends_on "qemu"
+
+  on_macos do
+    on_arm do
+      # update: darwin_arm64
+      url "@BASE_URL@/barn_@VERSION@_darwin_arm64.tar.gz"
+      sha256 "@DARWIN_ARM64_SHA@"
+    end
+    on_intel do
+      # update: darwin_amd64
+      url "@BASE_URL@/barn_@VERSION@_darwin_amd64.tar.gz"
+      sha256 "@DARWIN_AMD64_SHA@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      # update: linux_arm64
+      url "@BASE_URL@/barn_@VERSION@_linux_arm64.tar.gz"
+      sha256 "@LINUX_ARM64_SHA@"
+    end
+    on_intel do
+      # update: linux_amd64
+      url "@BASE_URL@/barn_@VERSION@_linux_amd64.tar.gz"
+      sha256 "@LINUX_AMD64_SHA@"
+    end
+  end
+
+  def install
+    bin.install "bin/barn"
+    libexec.install "bin/barn-hosts-helper"
+    if (buildpath/"bin/Barn Mac.app").directory?
+      libexec.install "bin/Barn Mac.app"
+      doc.install "MACOS.md", "MACOS.json"
+    end
+    doc.install "README.md"
+    doc.install "licenses"
+  end
+
+  def caveats
+    text = <<~EOS
+      Start your first VM from a terminal:
+        barn up
+        barn ssh
+
+      Up reuses your inventory or current lab, and creates a one-node
+      barn.yml when neither exists. It prepares the host when needed and
+      asks for administrator access at the privileged step.
+      Use barn init full to customize a four-node lab before starting it.
+      For unattended preparation, run barn setup --yes before barn up.
+    EOS
+    return text unless (libexec/"Barn Mac.app").exist?
+
+    text + <<~EOS
+
+      On Apple Silicon with macOS 27 or later, start a macOS guest with:
+        barn mac up
+        barn mac open
+    EOS
+  end
+
+  test do
+    assert_match "barn #{version}", shell_output("#{bin}/barn version")
+  end
+end

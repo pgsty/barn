@@ -14,17 +14,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 func statusFixture(t *testing.T) (StartConfig, state.Store) {
 	t.Helper()
 	config, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", config.Deployment.Root)
+	t.Setenv("BARN_HOME", config.Deployment.Root)
 	return config, state.Store{Root: config.Deployment.Root}
 }
 
@@ -50,15 +50,15 @@ func TestSelectedStatusConnectionAndStopIgnoreDegradedPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	selected := Manager{FarrowVersion: "test", Nodes: []string{"node-1"}}
+	selected := Manager{BarnVersion: "test", Nodes: []string{"node-1"}}
 	status, err := selected.Status(context.Background())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].Name != "node-1" {
 		t.Fatalf("selected status = %#v, %v", status, err)
 	}
-	if status, err := (Manager{FarrowVersion: "test"}).Status(context.Background()); err == nil || !strings.Contains(err.Error(), "meta") || len(status.Nodes) != 2 || status.Nodes[0].Error == "" || status.Nodes[1].Error != "" {
+	if status, err := (Manager{BarnVersion: "test"}).Status(context.Background()); err == nil || !strings.Contains(err.Error(), "meta") || len(status.Nodes) != 2 || status.Nodes[0].Error == "" || status.Nodes[1].Error != "" {
 		t.Fatalf("whole status = %#v, %v, want both nodes with degraded meta", status, err)
 	}
-	if _, err := (Manager{FarrowVersion: "test"}).Connection(context.Background(), "node-1"); err == nil || !strings.Contains(err.Error(), "node-1 is not running") || strings.Contains(err.Error(), "meta") {
+	if _, err := (Manager{BarnVersion: "test"}).Connection(context.Background(), "node-1"); err == nil || !strings.Contains(err.Error(), "node-1 is not running") || strings.Contains(err.Error(), "meta") {
 		t.Fatalf("selected connection error = %v", err)
 	}
 	if status, err := selected.Stop(context.Background()); err != nil || len(status.Nodes) != 1 || status.Nodes[0].Name != "node-1" {
@@ -71,14 +71,14 @@ func TestStatusReportsDesiredNodeWithoutCommittedStateAsAbsent(t *testing.T) {
 	if err := os.Remove(filepath.Join(config.Deployment.Root, "nodes", "node-1", "state.json")); err != nil {
 		t.Fatal(err)
 	}
-	status, err := (Manager{FarrowVersion: "test"}).Status(context.Background())
+	status, err := (Manager{BarnVersion: "test"}).Status(context.Background())
 	if err != nil || len(status.Nodes) != 2 {
 		t.Fatalf("partial deployment status = %#v, %v", status, err)
 	}
 	if status.Nodes[1].Name != "node-1" || status.Nodes[1].State != state.Absent || status.Nodes[1].Runtime != "absent" || status.Nodes[1].SSHPort != 0 {
 		t.Fatalf("missing desired node status = %#v", status.Nodes[1])
 	}
-	selected, err := (Manager{FarrowVersion: "test", Nodes: []string{"node-1"}}).Status(context.Background())
+	selected, err := (Manager{BarnVersion: "test", Nodes: []string{"node-1"}}).Status(context.Background())
 	if err != nil || len(selected.Nodes) != 1 || selected.Nodes[0].State != state.Absent {
 		t.Fatalf("selected missing node status = %#v, %v", selected, err)
 	}
@@ -89,7 +89,7 @@ func TestDefaultConnectionSkipsMissingControlNode(t *testing.T) {
 	if err := os.Remove(filepath.Join(config.Deployment.Root, "nodes", "meta", "state.json")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := (Manager{FarrowVersion: "test"}).Connection(context.Background(), "")
+	_, err := (Manager{BarnVersion: "test"}).Connection(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "node-1 is not running") || strings.Contains(err.Error(), "meta") {
 		t.Fatalf("default partial connection error = %v", err)
 	}
@@ -153,15 +153,15 @@ func TestStatusMigratesMatchingLegacyIdentityBeforeRuntimeError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := shortRuntimeBase(t, "farrow-legacy-status-")
+	base := shortRuntimeBase(t, "barn-legacy-status-")
 	node.Phase = state.Running
 	node.Invocation = invocation
-	node.Runtime = state.RuntimePaths{Directory: filepath.Join(base, "farrow", node.Node), QMP: filepath.Join(base, "farrow", node.Node, "qmp.sock"), PIDFile: filepath.Join(base, "farrow", node.Node, "qemu.pid")}
+	node.Runtime = state.RuntimePaths{Directory: filepath.Join(base, "barn", node.Node), QMP: filepath.Join(base, "barn", node.Node, "qmp.sock"), PIDFile: filepath.Join(base, "barn", node.Node, "qemu.pid")}
 	node.Process = legacyIdentityForProcess(t, command, invocation)
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
-	_, statusErr := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	_, statusErr := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
 	if statusErr == nil || !strings.Contains(statusErr.Error(), "QMP socket does not answer") {
 		t.Fatalf("status error = %v", statusErr)
 	}
@@ -178,8 +178,8 @@ func TestStatusAdoptsQMPBoundInterruptedStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := shortRuntimeBase(t, "farrow-adopt-status-")
-	directory := filepath.Join(base, "farrow", node.Node)
+	base := shortRuntimeBase(t, "barn-adopt-status-")
+	directory := filepath.Join(base, "barn", node.Node)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestStatusAdoptsQMPBoundInterruptedStart(t *testing.T) {
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
-	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Running || status.Nodes[0].ProcessID != command.Process.Pid || !strings.Contains(status.Message, "adopted interrupted start") {
 		t.Fatalf("adopted status = %#v, %v", status, err)
 	}
@@ -202,7 +202,7 @@ func TestStatusAdoptsQMPBoundInterruptedStart(t *testing.T) {
 	if err != nil || adopted.Phase != state.Running || adopted.Process.PID != command.Process.Pid || process.IsLegacyStart(adopted.Process.Started) {
 		t.Fatalf("adopted state = %#v, %v", adopted, err)
 	}
-	manager := Manager{FarrowVersion: "test"}
+	manager := Manager{BarnVersion: "test"}
 	writeRecoveryKeys(t, store.Root)
 	if _, _, _, err := manager.ensureKeys(context.Background(), Deployment{Root: store.Root}); err != nil {
 		t.Fatal(err)
@@ -222,8 +222,8 @@ func TestStatusCleansDeadInterruptedRuntimeBeforeConvergence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := shortRuntimeBase(t, "farrow-dead-status-")
-	directory := filepath.Join(base, "farrow", node.Node)
+	base := shortRuntimeBase(t, "barn-dead-status-")
+	directory := filepath.Join(base, "barn", node.Node)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestStatusCleansDeadInterruptedRuntimeBeforeConvergence(t *testing.T) {
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
-	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Stopped {
 		t.Fatalf("dead convergence = %#v, %v", status, err)
 	}
@@ -255,8 +255,8 @@ func TestStatusCleansDeadRunningRuntimeBeforeSelfHalt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := shortRuntimeBase(t, "farrow-dead-running-")
-	directory := filepath.Join(base, "farrow", node.Node)
+	base := shortRuntimeBase(t, "barn-dead-running-")
+	directory := filepath.Join(base, "barn", node.Node)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestStatusCleansDeadRunningRuntimeBeforeSelfHalt(t *testing.T) {
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
-	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Stopped {
 		t.Fatalf("running self-halt = %#v, %v", status, err)
 	}
@@ -302,8 +302,8 @@ func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
 		t.Skip("sleep is unavailable")
 	}
 	t.Cleanup(func() { _ = stranger.Process.Kill(); _, _ = stranger.Process.Wait() })
-	base := shortRuntimeBase(t, "farrow-reused-pid-")
-	directory := filepath.Join(base, "farrow", node.Node)
+	base := shortRuntimeBase(t, "barn-reused-pid-")
+	directory := filepath.Join(base, "barn", node.Node)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestStatusConvergesARunningNodeWhosePIDWasReused(t *testing.T) {
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
-	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Stopped {
 		t.Fatalf("reused PID = %#v, %v", status, err)
 	}
@@ -354,8 +354,8 @@ func TestStatusResumesAnInterruptedStopWhoseProcessStillRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := shortRuntimeBase(t, "farrow-interrupted-stop-")
-	directory := filepath.Join(base, "farrow", node.Node)
+	base := shortRuntimeBase(t, "barn-interrupted-stop-")
+	directory := filepath.Join(base, "barn", node.Node)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestStatusResumesAnInterruptedStopWhoseProcessStillRuns(t *testing.T) {
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
-	status, err := (Manager{FarrowVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
 	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Running {
 		t.Fatalf("interrupted stop = %#v, %v", status, err)
 	}

@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/fsutil"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/fsutil"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/sys/unix"
 )
@@ -90,7 +90,7 @@ func EnsureKeys(ctx context.Context, runner execx.Runner, root string) (string, 
 		if lookErr != nil {
 			return "", "", "", lookErr
 		}
-		if _, runErr := runner.Run(ctx, sshKeygen, "-q", "-t", "ed25519", "-N", "", "-C", "farrow", "-f", privateKey); runErr != nil {
+		if _, runErr := runner.Run(ctx, sshKeygen, "-q", "-t", "ed25519", "-N", "", "-C", "barn", "-f", privateKey); runErr != nil {
 			return "", "", "", runErr
 		}
 	} else if err != nil {
@@ -152,7 +152,7 @@ func restorePublicKey(privateKey, publicKey string) error {
 	if err != nil {
 		return fmt.Errorf("cannot restore public SSH key from %s: %w; restore the original valid private key from backup", privateKey, err)
 	}
-	public := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " farrow\n"
+	public := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " barn\n"
 	if err := fsutil.AtomicCreate(publicKey, []byte(public), 0o644); err != nil && !errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("restore public SSH key: %w", err)
 	}

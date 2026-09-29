@@ -1,97 +1,97 @@
-name: farrow
+name: barn
 arch: ${NFPM_ARCH}
 platform: linux
-version: ${FARROW_VERSION}
+version: ${BARN_VERSION}
 release: "1"
 section: utils
 priority: optional
 maintainer: Pigsty <repo@pigsty.cc>
 vendor: Pigsty
-homepage: https://github.com/pgsty/farrow
+homepage: https://github.com/pgsty/barn
 license: Apache-2.0
 description: |-
   Native Go/QEMU runtime for Pigsty development virtual machines.
-  Farrow boots one Pigsty-compatible inventory as one fixed-IP deployment.
+  Barn boots one Pigsty-compatible inventory as one fixed-IP deployment.
 
 overrides:
   deb:
     depends:
-      - ${FARROW_DEB_QEMU}
+      - ${BARN_DEB_QEMU}
       - qemu-utils
-      - ${FARROW_DEB_FIRMWARE}
+      - ${BARN_DEB_FIRMWARE}
       - openssh-client
       - iproute2
   rpm:
     depends:
       - qemu-kvm
       - qemu-img
-      - ${FARROW_RPM_FIRMWARE}
+      - ${BARN_RPM_FIRMWARE}
       - openssh-clients
       - iproute
 
 contents:
-  - dst: /opt/farrow
+  - dst: /opt/barn
     type: dir
     packager: rpm
     file_info:
       owner: root
       group: root
       mode: 0755
-  - dst: /opt/farrow/libexec
+  - dst: /opt/barn/libexec
     type: dir
     packager: rpm
     file_info:
       owner: root
       group: root
       mode: 0755
-  - dst: /usr/share/doc/farrow
+  - dst: /usr/share/doc/barn
     type: dir
     packager: rpm
     file_info:
       owner: root
       group: root
       mode: 0755
-  - dst: /usr/share/doc/farrow/licenses
+  - dst: /usr/share/doc/barn/licenses
     type: dir
     packager: rpm
     file_info:
       owner: root
       group: root
       mode: 0755
-  - src: ${FARROW_PAYLOAD}/usr/bin/farrow
-    dst: /usr/bin/farrow
+  - src: ${BARN_PAYLOAD}/usr/bin/barn
+    dst: /usr/bin/barn
     expand: true
     file_info:
       owner: root
       group: root
       mode: 0755
-  - src: ${FARROW_PAYLOAD}/opt/farrow/libexec/farrow-hosts-helper
-    dst: /opt/farrow/libexec/farrow-hosts-helper
+  - src: ${BARN_PAYLOAD}/opt/barn/libexec/barn-hosts-helper
+    dst: /opt/barn/libexec/barn-hosts-helper
     expand: true
     file_info:
       owner: root
       group: root
       mode: 0755
-  - src: ${FARROW_PAYLOAD}/usr/share/doc/farrow/BUILD_INFO.json
-    dst: /usr/share/doc/farrow/BUILD_INFO.json
+  - src: ${BARN_PAYLOAD}/usr/share/doc/barn/BUILD_INFO.json
+    dst: /usr/share/doc/barn/BUILD_INFO.json
     expand: true
     file_info:
       owner: root
       group: root
       mode: 0644
-  - src: ${FARROW_PAYLOAD}/usr/share/doc/farrow/LICENSE
+  - src: ${BARN_PAYLOAD}/usr/share/doc/barn/LICENSE
     expand: true
-    dst: /usr/share/doc/farrow/LICENSE
-  - src: ${FARROW_PAYLOAD}/usr/share/doc/farrow/README.md
+    dst: /usr/share/doc/barn/LICENSE
+  - src: ${BARN_PAYLOAD}/usr/share/doc/barn/README.md
     expand: true
-    dst: /usr/share/doc/farrow/README.md
-  - src: ${FARROW_PAYLOAD}/usr/share/doc/farrow/licenses/*
+    dst: /usr/share/doc/barn/README.md
+  - src: ${BARN_PAYLOAD}/usr/share/doc/barn/licenses/*
     expand: true
-    dst: /usr/share/doc/farrow/licenses/
+    dst: /usr/share/doc/barn/licenses/
 
 rpm:
   summary: Native Go/QEMU runtime for Pigsty development VMs
 
 deb:
   fields:
-    Bugs: https://github.com/pgsty/farrow/issues
+    Bugs: https://github.com/pgsty/barn/issues

@@ -1,4 +1,4 @@
-// Package subnet defines Farrow's one host-global private IPv4 /24 layout.
+// Package subnet defines Barn's one host-global private IPv4 /24 layout.
 package subnet
 
 import (
@@ -16,10 +16,10 @@ type Layout struct {
 func Parse(cidr string) (Layout, error) {
 	prefix, err := netip.ParsePrefix(cidr)
 	if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 24 || prefix != prefix.Masked() {
-		return Layout{}, fmt.Errorf("the Farrow network must be a canonical IPv4 /24 such as 10.10.10.0/24, got %q", cidr)
+		return Layout{}, fmt.Errorf("the Barn network must be a canonical IPv4 /24 such as 10.10.10.0/24, got %q", cidr)
 	}
 	if !prefix.Addr().IsPrivate() {
-		return Layout{}, fmt.Errorf("the Farrow network must be private (RFC1918: 10/8, 172.16/12, or 192.168/16), got %q", cidr)
+		return Layout{}, fmt.Errorf("the Barn network must be private (RFC1918: 10/8, 172.16/12, or 192.168/16), got %q", cidr)
 	}
 	return Layout{prefix: prefix}, nil
 }
@@ -112,5 +112,5 @@ func (l Layout) Warning() string {
 	if l.IsDefault() {
 		return ""
 	}
-	return fmt.Sprintf("using the non-default Farrow network %s (host %s, DHCP up to %s, nodes %s-%s); the installed network and every node address must use it", l.CIDR(), l.HostAddress(), l.DHCPEnd(), l.StaticStart(), l.StaticEnd())
+	return fmt.Sprintf("using the non-default Barn network %s (host %s, DHCP up to %s, nodes %s-%s); the installed network and every node address must use it", l.CIDR(), l.HostAddress(), l.DHCPEnd(), l.StaticStart(), l.StaticEnd())
 }

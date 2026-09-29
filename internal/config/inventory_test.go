@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func writeTestFile(t *testing.T, directory, name, content string) string {
@@ -525,7 +525,7 @@ func TestDetectFormat(t *testing.T) {
 
 func TestDiscoverRejectsANonInventoryDocument(t *testing.T) {
 	directory := t.TempDir()
-	writeTestFile(t, directory, "farrow.yaml", "version: 1\nname: x\nnetwork: {mode: user}\nnodes: [{name: meta}]\n")
+	writeTestFile(t, directory, "barn.yaml", "version: 1\nname: x\nnetwork: {mode: user}\nnodes: [{name: meta}]\n")
 	_, _, err := Discover(directory, "")
 	if err == nil || !strings.Contains(err.Error(), "unrecognized configuration") {
 		t.Fatalf("Discover error = %v, want an unrecognized-configuration failure", err)
@@ -541,13 +541,13 @@ func TestDiscoverPigstyYML(t *testing.T) {
 	}
 }
 
-func TestDiscoverPrefersFarrowYMLOverPigstyYML(t *testing.T) {
+func TestDiscoverPrefersBarnYMLOverPigstyYML(t *testing.T) {
 	directory := t.TempDir()
 	writeTestFile(t, directory, "pigsty.yml", fullInventory)
-	writeTestFile(t, directory, "farrow.yml", "all:\n  vars: {admin_ip: 10.10.10.10}\n  children:\n    nodes:\n      hosts:\n        10.10.10.10: {nodename: meta}\n")
+	writeTestFile(t, directory, "barn.yml", "all:\n  vars: {admin_ip: 10.10.10.10}\n  children:\n    nodes:\n      hosts:\n        10.10.10.10: {nodename: meta}\n")
 	file, path, err := Discover(directory, "")
-	if err != nil || !strings.HasSuffix(path, "farrow.yml") || len(file.Nodes) != 1 {
-		t.Fatalf("farrow.yml priority: path=%q nodes=%d err=%v", path, len(file.Nodes), err)
+	if err != nil || !strings.HasSuffix(path, "barn.yml") || len(file.Nodes) != 1 {
+		t.Fatalf("barn.yml priority: path=%q nodes=%d err=%v", path, len(file.Nodes), err)
 	}
 }
 

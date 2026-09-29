@@ -532,8 +532,8 @@ def normalize_offline(
     timeouts: Mapping[str, int],
     environment: Mapping[str, str],
 ) -> Dict[str, Any]:
-    remote_script = "/usr/local/sbin/farrow-image-normalize"
-    remote_packages = "/var/tmp/farrow-image-packages" if packages else "-"
+    remote_script = "/usr/local/sbin/barn-image-normalize"
+    remote_packages = "/var/tmp/barn-image-packages" if packages else "-"
     command = f"{remote_script} {source_user} {epoch} {profile} {remote_packages}"
     arguments = [
         str(virt_customize),
@@ -558,7 +558,7 @@ def normalize_offline(
             "--format=qcow2",
             "-a",
             str(image),
-            "/var/lib/farrow-image/normalization.json",
+            "/var/lib/barn-image/normalization.json",
         ),
         timeouts["virt_cat"],
         environment,
@@ -573,7 +573,7 @@ def normalize_offline(
         "locale_en_us": "verified" if profile in ("d12", "d13") else "not-requested",
         "profile": profile,
         "python3": "verified" if profile == "el8" else "not-requested",
-        "recipe": "farrow-official-image-normalization-v1",
+        "recipe": "barn-official-image-normalization-v1",
         "schema": 1,
         "sshd_include": "verified" if profile == "el8" else "upstream",
         "source_date_epoch": epoch,
@@ -644,7 +644,7 @@ def build_manifest(
             else ""
         )
         provenance = (
-            f"Farrow offline normalization recipe v1 profile {args.profile} from {args.source_uri} "
+            f"Barn offline normalization recipe v1 profile {args.profile} from {args.source_uri} "
             f"sha256:{args.expected_sha256}; digest-locked offline package inputs applied where required; "
             f"credential hygiene and dba UID/GID 88 applied;{locale_note} "
             "candidate requires owner hosting, signing, and native smoke"
@@ -718,7 +718,7 @@ def build_sbom(
             "hasFiles": ["SPDXRef-File-QCOW2"],
             "licenseConcluded": "NOASSERTION",
             "licenseDeclared": args.license,
-            "name": f"farrow-{args.name}-{args.release}-{args.arch}",
+            "name": f"barn-{args.name}-{args.release}-{args.arch}",
             "packageFileName": artifact_name,
             "versionInfo": args.release,
         },
@@ -765,10 +765,10 @@ def build_sbom(
         )
     return {
         "SPDXID": "SPDXRef-DOCUMENT",
-        "creationInfo": {"created": created, "creators": [f"Tool: farrow-image-pipeline-{PIPELINE_VERSION}"]},
+        "creationInfo": {"created": created, "creators": [f"Tool: barn-image-pipeline-{PIPELINE_VERSION}"]},
         "dataLicense": "CC0-1.0",
         "documentDescribes": ["SPDXRef-Package-NormalizedImage"],
-        "documentNamespace": f"https://github.com/pgsty/farrow/sbom/image/{output_digest}",
+        "documentNamespace": f"https://github.com/pgsty/barn/sbom/image/{output_digest}",
         "files": [
             {
                 "SPDXID": "SPDXRef-File-QCOW2",
@@ -779,7 +779,7 @@ def build_sbom(
                 "licenseInfoInFiles": ["NOASSERTION"],
             }
         ],
-        "name": f"farrow-image-{args.name}-{args.release}-{args.arch}",
+        "name": f"barn-image-{args.name}-{args.release}-{args.arch}",
         "packages": packages,
         "relationships": relationships,
         "spdxVersion": "SPDX-2.3",
@@ -819,11 +819,11 @@ def build_provenance(
         {"digest": {"sha256": args.expected_sha256}, "uri": args.source_uri},
         {
             "digest": {"sha256": config_digest},
-            "uri": "git+https://github.com/pgsty/farrow@packaging/image-pipeline/recipe-v1.json",
+            "uri": "git+https://github.com/pgsty/barn@packaging/image-pipeline/recipe-v1.json",
         },
         {
             "digest": {"sha256": guest_script_digest},
-            "uri": "git+https://github.com/pgsty/farrow@packaging/image-pipeline/normalize-guest.sh",
+            "uri": "git+https://github.com/pgsty/barn@packaging/image-pipeline/normalize-guest.sh",
         },
     ]
     if package_lock_digest is not None:
@@ -836,7 +836,7 @@ def build_provenance(
         "_type": "https://in-toto.io/Statement/v1",
         "predicate": {
             "buildDefinition": {
-                "buildType": "https://github.com/pgsty/farrow/packaging/image-pipeline/v1",
+                "buildType": "https://github.com/pgsty/barn/packaging/image-pipeline/v1",
                 "externalParameters": parameters,
                 "internalParameters": {
                     "networkDuringMutation": False,
@@ -847,7 +847,7 @@ def build_provenance(
                 "resolvedDependencies": resolved_dependencies,
             },
             "runDetails": {
-                "builder": {"id": "https://github.com/pgsty/farrow/packaging/image-pipeline/pipeline.py"},
+                "builder": {"id": "https://github.com/pgsty/barn/packaging/image-pipeline/pipeline.py"},
                 "metadata": {
                     "finishedOn": timestamp,
                     "invocationId": f"urn:sha256:{invocation_id}",
@@ -964,7 +964,7 @@ def pipeline(args: argparse.Namespace) -> Path:
         environment = tool_environment(temporary, args.source_date_epoch)
         timeouts = config["timeouts_seconds"]
         tools: Dict[str, str] = {
-            "pipeline": f"farrow-image-pipeline {PIPELINE_VERSION}",
+            "pipeline": f"barn-image-pipeline {PIPELINE_VERSION}",
             "qemu_img": tool_version(qemu_img, timeouts["qemu_img"], environment),
         }
         if args.mode == "offline":

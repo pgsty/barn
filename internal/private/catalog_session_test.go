@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/image"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func TestLifecycleCatalogSessionNeverTouchesTheRepository(t *testing.T) {
@@ -23,8 +23,8 @@ func TestLifecycleCatalogSessionNeverTouchesTheRepository(t *testing.T) {
 	defaultRepository := image.DefaultRepositoryURL
 	image.DefaultRepositoryURL = server.URL
 	t.Cleanup(func() { image.DefaultRepositoryURL = defaultRepository })
-	t.Setenv("FARROW_REPO", "")
-	t.Setenv("FARROW_HOME", filepath.Join(t.TempDir(), "farrow-home"))
+	t.Setenv("BARN_REPO", "")
+	t.Setenv("BARN_HOME", filepath.Join(t.TempDir(), "barn-home"))
 
 	manager := Manager{}
 	if err := manager.ensureImageSession(); err != nil {

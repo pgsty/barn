@@ -2,7 +2,7 @@
 """Destructive named-machine acceptance, restricted to an explicitly marked test root.
 
 Never calls mac password or reads SSH private keys. Failures preserve all guest
-state. --plan prints the sequence without executing Farrow or creating files.
+state. --plan prints the sequence without executing Barn or creating files.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ PHASES = [
 ]
 GUI_PHASE = "desktop-and-clipboard"
 SECOND = "dev"
-MARKER = ".farrow-live-acceptance.json"
+MARKER = ".barn-live-acceptance.json"
 BASE_FILES = ["disk.asif", "hardware-model.bin", "auxiliary-storage.bin", "machine-id.bin", "base.json", "metadata.json"]
 
 
@@ -90,13 +90,13 @@ def prepare_test_root(args):
     home = canonical_path(args.home, "--home")
     output = canonical_path(args.output, "--output")
     login_home = Path.home().resolve()
-    require(home not in {Path("/"), Path("/tmp").resolve(), Path("/var").resolve(), login_home, login_home / ".farrow"}, "Refusing a normal user/system data root")
+    require(home not in {Path("/"), Path("/tmp").resolve(), Path("/var").resolve(), login_home, login_home / ".barn"}, "Refusing a normal user/system data root")
     require(len(home.parts) >= 4 and not (home / ".git").exists(), "Choose a dedicated test data directory")
     require(output != home and home not in output.parents and output not in home.parents, "Evidence output and test data root must be separate directories")
     if home.exists():
         info = home.stat()
         require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and info.st_mode & 0o022 == 0, "Test root must be an owned directory without group/world write access")
-        require(all(entry.name == "mac" for entry in home.iterdir()), "Test root contains unrelated data; use a dedicated FARROW_HOME containing only mac/")
+        require(all(entry.name == "mac" for entry in home.iterdir()), "Test root contains unrelated data; use a dedicated BARN_HOME containing only mac/")
     mac = canonical_path(str(home / "mac"), "Mac data directory")
     marker = mac / MARKER
     if marker.exists():
@@ -118,20 +118,20 @@ def prepare_test_root(args):
 class Harness:
     def __init__(self, args):
         self.args = args
-        self.farrow = canonical_path(args.farrow, "--farrow")
-        require(self.farrow.is_file() and os.access(self.farrow, os.X_OK), "--farrow must name an executable regular file")
+        self.barn = canonical_path(args.barn, "--barn")
+        require(self.barn.is_file() and os.access(self.barn, os.X_OK), "--barn must name an executable regular file")
         self.home, self.output = prepare_test_root(args)
         self.mac = self.home / "mac"
         self.env = os.environ.copy()
-        self.env["FARROW_HOME"] = str(self.home)
+        self.env["BARN_HOME"] = str(self.home)
         # Test the selected bundle's runner, not an ambient developer override.
-        self.env.pop("FARROW_MAC_RUNNER", None)
+        self.env.pop("BARN_MAC_RUNNER", None)
         self.run_id = uuid.uuid4().hex
         self.steps = []
         self.current = None
         self.command_number = 0
         self.started = time.monotonic()
-        self.summary = {"schema_version": 2, "run_id": self.run_id, "home": str(self.home), "farrow": str(self.farrow), "started_at": now(), "status": "running", "steps": self.steps,
+        self.summary = {"schema_version": 2, "run_id": self.run_id, "home": str(self.home), "barn": str(self.barn), "started_at": now(), "status": "running", "steps": self.steps,
                         "gui": {"status": "pending" if not args.gui else "automated", "required": ["open a native VM desktop and visually verify login", "close the window and verify the VM/SSH remain running"]}}
         private_json(self.output / "summary.json", self.summary)
 
@@ -224,15 +224,15 @@ class Harness:
 
     def cli(self, *args, expected=0, timeout=240):
         require(args and args[0] != "password", "Acceptance must never request GUI passwords")
-        return self.command([str(self.farrow), "mac", *args, "--json"], expected, timeout, True)
+        return self.command([str(self.barn), "mac", *args, "--json"], expected, timeout, True)
 
     def remote(self, name, argv, expected=0, timeout=90):
-        result = self.command([str(self.farrow), "--json", "mac", "exec", name, "--", *argv], expected, timeout, True)
+        result = self.command([str(self.barn), "--json", "mac", "exec", name, "--", *argv], expected, timeout, True)
         require(isinstance(result, dict) and result.get("node") == name and result.get("exit_code") == expected, "Remote JSON must preserve the machine and exact exit code")
         return result
 
     def remote_shell(self, slot, script, *args, expected=0):
-        return self.remote(slot, ["/bin/sh", "-c", script, "farrow-acceptance", *args], expected)
+        return self.remote(slot, ["/bin/sh", "-c", script, "barn-acceptance", *args], expected)
 
     def listing(self, states=None):
         result = self.cli("ls")
@@ -330,7 +330,7 @@ fi
         with self.step(PHASES[0]) as record:
             result, _ = self.listing()
             record["initial"] = result
-            self.command([str(self.farrow), "version"], timeout=30)
+            self.command([str(self.barn), "version"], timeout=30)
         with self.step(PHASES[1]) as record:
             outcome = self.up("mac1")
             require(outcome["action"] in {"created", "started", "running"} and outcome["ready"], "mac1 up did not reach ready")
@@ -361,7 +361,7 @@ fi
             record["account_policy"] = {name: self.account_policy(name, machines[name]) for name in both}
             auxiliary = {name: self.fingerprint(self.mac / "slots" / name / "auxiliary-storage.bin") for name in both}
             require(auxiliary["mac1"]["inode"] != auxiliary[SECOND]["inode"], "Both VMs share one writable auxiliary-storage file")
-        self.sentinel_path = f"/private/var/tmp/farrow-acceptance-{self.run_id}"
+        self.sentinel_path = f"/private/var/tmp/barn-acceptance-{self.run_id}"
         tokens = {name: f"{self.run_id}:{name}:independent-disk" for name in both}
         with self.step(PHASES[4]):
             for name in both:
@@ -410,7 +410,7 @@ fi
             resources = self.remote(SECOND, ["/usr/sbin/sysctl", "-n", "hw.ncpu", "hw.memsize"])
             require(resources["stdout"].split() == ["3", str(5 << 30)], f"Resources did not apply: {resources['stdout']!r}")
         with self.step(PHASES[11]):
-            refused = self.command([str(self.farrow), "--json", "mac", "up", "build"], expected=6, timeout=self.args.operation_timeout, parse_json=True)
+            refused = self.command([str(self.barn), "--json", "mac", "up", "build"], expected=6, timeout=self.args.operation_timeout, parse_json=True)
             require(refused.get("reason") == "mac_vm_limit", "A third running macOS VM was not refused with mac_vm_limit")
             self.cli("destroy", "build", "--force")
         with self.step(PHASES[12]) as record:
@@ -482,16 +482,16 @@ fi
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--farrow", required=True, help="absolute path to the macOS bundle's farrow executable")
-    parser.add_argument("--home", required=True, help="absolute disposable FARROW_HOME; mac1 is recreated and destroyed")
+    parser.add_argument("--barn", required=True, help="absolute path to the macOS bundle's barn executable")
+    parser.add_argument("--home", required=True, help="absolute disposable BARN_HOME; mac1 is recreated and destroyed")
     parser.add_argument("--output", required=True, help="absolute new/empty directory for structured evidence")
-    parser.add_argument("--allow-test-root", action="store_true", help="explicitly mark this dedicated root for destructive acceptance; never use normal ~/.farrow")
+    parser.add_argument("--allow-test-root", action="store_true", help="explicitly mark this dedicated root for destructive acceptance; never use normal ~/.barn")
     parser.add_argument("--expected-build", default="26A428", help="expected installed macOS 27 build (default: 26A428)")
     parser.add_argument("--operation-timeout", type=int, default=5400, help="up/start/recreate timeout in seconds, including preparation")
     parser.add_argument("--allow-download", action="store_true", help="let up download macOS from Apple when no base is prepared (about 27 GB)")
     parser.add_argument("--gui", action="store_true", help="also open a desktop window and test clipboard sharing; moves focus and restores the host clipboard text")
     parser.add_argument("--stop-survivor", action="store_true", help="leave the surviving machine stopped after success")
-    parser.add_argument("--plan", action="store_true", help="print the sequence without executing Farrow or touching files")
+    parser.add_argument("--plan", action="store_true", help="print the sequence without executing Barn or touching files")
     args = parser.parse_args()
     if args.plan:
         phases = PHASES[:13] + ([GUI_PHASE] if args.gui else []) + PHASES[13:]

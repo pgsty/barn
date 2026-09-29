@@ -18,7 +18,7 @@ var standardProxyEnvironment = []string{
 
 // ProxyEnvironmentNames returns the configured standard proxy variable names
 // without their values. User-level package managers inherit those values from
-// Farrow directly; privileged package managers use the names to ask sudo to
+// Barn directly; privileged package managers use the names to ask sudo to
 // preserve the same narrow set.
 func ProxyEnvironmentNames() []string {
 	names := make([]string, 0, len(standardProxyEnvironment))

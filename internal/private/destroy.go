@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/persistent"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 func ownedRegularWithin(root, path string) error {
@@ -308,7 +308,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		if hashErr != nil {
 			return Status{}, hashErr
 		}
-		updated := state.DeploymentState{Schema: state.DeploymentSchema, FarrowVersion: m.FarrowVersion, SpecHash: remainingHash, Resolved: remaining, UpdatedAt: time.Now().UTC()}
+		updated := state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: m.BarnVersion, SpecHash: remainingHash, Resolved: remaining, UpdatedAt: time.Now().UTC()}
 		if err := store.WriteDeployment(updated); err != nil {
 			return Status{}, err
 		}

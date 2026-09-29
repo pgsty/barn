@@ -13,24 +13,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/diagnostics"
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/image"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/network/portalloc"
-	netpreflight "github.com/pgsty/farrow/internal/network/preflight"
-	"github.com/pgsty/farrow/internal/network/subnet"
-	"github.com/pgsty/farrow/internal/openssh"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/qmp"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/sshkeys"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/diagnostics"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/network/portalloc"
+	netpreflight "github.com/pgsty/barn/internal/network/preflight"
+	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/openssh"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qmp"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/sshkeys"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 type ImageResolver func(context.Context, string, string) (image.Entry, string, image.Metadata, error)
@@ -44,7 +44,7 @@ var ErrRecreateRequired error = failure.New(failure.Conflict, errors.New("recrea
 
 // ErrNodesRemoved reports nodes present in deployment state but absent from the
 // desired configuration. The absence of a node from a configuration never
-// implies destruction; removal is an explicit `farrow destroy <node> --force`.
+// implies destruction; removal is an explicit `barn destroy <node> --force`.
 var ErrNodesRemoved error = failure.New(failure.Conflict, errors.New("inventory no longer lists existing node(s)")).Because("nodes_removed")
 
 // resolvedDiff is the node-granular classification of a desired configuration
@@ -188,7 +188,7 @@ func (e *NetworkPreflightError) Error() string {
 
 type Manager struct {
 	retryGuestSetup     bool
-	FarrowVersion       string
+	BarnVersion         string
 	OperationID         string
 	Runner              execx.Runner
 	ReadyTimeout        time.Duration
@@ -273,9 +273,9 @@ type Status struct {
 // interruptedPhaseError names the command that finishes a transition an
 // interrupted command left behind, once status could not settle it.
 func interruptedPhaseError(node state.NodeState) error {
-	next := "farrow stop " + node.Node
+	next := "barn stop " + node.Node
 	if node.Phase == state.Destroying {
-		next = "farrow destroy " + node.Node
+		next = "barn destroy " + node.Node
 	}
 	return failure.New(failure.Conflict, fmt.Errorf("node %s is still %s after an interrupted command", node.Node, node.Phase)).Because("interrupted_transition").Then(next)
 }
@@ -446,7 +446,7 @@ func committedNodeNames(store state.Store, resolved spec.Resolved, names []strin
 		} else if missingPath(err) && !explicit {
 			continue
 		} else if missingPath(err) {
-			return nil, failure.New(failure.Conflict, fmt.Errorf("node %s has not been created", name)).Then("farrow up " + name)
+			return nil, failure.New(failure.Conflict, fmt.Errorf("node %s has not been created", name)).Then("barn up " + name)
 		} else {
 			return nil, err
 		}
@@ -1027,7 +1027,7 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 				case errors.Is(qmpErr, vm.ErrQMPIdentityMismatch):
 					return fmt.Errorf("node %s has mismatched QMP identity; recreate --force it: %w", node.Node, qmpErr)
 				case processMatches:
-					return failure.WithNext(fmt.Errorf("node %s QEMU is running but its QMP socket does not answer", node.Node), "farrow stop "+node.Node+" (it stops the verified process by signal)")
+					return failure.WithNext(fmt.Errorf("node %s QEMU is running but its QMP socket does not answer", node.Node), "barn stop "+node.Node+" (it stops the verified process by signal)")
 				case node.Runtime.Directory == "" || node.Runtime.QMP == "" || node.Runtime.PIDFile == "":
 					return fmt.Errorf("node %s is recorded running with incomplete runtime identity; recreate is required", node.Node)
 				case !completeProcess(node.Process):
@@ -1035,7 +1035,7 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 				case observeProcess(ctx, m.runner(), node, node.Process.PID) == process.Unknown:
 					// A reused PID (after a reboot, or another exit) is proven
 					// foreign and converges below; only an unreadable one blocks.
-					return fmt.Errorf("node %s recorded PID %d is alive but its identity cannot be read; Farrow will not treat it as stopped", node.Node, node.Process.PID)
+					return fmt.Errorf("node %s recorded PID %d is alive but its identity cannot be read; Barn will not treat it as stopped", node.Node, node.Process.PID)
 				default:
 					// ValidateIdentity alone cannot distinguish a wholly stale QMP
 					// socket from a live endpoint whose name responded but UUID query
@@ -1165,7 +1165,7 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 	return m.statusReadOnly(ctx, deploymentValue)
 }
 
-// statusReadOnly never queues behind another farrow command: while one holds
+// statusReadOnly never queues behind another barn command: while one holds
 // the deployment, it reports the recorded state without converging it.
 func (m Manager) statusReadOnly(ctx context.Context, deploymentValue Deployment) (_ Status, returnErr error) {
 	deploymentLock, holder, err := tryDeploymentLock(deploymentValue.Root, false)
@@ -1362,13 +1362,13 @@ func (m Manager) RecordEvent(ctx context.Context, action, level, message string)
 // explicit recreate/destroy paths instead of acting on them.
 func refuseDrift(diff resolvedDiff) error {
 	if diff.EnvelopeChanged {
-		return failure.WithNext(fmt.Errorf("%w: deployment-level settings changed", ErrRecreateRequired), "farrow plan, then farrow recreate")
+		return failure.WithNext(fmt.Errorf("%w: deployment-level settings changed", ErrRecreateRequired), "barn plan, then barn recreate")
 	}
 	if len(diff.Removed) != 0 {
-		return failure.WithNext(fmt.Errorf("%w: %s; Farrow never destroys a node because it left the inventory", ErrNodesRemoved, strings.Join(diff.Removed, ", ")), "farrow destroy "+strings.Join(diff.Removed, " ")+", or add them back to the inventory")
+		return failure.WithNext(fmt.Errorf("%w: %s; Barn never destroys a node because it left the inventory", ErrNodesRemoved, strings.Join(diff.Removed, ", ")), "barn destroy "+strings.Join(diff.Removed, " ")+", or add them back to the inventory")
 	}
 	if len(diff.Changed) != 0 {
-		return fmt.Errorf("%w: node(s) %s changed; run `farrow plan` to review, then `farrow recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))
+		return fmt.Errorf("%w: node(s) %s changed; run `barn plan` to review, then `barn recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))
 	}
 	return nil
 }
@@ -1386,7 +1386,7 @@ func refuseUnselectedDrift(diff resolvedDiff, selected []string) error {
 	}
 	if len(peers) != 0 {
 		together := append(append([]string(nil), selected...), peers...)
-		return fmt.Errorf("%w: unselected node(s) %s also changed; select them together with `farrow recreate %s`, or revert their changes", ErrRecreateRequired, strings.Join(peers, ", "), strings.Join(together, " "))
+		return fmt.Errorf("%w: unselected node(s) %s also changed; select them together with `barn recreate %s`, or revert their changes", ErrRecreateRequired, strings.Join(peers, ", "), strings.Join(together, " "))
 	}
 	return nil
 }
@@ -1731,7 +1731,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	if len(createNodes) != 0 {
 		startNodes = append([]string(nil), createNodes...)
 	}
-	controller := Controller{Deployment: deploymentValue, Prepare: prepare, Lifecycle: lifecycle, Concurrency: boundedConcurrency(len(resolved.Nodes)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, CreateNodes: createNodes, StartNodes: startNodes, Version: m.FarrowVersion, Progress: m.Progress}
+	controller := Controller{Deployment: deploymentValue, Prepare: prepare, Lifecycle: lifecycle, Concurrency: boundedConcurrency(len(resolved.Nodes)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, CreateNodes: createNodes, StartNodes: startNodes, Version: m.BarnVersion, Progress: m.Progress}
 	createResult, err := controller.CreateAndStart(ctx)
 	if err != nil && m.RollbackFailed {
 		err = rollbackCreateFailure(deploymentValue, createResult, err)
@@ -2157,7 +2157,7 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 
 // notRunningError is a guest command aimed at a node that is not running.
 func notRunningError(node string) error {
-	return failure.New(failure.Conflict, fmt.Errorf("node %s is not running", node)).Because("node_not_running").Then("farrow start " + node)
+	return failure.New(failure.Conflict, fmt.Errorf("node %s is not running", node)).Because("node_not_running").Then("barn start " + node)
 }
 
 // UnknownNodeError names the nodes that do exist so the user can pick one.

@@ -36,7 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 SYFT_CHECK_FOR_APP_UPDATE=false syft scan "${artifact}" --output "spdx-json=${raw}" --enrich all >/dev/null
-jq --arg namespace "https://github.com/pgsty/farrow/sbom/${artifact}/${artifact_sha}" \
+jq --arg namespace "https://github.com/pgsty/barn/sbom/${artifact}/${artifact_sha}" \
   --arg created "${created}" \
   '.documentNamespace = $namespace | .creationInfo.created = $created' \
   "${raw}" >"${normalized}"

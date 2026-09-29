@@ -8,7 +8,7 @@ import (
 
 func TestCompanionHelperDigestRequiresInjectedPair(t *testing.T) {
 	directory := t.TempDir()
-	helper := filepath.Join(directory, "farrow-hosts-helper")
+	helper := filepath.Join(directory, "barn-hosts-helper")
 	data := []byte("companion helper fixture")
 	if err := os.WriteFile(helper, data, 0o755); err != nil {
 		t.Fatal(err)

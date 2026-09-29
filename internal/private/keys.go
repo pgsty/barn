@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/persistent"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/sshkeys"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/sshkeys"
+	"github.com/pgsty/barn/internal/state"
 )
 
 type KeyPurgeAction = sshkeys.PurgeAction

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/state"
 )
 
 // Deployment locates the single global deployment. Its root IS the data root:
@@ -51,13 +51,13 @@ func deploymentLockPath(root string) string { return filepath.Join(root, "locks"
 // deploymentLockWait bounds how long a command queues behind another one.
 var deploymentLockWait = 10 * time.Minute
 
-// acquireDeploymentLock serializes every mutating farrow invocation on the
+// acquireDeploymentLock serializes every mutating barn invocation on the
 // one global deployment. flock releases automatically on process exit.
 func acquireDeploymentLock(ctx context.Context, root string, shared bool, progress activity.Reporter) (*lock.File, error) {
 	return waitForLock(ctx, deploymentLockPath(root), shared, progress)
 }
 
-// waitForLock takes a Farrow lock. While another command holds it, progress
+// waitForLock takes a Barn lock. While another command holds it, progress
 // names that command; after deploymentLockWait the wait ends in a conflict.
 // An exclusive holder records itself for the next waiter.
 func waitForLock(ctx context.Context, path string, shared bool, progress activity.Reporter) (*lock.File, error) {
@@ -66,12 +66,12 @@ func waitForLock(ctx context.Context, path string, shared bool, progress activit
 	}
 	held, err := lock.TryAcquire(path, shared)
 	if errors.Is(err, lock.ErrBusy) {
-		progress.Report(activity.Event{Phase: "lock", Message: "Waiting for another farrow command: " + lockHolder(path)})
+		progress.Report(activity.Event{Phase: "lock", Message: "Waiting for another barn command: " + lockHolder(path)})
 		waitCtx, cancel := context.WithTimeout(ctx, deploymentLockWait)
 		defer cancel()
 		held, err = lock.Acquire(waitCtx, path, shared)
 		if err != nil && errors.Is(err, context.DeadlineExceeded) && !errors.Is(ctx.Err(), context.Canceled) {
-			return nil, failure.New(failure.Conflict, fmt.Errorf("another farrow command still holds the deployment: %s", lockHolder(path))).Because("deployment_busy").Then("retry when it finishes")
+			return nil, failure.New(failure.Conflict, fmt.Errorf("another barn command still holds the deployment: %s", lockHolder(path))).Because("deployment_busy").Then("retry when it finishes")
 		}
 	}
 	if err != nil {
@@ -121,12 +121,12 @@ func currentHolder() []byte {
 }
 
 // lockHolder describes the command holding path, e.g.
-// "farrow up (pid 4821, since 14:02:31)". A start time stays true however
+// "barn up (pid 4821, since 14:02:31)". A start time stays true however
 // long the message is displayed; an elapsed time would not.
 func lockHolder(path string) string {
 	var holder holderRecord
 	if err := json.Unmarshal(lock.Owner(path), &holder); err != nil || holder.PID <= 0 || holder.Command == "" {
-		return "another farrow command"
+		return "another barn command"
 	}
 	return fmt.Sprintf("%s (pid %d, since %s)", holder.Command, holder.PID, holder.Started.Local().Format("15:04:05"))
 }

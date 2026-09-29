@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/barn/internal/activity"
 )
 
 func TestSocketVMNetDownloadRecovery(t *testing.T) {

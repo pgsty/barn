@@ -6,19 +6,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/persistent"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestDestroyAfterRemovingPersistentNodePreservesRetainedDisk(t *testing.T) {
 	for _, unsafe := range []bool{false, true} {
 		t.Run(map[bool]string{false: "owned", true: "unexpected artifact"}[unsafe], func(t *testing.T) {
 			fixture, _ := preparedStartFixture(t)
-			t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+			t.Setenv("BARN_HOME", fixture.Deployment.Root)
 			store := state.Store{Root: fixture.Deployment.Root}
 			_, meta := markFixtureDiskPersistent(t, store)
 			writeDestroyKeyFixtures(t, fixture.Deployment.Root)
-			if _, err := (Manager{FarrowVersion: "test", Nodes: []string{meta.Node}}).DestroyNodes(context.Background()); err != nil {
+			if _, err := (Manager{BarnVersion: "test", Nodes: []string{meta.Node}}).DestroyNodes(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 			records, err := persistent.Inventory(fixture.Deployment.Root)
@@ -34,7 +34,7 @@ func TestDestroyAfterRemovingPersistentNodePreservesRetainedDisk(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			manager := Manager{FarrowVersion: "test"}
+			manager := Manager{BarnVersion: "test"}
 			_, err = manager.Destroy(context.Background())
 			if unsafe && err == nil || !unsafe && err != nil {
 				t.Fatalf("destroy with retained disk: %v", err)

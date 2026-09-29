@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/lock"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -114,7 +114,7 @@ func (m *Manager) inspectRuntime(ctx context.Context, view *MachineView, probeSS
 		if _, statErr := os.Stat(path); statErr == nil {
 			op, lockErr := lock.TryAcquire(path, false)
 			if lockErr != nil {
-				view.State, view.Error = "unknown", "another farrow mac command is changing this machine"
+				view.State, view.Error = "unknown", "another barn mac command is changing this machine"
 				return
 			}
 			defer func() {

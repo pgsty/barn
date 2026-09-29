@@ -35,25 +35,25 @@ is_semver() {
   [[ ${core} =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 }
 
-repository=${FARROW_RELEASE_REPOSITORY:-pgsty/farrow}
+repository=${BARN_RELEASE_REPOSITORY:-pgsty/barn}
 home_directory=$(cd "${HOME:?HOME is required}" && pwd -P)
-install_directory=${FARROW_INSTALL_DIR:-${home_directory}/.local/bin}
-version=${FARROW_VERSION:-}
-install_keep=${FARROW_INSTALL_KEEP:-3}
+install_directory=${BARN_INSTALL_DIR:-${home_directory}/.local/bin}
+version=${BARN_VERSION:-}
+install_keep=${BARN_INSTALL_KEEP:-3}
 if [[ ! ${install_keep} =~ ^[0-9]+$ || ${#install_keep} -gt 9 ]]; then
-  printf 'FARROW_INSTALL_KEEP must be a non-negative integer of at most nine digits\n' >&2
+  printf 'BARN_INSTALL_KEEP must be a non-negative integer of at most nine digits\n' >&2
   exit 2
 fi
 install_keep=$((10#${install_keep}))
 case /${install_directory}/ in
   */../*|*/./*)
-  printf 'FARROW_INSTALL_DIR must not contain dot path segments\n' >&2
+  printf 'BARN_INSTALL_DIR must not contain dot path segments\n' >&2
   exit 2
   ;;
 esac
 case ${install_directory} in
   "${home_directory}"/*) ;;
-  *) printf 'FARROW_INSTALL_DIR must be an absolute directory inside HOME\n' >&2; exit 2 ;;
+  *) printf 'BARN_INSTALL_DIR must be an absolute directory inside HOME\n' >&2; exit 2 ;;
 esac
 
 # Validate the nearest existing ancestor before creating anything. This keeps a
@@ -81,12 +81,12 @@ esac
 case $(uname -s) in
   Darwin) goos=darwin ;;
   Linux) goos=linux ;;
-  *) printf 'Farrow supports native macOS and Linux only\n' >&2; exit 3 ;;
+  *) printf 'Barn supports native macOS and Linux only\n' >&2; exit 3 ;;
 esac
 case $(uname -m) in
   x86_64|amd64) goarch=amd64 ;;
   arm64|aarch64) goarch=arm64 ;;
-  *) printf 'Farrow supports amd64 and arm64 only\n' >&2; exit 3 ;;
+  *) printf 'Barn supports amd64 and arm64 only\n' >&2; exit 3 ;;
 esac
 # A shell under Rosetta reports x86_64 on Apple Silicon; install the native build.
 if [[ ${goos} == darwin && ${goarch} == amd64 && $(/usr/sbin/sysctl -in hw.optional.arm64 2>/dev/null) == 1 ]]; then
@@ -215,10 +215,10 @@ if [[ -z ${version} ]]; then
     # stable release exists yet (or it is rate-limiting). Anything else never
     # reached GitHub.
     if [[ ${curl_status} -eq 22 ]]; then
-      printf 'GitHub returned an HTTP error for https://github.com/%s/releases/latest: no stable release is published yet, or GitHub is rate-limiting; set FARROW_VERSION explicitly (pre-releases always need it)\n' "${repository}" >&2
+      printf 'GitHub returned an HTTP error for https://github.com/%s/releases/latest: no stable release is published yet, or GitHub is rate-limiting; set BARN_VERSION explicitly (pre-releases always need it)\n' "${repository}" >&2
       exit 2
     fi
-    printf 'cannot reach github.com to find the latest Farrow release (curl exit %s); check the network or proxy settings, or set FARROW_VERSION\n' "${curl_status}" >&2
+    printf 'cannot reach github.com to find the latest Barn release (curl exit %s); check the network or proxy settings, or set BARN_VERSION\n' "${curl_status}" >&2
     exit 1
   fi
   tag=${latest##*/}
@@ -226,17 +226,17 @@ if [[ -z ${version} ]]; then
 fi
 if ! is_semver "${version}"; then
   if [[ ${resolved_latest} == true ]]; then
-    printf 'no stable Farrow release is published at https://github.com/%s/releases/latest (pre-1.0 versions are GitHub pre-releases); set FARROW_VERSION explicitly to the pre-release version you want\n' "${repository}" >&2
+    printf 'no stable Barn release is published at https://github.com/%s/releases/latest (pre-1.0 versions are GitHub pre-releases); set BARN_VERSION explicitly to the pre-release version you want\n' "${repository}" >&2
   else
-    printf 'cannot resolve a valid Farrow release version: %s\n' "${version}" >&2
+    printf 'cannot resolve a valid Barn release version: %s\n' "${version}" >&2
   fi
   exit 2
 fi
 
-asset=farrow_${version}_${goos}_${goarch}.tar.gz
+asset=barn_${version}_${goos}_${goarch}.tar.gz
 base=https://github.com/${repository}/releases/download/v${version}
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
-temporary=$(mktemp -d "${temporary_parent}/farrow-install.XXXXXX")
+temporary=$(mktemp -d "${temporary_parent}/barn-install.XXXXXX")
 temporary=$(cd "${temporary}" && pwd -P)
 release_stage=
 link_stage=
@@ -244,18 +244,18 @@ install_lock=
 created_entry_points=()
 cleanup() {
   case ${temporary} in
-    "${temporary_parent}"/farrow-install.*) rm -rf -- "${temporary}" ;;
+    "${temporary_parent}"/barn-install.*) rm -rf -- "${temporary}" ;;
     *) printf 'refuse unsafe installer cleanup: %s\n' "${temporary}" >&2 ;;
   esac
   if [[ -n ${release_stage} ]]; then
     case ${release_stage} in
-      "${install_directory}"/.farrow-release.next.*) rm -rf -- "${release_stage}" ;;
+      "${install_directory}"/.barn-release.next.*) rm -rf -- "${release_stage}" ;;
       *) printf 'refuse unsafe release staging cleanup: %s\n' "${release_stage}" >&2 ;;
     esac
   fi
   if [[ -n ${link_stage} ]]; then
     case ${link_stage} in
-      "${install_directory}"/.farrow-links.next.*) rm -rf -- "${link_stage}" ;;
+      "${install_directory}"/.barn-links.next.*) rm -rf -- "${link_stage}" ;;
       *) printf 'refuse unsafe link staging cleanup: %s\n' "${link_stage}" >&2 ;;
     esac
   fi
@@ -263,7 +263,7 @@ cleanup() {
   # +guard keeps the EXIT trap safe on stock macOS and on early failures.
   for target in ${created_entry_points[@]+"${created_entry_points[@]}"}; do
     name=${target##*/}
-    if [[ -L ${target} && $(readlink "${target}") == ".farrow-current/${name}" ]]; then
+    if [[ -L ${target} && $(readlink "${target}") == ".barn-current/${name}" ]]; then
       rm -f -- "${target}"
     fi
   done
@@ -273,7 +273,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-printf 'Downloading Farrow %s for %s/%s...\n' "${version}" "${goos}" "${goarch}"
+printf 'Downloading Barn %s for %s/%s...\n' "${version}" "${goos}" "${goarch}"
 curl -fsSLo "${temporary}/${asset}" "${base}/${asset}"
 curl -fsSLo "${temporary}/checksums.txt" "${base}/checksums.txt"
 expected=$(awk -v asset="${asset}" '$2 == asset {print $1}' "${temporary}/checksums.txt")
@@ -281,7 +281,7 @@ expected=$(awk -v asset="${asset}" '$2 == asset {print $1}' "${temporary}/checks
 actual=$(sha256_file "${temporary}/${asset}")
 [[ ${actual} == "${expected}" ]] || { printf 'release archive checksum mismatch\n' >&2; exit 7; }
 
-root=farrow_${version}_${goos}_${goarch}
+root=barn_${version}_${goos}_${goarch}
 while IFS= read -r member; do
   normalized=${member#./}
   case ${normalized} in
@@ -295,14 +295,14 @@ if ! tar -tvzf "${temporary}/${asset}" | awk 'substr($1,1,1) != "-" && substr($1
   exit 7
 fi
 tar -xzf "${temporary}/${asset}" -C "${temporary}"
-for source in bin/farrow bin/farrow-hosts-helper; do
+for source in bin/barn bin/barn-hosts-helper; do
   [[ -f ${temporary}/${root}/${source} && ! -L ${temporary}/${root}/${source} ]] || {
     printf 'release archive is missing %s\n' "${source}" >&2
     exit 7
   }
 done
 
-mac_app="${temporary}/${root}/bin/Farrow Mac.app"
+mac_app="${temporary}/${root}/bin/Barn Mac.app"
 has_mac_app=false
 if [[ -e ${mac_app} || -e ${temporary}/${root}/MACOS.json ]]; then
   [[ ${goos} == darwin && ${goarch} == arm64 && -d ${mac_app} && -f ${temporary}/${root}/MACOS.json && -f ${temporary}/${root}/MACOS.md ]] || {
@@ -314,14 +314,14 @@ fi
 
 verify_mac_app() {
   local destination=$1
-  [[ -d ${destination}/Farrow\ Mac.app && ! -L ${destination}/Farrow\ Mac.app ]] || return 1
-  /usr/bin/diff -qr "${mac_app}" "${destination}/Farrow Mac.app" >/dev/null || return 1
-  for name in farrow-mac-runner; do
-    [[ -x ${destination}/Farrow\ Mac.app/Contents/MacOS/${name} ]] || return 1
+  [[ -d ${destination}/Barn\ Mac.app && ! -L ${destination}/Barn\ Mac.app ]] || return 1
+  /usr/bin/diff -qr "${mac_app}" "${destination}/Barn Mac.app" >/dev/null || return 1
+  for name in barn-mac-runner; do
+    [[ -x ${destination}/Barn\ Mac.app/Contents/MacOS/${name} ]] || return 1
   done
   cmp -s "${temporary}/${root}/MACOS.json" "${destination}/MACOS.json" || return 1
   cmp -s "${temporary}/${root}/MACOS.md" "${destination}/MACOS.md" || return 1
-  /usr/bin/codesign --verify --deep --strict "${destination}/Farrow Mac.app"
+  /usr/bin/codesign --verify --deep --strict "${destination}/Barn Mac.app"
 }
 
 if [[ -L ${install_directory} || (-e ${install_directory} && ! -d ${install_directory}) ]]; then
@@ -343,13 +343,13 @@ esac
 [[ -O ${install_directory} ]] || { printf 'installation target is not owned by the current user: %s\n' "${install_directory}" >&2; exit 7; }
 secure_path_to_home "${install_directory}" || exit 7
 
-lock_path=${install_directory}/.farrow-install.lock
+lock_path=${install_directory}/.barn-install.lock
 if ! mkdir -m 0700 "${lock_path}"; then
-  printf 'another Farrow installer is active, or a stale lock remains: %s\nif no installer is running, remove it with: rmdir %s\n' "${lock_path}" "${lock_path}" >&2
+  printf 'another Barn installer is active, or a stale lock remains: %s\nif no installer is running, remove it with: rmdir %s\n' "${lock_path}" "${lock_path}" >&2
   exit 4
 fi
 install_lock=${lock_path}
-releases=${install_directory}/.farrow-releases
+releases=${install_directory}/.barn-releases
 if [[ -L ${releases} || (-e ${releases} && ! -d ${releases}) ]]; then
   printf 'versioned installation root is unsafe: %s\n' "${releases}" >&2
   exit 7
@@ -362,23 +362,23 @@ if [[ -L ${releases} || ! -d ${releases} ]]; then
   exit 7
 fi
 resolved_releases=$(cd "${releases}" && pwd -P)
-[[ ${resolved_releases} == "${install_directory}/.farrow-releases" && -O ${resolved_releases} ]] || {
+[[ ${resolved_releases} == "${install_directory}/.barn-releases" && -O ${resolved_releases} ]] || {
   printf 'versioned installation root resolves outside the owned install directory: %s\n' "${resolved_releases}" >&2
   exit 7
 }
 chmod 0700 "${resolved_releases}"
 releases=${resolved_releases}
 
-for name in farrow farrow-hosts-helper; do
+for name in barn barn-hosts-helper; do
   target=${install_directory}/${name}
   if [[ -e ${target} || -L ${target} ]]; then
-    if [[ ! -L ${target} || $(readlink "${target}") != ".farrow-current/${name}" ]]; then
+    if [[ ! -L ${target} || $(readlink "${target}") != ".barn-current/${name}" ]]; then
       printf 'refuse to replace an unmanaged entry point: %s\n' "${target}" >&2
       exit 7
     fi
   fi
 done
-current=${install_directory}/.farrow-current
+current=${install_directory}/.barn-current
 if [[ -e ${current} && ! -L ${current} ]]; then
   printf 'current release pointer is not a symlink: %s\n' "${current}" >&2
   exit 7
@@ -392,7 +392,7 @@ if [[ -e ${release_root} || -L ${release_root} ]]; then
     exit 7
   fi
   chmod 0700 "${release_root}"
-  for name in farrow farrow-hosts-helper; do
+  for name in barn barn-hosts-helper; do
     if [[ ! -f ${release_root}/${name} || -L ${release_root}/${name} || ! -O ${release_root}/${name} ]] || ! cmp -s "${temporary}/${root}/bin/${name}" "${release_root}/${name}"; then
       printf 'existing versioned release differs from verified archive: %s\n' "${release_root}" >&2
       exit 7
@@ -403,9 +403,9 @@ if [[ -e ${release_root} || -L ${release_root} ]]; then
     printf 'existing native Mac installation differs from the verified archive\n' >&2; exit 7
   fi
 else
-  release_stage=$(mktemp -d "${install_directory}/.farrow-release.next.XXXXXX")
+  release_stage=$(mktemp -d "${install_directory}/.barn-release.next.XXXXXX")
   chmod 0700 "${release_stage}"
-  for name in farrow farrow-hosts-helper; do
+  for name in barn barn-hosts-helper; do
     install -m 0755 "${temporary}/${root}/bin/${name}" "${release_stage}/${name}"
     cmp -s "${temporary}/${root}/bin/${name}" "${release_stage}/${name}" || {
       printf 'staged entry point differs from verified archive: %s\n' "${name}" >&2
@@ -413,7 +413,7 @@ else
     }
   done
   if [[ ${has_mac_app} == true ]]; then
-    /usr/bin/ditto "${mac_app}" "${release_stage}/Farrow Mac.app"
+    /usr/bin/ditto "${mac_app}" "${release_stage}/Barn Mac.app"
     install -m 0644 "${temporary}/${root}/MACOS.json" "${temporary}/${root}/MACOS.md" "${release_stage}/"
     verify_mac_app "${release_stage}" || { printf 'staged native Mac app differs from verified archive\n' >&2; exit 7; }
   fi
@@ -421,16 +421,16 @@ else
   release_stage=
 fi
 
-link_stage=$(mktemp -d "${install_directory}/.farrow-links.next.XXXXXX")
+link_stage=$(mktemp -d "${install_directory}/.barn-links.next.XXXXXX")
 chmod 0700 "${link_stage}"
-for name in farrow farrow-hosts-helper; do
+for name in barn barn-hosts-helper; do
   if [[ ! -L ${install_directory}/${name} ]]; then
-    ln -s ".farrow-current/${name}" "${link_stage}/${name}"
+    ln -s ".barn-current/${name}" "${link_stage}/${name}"
     mv "${link_stage}/${name}" "${install_directory}/${name}"
     created_entry_points+=("${install_directory}/${name}")
   fi
 done
-ln -s ".farrow-releases/${release_id}" "${link_stage}/current"
+ln -s ".barn-releases/${release_id}" "${link_stage}/current"
 if [[ ${goos} == linux ]]; then
   mv -Tf "${link_stage}/current" "${current}"
 else
@@ -439,13 +439,13 @@ fi
 rmdir "${link_stage}"
 link_stage=
 created_entry_points=()
-for name in farrow farrow-hosts-helper; do
-  [[ -L ${install_directory}/${name} && $(readlink "${install_directory}/${name}") == ".farrow-current/${name}" && -x ${install_directory}/${name} ]] || {
+for name in barn barn-hosts-helper; do
+  [[ -L ${install_directory}/${name} && $(readlink "${install_directory}/${name}") == ".barn-current/${name}" && -x ${install_directory}/${name} ]] || {
     printf 'installed entry point is not executable through the current release: %s\n' "${install_directory}/${name}" >&2
     exit 7
   }
 done
-if [[ ! -L ${current} || $(readlink "${current}") != ".farrow-releases/${release_id}" ]]; then
+if [[ ! -L ${current} || $(readlink "${current}") != ".barn-releases/${release_id}" ]]; then
   printf 'current release pointer does not name the verified release: %s\n' "${current}" >&2
   exit 7
 fi
@@ -455,18 +455,18 @@ if [[ ${current_release} != "${release_root}" ]]; then
   exit 7
 fi
 prune_retained_releases "${releases}" "${current_release}" "${install_keep}"
-printf 'Installed Farrow %s in %s\n' "${version}" "${install_directory}"
+printf 'Installed Barn %s in %s\n' "${version}" "${install_directory}"
 # Being present in PATH does not mean this installation is the one selected.
 # Compare file identity as paths such as ~/.local/bin may have equivalent aliases.
 # Do not execute a shadowing binary just to ask it for its version.
-selected_farrow=$(type -P farrow || true)
-if [[ -z ${selected_farrow} || ! ${selected_farrow} -ef ${install_directory}/farrow ]]; then
-  if [[ -n ${selected_farrow} ]]; then
-    printf 'Your PATH currently selects: %s\n' "${selected_farrow}"
+selected_barn=$(type -P barn || true)
+if [[ -z ${selected_barn} || ! ${selected_barn} -ef ${install_directory}/barn ]]; then
+  if [[ -n ${selected_barn} ]]; then
+    printf 'Your PATH currently selects: %s\n' "${selected_barn}"
   fi
   printf "For this shell, run: export PATH=%q:\"\$PATH\"\n" "${install_directory}"
 fi
-printf 'Start your lab: %q up\n' "${install_directory}/farrow"
+printf 'Start your lab: %q up\n' "${install_directory}/barn"
 if [[ ${has_mac_app} == true ]]; then
-  printf 'Start a macOS guest (Apple Silicon/macOS 27+): %q mac up\n' "${install_directory}/farrow"
+  printf 'Start a macOS guest (Apple Silicon/macOS 27+): %q mac up\n' "${install_directory}/barn"
 fi

@@ -9,7 +9,7 @@ source "${script_directory}/binary-format.sh"
 
 version=${1:-}
 directory=${2:-}
-if ! farrow_is_prerelease_semver "${version}" || [[ ${directory} != /* || ! -d ${directory} ]]; then
+if ! barn_is_prerelease_semver "${version}" || [[ ${directory} != /* || ! -d ${directory} ]]; then
   printf 'usage: %s <prerelease-version> <absolute-release-directory>\n' "$0" >&2
   exit 2
 fi
@@ -26,22 +26,22 @@ source "${repo}/packaging/toolchain.env"
 (cd "${directory}" && shasum -a 256 -c checksums.txt)
 expected_checksum_names=$(
   for target in darwin_arm64 darwin_amd64 linux_arm64 linux_amd64; do
-    printf 'farrow_%s_%s.tar.gz\n' "${version}" "${target}"
+    printf 'barn_%s_%s.tar.gz\n' "${version}" "${target}"
   done
-  printf 'farrow.rb\nrelease.json\n'
+  printf 'barn.rb\nrelease.json\n'
 )
 expected_checksum_names=$(printf '%s' "${expected_checksum_names}" | LC_ALL=C sort)
 actual_checksum_names=$(awk '{print $2}' "${directory}/checksums.txt" | LC_ALL=C sort)
 [[ ${actual_checksum_names} == "${expected_checksum_names}" ]] || { printf 'unexpected development checksum inventory\n' >&2; exit 1; }
-ruby -c "${directory}/farrow.rb" >/dev/null
+ruby -c "${directory}/barn.rb" >/dev/null
 jq -e --arg version "${version}" '.schema == 1 and .version == $version and .signed == false and .attested == false and .channel == "development"' "${directory}/release.json" >/dev/null
 
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
-temporary=$(mktemp -d "${temporary_parent}/farrow-verify.XXXXXX")
+temporary=$(mktemp -d "${temporary_parent}/barn-verify.XXXXXX")
 temporary=$(cd "${temporary}" && pwd -P)
 cleanup() {
   case ${temporary} in
-    "${temporary_parent}"/farrow-verify.*) rm -rf -- "${temporary}" ;;
+    "${temporary_parent}"/barn-verify.*) rm -rf -- "${temporary}" ;;
     *) printf 'refuse unsafe archive verification cleanup: %s\n' "${temporary}" >&2 ;;
   esac
 }
@@ -52,7 +52,7 @@ host_arch=$(uname -m)
 [[ ${host_arch} == x86_64 ]] && host_arch=amd64
 [[ ${host_arch} == aarch64 ]] && host_arch=arm64
 expected_paths=()
-inventory=$(farrow_development_archive_payload_paths "${repo}")
+inventory=$(barn_development_archive_payload_paths "${repo}")
 [[ -n ${inventory} ]] || { printf 'development archive payload inventory is empty\n' >&2; exit 1; }
 while IFS= read -r path; do
   expected_paths+=("${path}")
@@ -70,7 +70,7 @@ file_mode() {
 for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
   goos=${target%/*}
   goarch=${target#*/}
-  root_name=farrow_${version}_${goos}_${goarch}
+  root_name=barn_${version}_${goos}_${goarch}
   archive=${directory}/${root_name}.tar.gz
   [[ -s ${archive} ]] || { printf 'missing development archive: %s\n' "${archive}" >&2; exit 1; }
   while IFS= read -r member; do
@@ -88,25 +88,25 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
   [[ -z $(find "${root}" ! -type f ! -type d -print -quit) ]] || { printf 'archive contains a special entry: %s\n' "${archive}" >&2; exit 1; }
   actual_list=$(cd "${root}" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort)
   [[ ${actual_list} == "${expected_list}" ]] || { printf 'unexpected development archive payload: %s\n' "${archive}" >&2; diff -u <(printf '%s\n' "${expected_list}") <(printf '%s\n' "${actual_list}") >&2 || true; exit 1; }
-  [[ $(file_mode "${root}/bin/farrow") == 755 && $(file_mode "${root}/bin/farrow-hosts-helper") == 755 ]]
+  [[ $(file_mode "${root}/bin/barn") == 755 && $(file_mode "${root}/bin/barn-hosts-helper") == 755 ]]
   for path in "${expected_paths[@]}"; do
-    case ${path} in bin/farrow|bin/farrow-hosts-helper) continue ;; esac
+    case ${path} in bin/barn|bin/barn-hosts-helper) continue ;; esac
     [[ $(file_mode "${root}/${path}") == 644 ]] || { printf 'unexpected mode for %s in %s\n' "${path}" "${archive}" >&2; exit 1; }
   done
-  farrow_verify_binary_format "${root}/bin/farrow" "${target}"
-  farrow_verify_binary_format "${root}/bin/farrow-hosts-helper" "${target}"
-  go version -m "${root}/bin/farrow" | sed -n '1p' | grep -F "go${FARROW_GO_VERSION}" >/dev/null
-  go version -m "${root}/bin/farrow-hosts-helper" | sed -n '1p' | grep -F "go${FARROW_GO_VERSION}" >/dev/null
-  farrow_sha=$(shasum -a 256 "${root}/bin/farrow" | awk '{print $1}')
-  helper_sha=$(shasum -a 256 "${root}/bin/farrow-hosts-helper" | awk '{print $1}')
-  grep -a -F "${helper_sha}" "${root}/bin/farrow" >/dev/null
+  barn_verify_binary_format "${root}/bin/barn" "${target}"
+  barn_verify_binary_format "${root}/bin/barn-hosts-helper" "${target}"
+  go version -m "${root}/bin/barn" | sed -n '1p' | grep -F "go${BARN_GO_VERSION}" >/dev/null
+  go version -m "${root}/bin/barn-hosts-helper" | sed -n '1p' | grep -F "go${BARN_GO_VERSION}" >/dev/null
+  barn_sha=$(shasum -a 256 "${root}/bin/barn" | awk '{print $1}')
+  helper_sha=$(shasum -a 256 "${root}/bin/barn-hosts-helper" | awk '{print $1}')
+  grep -a -F "${helper_sha}" "${root}/bin/barn" >/dev/null
   jq -e --arg version "${version}" --arg goos "${goos}" --arg goarch "${goarch}" \
-    --arg farrow_sha "${farrow_sha}" --arg helper_sha "${helper_sha}" '
+    --arg barn_sha "${barn_sha}" --arg helper_sha "${helper_sha}" '
     .schema == 1 and .version == $version and .goos == $goos and .goarch == $goarch and
-    .cgo_enabled == false and .farrow_sha256 == $farrow_sha and .hosts_helper_sha256 == $helper_sha
+    .cgo_enabled == false and .barn_sha256 == $barn_sha and .hosts_helper_sha256 == $helper_sha
   ' "${root}/BUILD_INFO.json" >/dev/null
   if [[ ${goos} == "${host_os}" && ${goarch} == "${host_arch}" ]]; then
-    "${root}/bin/farrow" version | grep -F "farrow ${version}" >/dev/null
+    "${root}/bin/barn" version | grep -F "barn ${version}" >/dev/null
   fi
 done
 

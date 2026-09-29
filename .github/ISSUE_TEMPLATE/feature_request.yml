@@ -1,19 +1,19 @@
 name: Feature request
-description: Propose a capability Farrow does not have.
+description: Propose a capability Barn does not have.
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Farrow is deliberately small and has ratified non-negotiables listed in
-        [CONTRIBUTING.md](https://github.com/pgsty/farrow/blob/main/CONTRIBUTING.md).
+        Barn is deliberately small and has ratified non-negotiables listed in
+        [CONTRIBUTING.md](https://github.com/pgsty/barn/blob/main/CONTRIBUTING.md).
         A proposal that contradicts one of them will be declined regardless of
         implementation quality.
   - type: textarea
     id: problem
     attributes:
       label: The problem
-      description: What are you trying to do that Farrow makes hard or impossible today?
+      description: What are you trying to do that Barn makes hard or impossible today?
     validations:
       required: true
   - type: textarea

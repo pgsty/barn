@@ -7,7 +7,7 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 // LogDirectoryNeedsRepair accepts a missing directory or a root-owned directory
@@ -23,7 +23,7 @@ func LogDirectoryNeedsRepair(info os.FileInfo) (bool, error) {
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || stat.Uid != 0 || stat.Gid != 0 ||
 		info.Mode().Perm()&0o022 != 0 || info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-		return false, fmt.Errorf("%s: got %s uid=%d gid=%d mode=%04o; expected a non-symlink root:wheel directory with mode 0755; Farrow will not repair it automatically", LogDir, info.Mode(), stat.Uid, stat.Gid, info.Mode().Perm())
+		return false, fmt.Errorf("%s: got %s uid=%d gid=%d mode=%04o; expected a non-symlink root:wheel directory with mode 0755; Barn will not repair it automatically", LogDir, info.Mode(), stat.Uid, stat.Gid, info.Mode().Perm())
 	}
 	return info.Mode().Perm() != 0o755, nil
 }

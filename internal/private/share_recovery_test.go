@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestMissingSharePrepareIsScopedAndRetryable(t *testing.T) {
@@ -56,7 +56,7 @@ func (unavailableSharePeerRunner) Run(_ context.Context, _ string, args ...strin
 
 func TestStartMissingShareDoesNotAbortPeer(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	writeRecoveryKeys(t, fixture.Deployment.Root)
 	share := privateShareFixture(t)
 	persistPrivateShare(t, state.Store{Root: fixture.Deployment.Root}, share)
@@ -77,7 +77,7 @@ func TestStartMissingShareDoesNotAbortPeer(t *testing.T) {
 
 func TestUpAttemptsExistingPeersAfterNewNodePrepareFailure(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	if err := os.MkdirAll(filepath.Join(fixture.Deployment.Root, "locks"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestUpAttemptsExistingPeersAfterNewNodePrepareFailure(t *testing.T) {
 	third.Shares = []spec.Share{share}
 	requested.Nodes = append(requested.Nodes, third)
 	manager := privateShareCapabilityManager(t, fixture, unavailableSharePeerRunner{})
-	manager.FarrowVersion = "test"
+	manager.BarnVersion = "test"
 	manager.HostPreflight = func(context.Context, platform.Profile, *spec.PrivateNetwork, execx.Runner) (Backend, error) {
 		return Backend{DarwinSocket: "/fixture/vmnet.sock", ReconnectMS: 1000}, nil
 	}

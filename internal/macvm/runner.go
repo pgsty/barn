@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 // RunnerProtocol is the runner command and RPC contract this CLI speaks. The
@@ -52,7 +52,7 @@ type RestoreMetadata struct {
 
 func HostSupported() error {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
-		return failure.New(failure.Capability, errors.New("farrow mac requires Apple Silicon and macOS 27 or later")).Because("mac_host_unsupported")
+		return failure.New(failure.Capability, errors.New("barn mac requires Apple Silicon and macOS 27 or later")).Because("mac_host_unsupported")
 	}
 	data, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
 	if err != nil {
@@ -60,7 +60,7 @@ func HostSupported() error {
 	}
 	major, err := strconv.Atoi(strings.Split(strings.TrimSpace(string(data)), ".")[0])
 	if err != nil || major < 27 {
-		return failure.New(failure.Capability, errors.New("farrow mac requires macOS 27 or later")).Because("mac_host_unsupported")
+		return failure.New(failure.Capability, errors.New("barn mac requires macOS 27 or later")).Because("mac_host_unsupported")
 	}
 	return nil
 }
@@ -69,9 +69,9 @@ func FindRunner() (string, error) {
 	if err := HostSupported(); err != nil {
 		return "", err
 	}
-	if override := os.Getenv("FARROW_MAC_RUNNER"); override != "" {
+	if override := os.Getenv("BARN_MAC_RUNNER"); override != "" {
 		if !filepath.IsAbs(override) {
-			return "", errors.New("FARROW_MAC_RUNNER must be absolute")
+			return "", errors.New("BARN_MAC_RUNNER must be absolute")
 		}
 		return executableFile(override)
 	}
@@ -87,23 +87,23 @@ func FindRunner() (string, error) {
 			return found, nil
 		}
 	}
-	return "", failure.New(failure.Capability, errors.New("the Farrow Mac component is not installed next to this farrow")).
+	return "", failure.New(failure.Capability, errors.New("the Barn Mac component is not installed next to this barn")).
 		Because("mac_runner_missing").
-		Then("make mac-build in a Farrow source checkout, then use bin/mac/farrow (https://farrow.pgsty.com/docs/start/macos/)")
+		Then("make mac-build in a Barn source checkout, then use bin/mac/barn (https://barn.pgsty.com/docs/start/macos/)")
 }
 
 // runnerCandidates covers the source bundle, the installer's version-independent
 // component directory, and Homebrew's libexec.
 func runnerCandidates(dir string) []string {
-	app := filepath.Join("Farrow Mac.app", "Contents", "MacOS", "farrow-mac-runner")
+	app := filepath.Join("Barn Mac.app", "Contents", "MacOS", "barn-mac-runner")
 	return []string{
 		filepath.Join(dir, app),
 		filepath.Join(dir, "libexec", app),
 		filepath.Join(dir, "..", "libexec", app),
-		filepath.Join(dir, "..", "libexec", "farrow-mac", app),
-		filepath.Join(dir, "farrow-mac-runner"),
-		filepath.Join(dir, "libexec", "farrow-mac-runner"),
-		filepath.Join(dir, "..", "libexec", "farrow-mac-runner"),
+		filepath.Join(dir, "..", "libexec", "barn-mac", app),
+		filepath.Join(dir, "barn-mac-runner"),
+		filepath.Join(dir, "libexec", "barn-mac-runner"),
+		filepath.Join(dir, "..", "libexec", "barn-mac-runner"),
 	}
 }
 
@@ -129,8 +129,8 @@ func (r Runner) CheckProtocol(ctx context.Context) error {
 		return err
 	}
 	if probe.Protocol != RunnerProtocol {
-		return failure.New(failure.Capability, fmt.Errorf("the installed Farrow Mac component (%s) speaks protocol %d, but this farrow needs protocol %d", probe.Version, probe.Protocol, RunnerProtocol)).
-			Because("mac_runner_protocol").Then("reinstall Farrow so the CLI and its Mac component match")
+		return failure.New(failure.Capability, fmt.Errorf("the installed Barn Mac component (%s) speaks protocol %d, but this barn needs protocol %d", probe.Version, probe.Protocol, RunnerProtocol)).
+			Because("mac_runner_protocol").Then("reinstall Barn so the CLI and its Mac component match")
 	}
 	return nil
 }
@@ -139,7 +139,6 @@ func (r Runner) Call(ctx context.Context, input any, result any, args ...string)
 	if len(args) == 0 {
 		return errors.New("mac runner command is required")
 	}
-	secret := args[0] == "secret"
 	var stdin bytes.Buffer
 	if input != nil {
 		if err := json.NewEncoder(&stdin).Encode(input); err != nil {
@@ -151,7 +150,7 @@ func (r Runner) Call(ctx context.Context, input any, result any, args ...string)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if r.Progress != nil && !secret {
+	if r.Progress != nil {
 		cmd.Stderr = io.MultiWriter(r.Progress, &stderr)
 	}
 	err := cmd.Run()
@@ -165,15 +164,6 @@ func (r Runner) Call(ctx context.Context, input any, result any, args ...string)
 			Message string          `json:"message"`
 		}
 		_ = json.Unmarshal(stdout.Bytes(), &response)
-		if secret {
-			// A runner may echo its stdin while failing. Secret commands never
-			// forward its stderr or arbitrary error strings to logs or callers.
-			var nested struct {
-				Code string `json:"code"`
-			}
-			_ = json.Unmarshal(response.Error, &nested)
-			return fmt.Errorf("legacy Keychain %s failed (%s)", strings.Join(args[1:2], ""), nested.Code)
-		}
 		detail := response.Message
 		if detail == "" {
 			var nested struct {
@@ -280,10 +270,10 @@ func checkPeerUID(conn net.Conn) error {
 }
 
 // A short, private runtime directory avoids Unix socket path limits even when
-// FARROW_HOME is a deeply nested test or project path. No PID-only signals.
+// BARN_HOME is a deeply nested test or project path. No PID-only signals.
 func RuntimeDir(root string, create bool) (string, error) {
 	digest := sha256.Sum256([]byte(root))
-	path := filepath.Join("/tmp", fmt.Sprintf("farrow-mac-%d-%x", os.Getuid(), digest[:8]))
+	path := filepath.Join("/tmp", fmt.Sprintf("barn-mac-%d-%x", os.Getuid(), digest[:8]))
 	if create {
 		if err := os.Mkdir(path, 0700); err != nil && !errors.Is(err, os.ErrExist) {
 			return "", err
@@ -351,7 +341,7 @@ func (r Runner) Launch(ctx context.Context, args []string, input any, logPath, s
 		}
 		select {
 		case <-ctx.Done():
-			return RuntimeStatus{}, fmt.Errorf("the VM may still be starting in the background; check farrow mac ls: %w", ctx.Err())
+			return RuntimeStatus{}, fmt.Errorf("the VM may still be starting in the background; check barn mac ls: %w", ctx.Err())
 		case err := <-exited:
 			return RuntimeStatus{}, launchFailure(logPath, err)
 		case <-timeout.C:
@@ -376,7 +366,7 @@ func launchFailure(logPath string, exitErr error) error {
 		}
 		if json.Unmarshal([]byte(lines[i]), &reply) == nil && reply.Error != nil {
 			if reply.Error.Code == "virtual_machine_limit" {
-				return failure.New(failure.Resource, errors.New(reply.Error.Message)).Because("mac_vm_limit").Then("farrow mac stop <another machine>, or quit other macOS VMs")
+				return failure.New(failure.Resource, errors.New(reply.Error.Message)).Because("mac_vm_limit").Then("barn mac stop <another machine>, or quit other macOS VMs")
 			}
 			return fmt.Errorf("%s: %s", reply.Error.Code, reply.Error.Message)
 		}

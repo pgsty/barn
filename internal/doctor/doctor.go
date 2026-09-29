@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	netpreflight "github.com/pgsty/farrow/internal/network/preflight"
-	"github.com/pgsty/farrow/internal/platform"
+	"github.com/pgsty/barn/internal/execx"
+	netpreflight "github.com/pgsty/barn/internal/network/preflight"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 type Status string
@@ -25,7 +25,7 @@ const (
 )
 
 // ClassNetwork marks checks about host-global private-network readiness. A
-// host that simply has not run `farrow setup` yet is not broken, so these
+// host that simply has not run `barn setup` yet is not broken, so these
 // checks inform the report without failing the capability verdict.
 const ClassNetwork = "network"
 
@@ -102,9 +102,9 @@ func (p Probe) lookPath(name string) (string, error) {
 
 func qemuInstallFix(goos string) string {
 	if goos == "darwin" {
-		return "run farrow setup (or brew install qemu)"
+		return "run barn setup (or brew install qemu)"
 	}
-	return "run farrow setup (or install the distribution QEMU and qemu-img packages)"
+	return "run barn setup (or install the distribution QEMU and qemu-img packages)"
 }
 
 func combined(result execx.Result) string {
@@ -185,7 +185,7 @@ func (p Probe) Run(ctx context.Context) Report {
 		}
 	}
 
-	// All embedded Farrow images boot with UEFI. Checking only profiles whose
+	// All embedded Barn images boot with UEFI. Checking only profiles whose
 	// machine mandates UEFI would let amd64 doctor pass and the default image
 	// fail later during up.
 	firmware, firmwareErr := platform.FindFirmwareForBoot(profile, "uefi")

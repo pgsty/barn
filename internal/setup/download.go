@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/fsutil"
-	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
-	"github.com/pgsty/farrow/internal/webclient"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	darwinnet "github.com/pgsty/barn/internal/network/darwin"
+	"github.com/pgsty/barn/internal/webclient"
 )
 
 const maxSocketVMNetArchive = 4 << 20
@@ -65,7 +65,7 @@ func DefaultCacheDirectory() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, "farrow", "downloads"), nil
+	return filepath.Join(root, "barn", "downloads"), nil
 }
 
 // Sources widens where the pinned socket_vmnet archive may come from. The
@@ -74,11 +74,11 @@ func DefaultCacheDirectory() (string, error) {
 // is equally trustworthy. This matters most on networks where GitHub is slow
 // or unreachable.
 type Sources struct {
-	// Archive is an explicit local tarball (FARROW_VMNET_ARCHIVE). When set it
+	// Archive is an explicit local tarball (BARN_VMNET_ARCHIVE). When set it
 	// must verify; a mismatch is an error, never a silent fallback.
 	Archive string
 	// Repo is the resolved image-repository URL or absolute local directory
-	// (--repo / --mirror / FARROW_REPO / default). The archive is expected under
+	// (--repo / --mirror / BARN_REPO / default). The archive is expected under
 	// <repo>/socket_vmnet/<archive-name>. A missing mirror copy falls through
 	// to upstream; a corrupt one is an error.
 	Repo string
@@ -91,9 +91,9 @@ type Sources struct {
 // retained for direct internal callers.
 func SourcesFromEnvironment(repo string) Sources {
 	if repo == "" {
-		repo = os.Getenv("FARROW_REPO")
+		repo = os.Getenv("BARN_REPO")
 	}
-	return Sources{Archive: os.Getenv("FARROW_VMNET_ARCHIVE"), Repo: repo}
+	return Sources{Archive: os.Getenv("BARN_VMNET_ARCHIVE"), Repo: repo}
 }
 
 // SocketVMNetCached reports whether the pinned archive is already present and
@@ -166,10 +166,10 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 	// 1. Explicit local archive: user intent, so a mismatch is an error.
 	if sources.Archive != "" {
 		if !filepath.IsAbs(sources.Archive) {
-			return result, errors.New("FARROW_VMNET_ARCHIVE must be an absolute path")
+			return result, errors.New("BARN_VMNET_ARCHIVE must be an absolute path")
 		}
 		if err := verify(sources.Archive, arch); err != nil {
-			return result, failure.New(failure.Integrity, fmt.Errorf("FARROW_VMNET_ARCHIVE %s does not match the pinned socket_vmnet v%s archive: %w", sources.Archive, release.Version, err))
+			return result, failure.New(failure.Integrity, fmt.Errorf("BARN_VMNET_ARCHIVE %s does not match the pinned socket_vmnet v%s archive: %w", sources.Archive, release.Version, err))
 		}
 		if err := publishVerifiedCopy(sources.Archive, cacheDirectory, target, arch, verify); err != nil {
 			return result, err
@@ -212,7 +212,7 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 	fetched, err := fetchBoundedArchive(ctx, client, release.URL, release, cacheDirectory, target, arch, sources.Progress, verify)
 	if err != nil {
 		// Any mirror works: the SHA-256 is pinned in the binary.
-		return result, failure.WithNext(err, fmt.Sprintf("put %s under <repo>/socket_vmnet/ and pass --repo, or download it by hand and set FARROW_VMNET_ARCHIVE=/absolute/path/to/%s", release.ArchiveName, release.ArchiveName))
+		return result, failure.WithNext(err, fmt.Sprintf("put %s under <repo>/socket_vmnet/ and pass --repo, or download it by hand and set BARN_VMNET_ARCHIVE=/absolute/path/to/%s", release.ArchiveName, release.ArchiveName))
 	}
 	return fetched, nil
 }
@@ -338,7 +338,7 @@ func fetchBoundedArchiveAttempt(ctx context.Context, client HTTPDoer, fetchURL s
 	if err != nil {
 		return result, err
 	}
-	request.Header.Set("User-Agent", "farrow-setup/"+release.Version)
+	request.Header.Set("User-Agent", "barn-setup/"+release.Version)
 	response, err := client.Do(request)
 	if err != nil {
 		return result, fmt.Errorf("download socket_vmnet from %s: %w", parsed.Host, err)

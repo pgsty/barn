@@ -1,12 +1,12 @@
 # Shipping the native Mac feature
 
-The native app is part of the ordinary `farrow_VERSION_darwin_arm64.tar.gz`
+The native app is part of the ordinary `barn_VERSION_darwin_arm64.tar.gz`
 when a signed, notarized build is available. There is one installer and one
 Homebrew formula. Other platform archives keep their existing contents.
 
 The app is optional. Without the signing secrets below, the tag workflow skips
 the native job and ships every CLI archive and package without the Mac app;
-`farrow mac` then explains that its component is not installed. With all six
+`barn mac` then explains that its component is not installed. With all six
 secrets configured, the native job must succeed: a failed build, signature or
 notarization stops the release instead of leaving the app out, and a partial
 set of secrets fails the release at once. The CLI and the app speak a
@@ -27,7 +27,7 @@ SPDX document and checksums, then runs the existing archive/package verifiers.
 The native archive is checked again after export, so a stapled ticket must survive
 the same tar representation used for distribution.
 
-`FARROW_MAC_PAYLOAD=/absolute/native.tar.gz make release-snapshot` exercises this
+`BARN_MAC_PAYLOAD=/absolute/native.tar.gz make release-snapshot` exercises this
 complete composition locally. The payload version must match the snapshot
 version selected by `.goreleaser.yaml`: the next patch after the latest tag
 with `-next` (after `v0.8.0`, `0.8.1-next`).
@@ -40,11 +40,11 @@ Formal builds require a Developer ID Application identity and a stored
 `notarytool` profile:
 
 ```sh
-export FARROW_CODESIGN_IDENTITY='Developer ID Application: your organization (TEAMID)'
-export FARROW_NOTARY_PROFILE=farrow-release
-export FARROW_MAC_REQUIRE_NOTARIZATION=1
+export BARN_CODESIGN_IDENTITY='Developer ID Application: your organization (TEAMID)'
+export BARN_NOTARY_PROFILE=barn-release
+export BARN_MAC_REQUIRE_NOTARIZATION=1
 python3 packaging/mac-release.py build "$VERSION" "$COMMIT" "$SOURCE_DATE_EPOCH" /absolute/native.tar.gz
-FARROW_MAC_PAYLOAD=/absolute/native.tar.gz make release-local VERSION="$VERSION"
+BARN_MAC_PAYLOAD=/absolute/native.tar.gz make release-local VERSION="$VERSION"
 ```
 
 Create the profile with `xcrun notarytool store-credentials` using your own Apple

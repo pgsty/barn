@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 func TestGuestRepairOwnsItsDeadline(t *testing.T) {
@@ -62,7 +62,7 @@ func (r *setupRetryRunner) Run(_ context.Context, _ string, args ...string) (exe
 		r.old = false
 		return execx.Result{}, nil
 	}
-	if r.controlKeyMissing && strings.Contains(command, "/usr/local/libexec/farrow-install-control-ssh") {
+	if r.controlKeyMissing && strings.Contains(command, "/usr/local/libexec/barn-install-control-ssh") {
 		return execx.Result{}, errors.New("installed control key is missing")
 	}
 	version := cloudinit.SetupVersion
@@ -86,7 +86,7 @@ func TestUpReportsDisappearedControlKeyWithoutFailingManagementSSH(t *testing.T)
 	if err != nil || len(warnings) != 1 || warnings[0].Stage != "control-ssh" {
 		t.Fatalf("missing control key was hidden or blocked management SSH: %+v %v", warnings, err)
 	}
-	if len(runner.scripts) != 1 || !strings.Contains(runner.scripts[0], "farrow-finalize control-ssh ready") {
+	if len(runner.scripts) != 1 || !strings.Contains(runner.scripts[0], "barn-finalize control-ssh ready") {
 		t.Fatalf("retry was not limited to the affected stage: %+v", runner.scripts)
 	}
 }
@@ -121,7 +121,7 @@ func TestUpRetriesOnlyIncompleteGuestSetup(t *testing.T) {
 				if len(runner.scripts) != 1 || len(warnings) != 0 {
 					t.Fatalf("setup not recovered: %+v %v", runner, warnings)
 				}
-				if scenario == "limited" && !strings.Contains(runner.scripts[0], "farrow-finalize shares ready") {
+				if scenario == "limited" && !strings.Contains(runner.scripts[0], "barn-finalize shares ready") {
 					t.Fatal("reran healthy setup stages")
 				}
 			}

@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func privateKeyPurgeFixture(t *testing.T) (Manager, Deployment, string) {
 	t.Helper()
 	root := t.TempDir()
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	deploymentValue := Deployment{Root: root}
 	keysDir := filepath.Join(root, "keys")
 	if err := os.Mkdir(keysDir, 0o700); err != nil {
@@ -99,7 +99,7 @@ func TestPrivatePurgeKeysReportsLiveProcessAndDataDisksAsState(t *testing.T) {
 			manager, deploymentValue, _ := privateKeyPurgeFixture(t)
 			now := time.Now().UTC()
 			test.node.Schema = state.NodeSchema
-			test.node.FarrowVersion = "test"
+			test.node.BarnVersion = "test"
 			test.node.Node = "meta"
 			test.node.VMUUID = "018f4b8e-1234-4abc-9def-0123456789ab"
 			test.node.Phase = state.Stopped

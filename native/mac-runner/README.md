@@ -1,10 +1,10 @@
-# Farrow macOS VM runner
+# Barn macOS VM runner
 
-This is the macOS 27 / Apple Silicon process behind `farrow mac`. Go owns
+This is the macOS 27 / Apple Silicon process behind `barn mac`. Go owns
 downloads, cache manifests, machine records, SSH provisioning and lifecycle
 policy. The runner owns Apple restore validation, DiskImageKit disks, the
 Virtualization lifecycle, each machine's private vmnet network, and the native
-desktop window with its clipboard sharing. It never reads `farrow.yml` or Linux
+desktop window with its clipboard sharing. It never reads `barn.yml` or Linux
 VM state, and it never needs root.
 
 Build with Xcode 27 on Apple Silicon:
@@ -14,7 +14,7 @@ bash native/mac-runner/build.sh
 bash native/mac-runner/test.sh
 ```
 
-The default output is `bin/farrow-mac-runner`. `FARROW_CODESIGN_IDENTITY` selects
+The default output is `bin/barn-mac-runner`. `BARN_CODESIGN_IDENTITY` selects
 a signing identity; development defaults to ad hoc. The only entitlement is
 `com.apple.security.virtualization`. Creating a private shared-mode vmnet
 network needs no other entitlement and no privilege.
@@ -100,5 +100,5 @@ DiskImageKit validates the base and overlay UUIDs when it assembles the stack.
 The desktop window uses a display sized to the screen at its pixel density and
 reconfigures the guest resolution when resized. Closing it hides it; the VM
 keeps running. Quitting asks whether to keep the VM running in the background
-or shut it down through `farrow mac stop`, which applies the CLI's normal and
+or shut it down through `barn mac stop`, which applies the CLI's normal and
 forced shutdown policy.

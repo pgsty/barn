@@ -77,11 +77,11 @@ func TestOptionalSharesPreserveLegacyQuickCanonicalHash(t *testing.T) {
 func TestShareTagIsStableBoundedAndCoversIntent(t *testing.T) {
 	t.Parallel()
 	share := Share{Host: "/Users/me/pgsty/pigsty", Guest: "/src"}
-	if got, want := ShareTag(share), "farrow-1c73730fac508a9da296"; got != want {
+	if got, want := ShareTag(share), "barn-1c73730fac508a9da296"; got != want {
 		t.Fatalf("share tag = %q, want %q", got, want)
 	}
-	if tag := ShareTag(share); len(tag) > 31 || !strings.HasPrefix(tag, "farrow-") {
-		t.Fatalf("share tag is not a bounded Farrow identifier: %q", tag)
+	if tag := ShareTag(share); len(tag) > 31 || !strings.HasPrefix(tag, "barn-") {
+		t.Fatalf("share tag is not a bounded Barn identifier: %q", tag)
 	}
 	variants := []Share{
 		{Host: share.Host + "-other", Guest: share.Guest},

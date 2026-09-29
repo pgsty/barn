@@ -70,7 +70,7 @@ func safeInactiveNetworkdActivation() *NetworkdActivationSafety {
 	return &NetworkdActivationSafety{Checked: true, Links: []NetworkdLink{
 		{Name: "eth0", Type: "ether"},
 		{Name: "lo", Type: "loopback"},
-		{Name: BridgeName, Kind: "bridge", Type: "bridge", FarrowOwned: true},
+		{Name: BridgeName, Kind: "bridge", Type: "bridge", BarnOwned: true},
 	}}
 }
 
@@ -151,8 +151,8 @@ func TestBridgeConfInstallRemoveAndOwnershipRefusal(t *testing.T) {
 	if err != nil || removed != original+"\n" {
 		t.Fatalf("removed bridge block = %q, %v", removed, err)
 	}
-	if _, err := ReconcileBridgeConf("allow farrow0 # unowned\n", true); err == nil {
-		t.Fatal("unmarked farrow0 allow rule was adopted")
+	if _, err := ReconcileBridgeConf("allow barn0 # unowned\n", true); err == nil {
+		t.Fatal("unmarked barn0 allow rule was adopted")
 	}
 	if _, err := ReconcileBridgeConf(markerBegin+"\nallow other\n"+markerEnd+"\n", false); err == nil {
 		t.Fatal("modified managed block was removed")
@@ -164,7 +164,7 @@ func TestHelperAndBridgeSafetyBoundaries(t *testing.T) {
 	facts := debianFacts()
 	facts.Helper.Override = &Override{Owner: "root", Group: "unowned", Mode: "4750"}
 	if _, err := NewInstallPlan(facts, testConfig()); err == nil {
-		t.Fatal("non-Farrow dpkg override accepted")
+		t.Fatal("non-Barn dpkg override accepted")
 	}
 	facts = debianFacts()
 	facts.BridgeExists = true
@@ -202,7 +202,7 @@ func TestInactiveNetworkdPlanRecordsPrestate(t *testing.T) {
 	for _, command := range plan.Commands {
 		commands += command.Binary + " " + strings.Join(command.Args, " ") + "\n"
 	}
-	for _, want := range []string{"systemctl start systemd-networkd.service", "networkctl reconfigure farrow0", "systemctl enable systemd-networkd.service"} {
+	for _, want := range []string{"systemctl start systemd-networkd.service", "networkctl reconfigure barn0", "systemctl enable systemd-networkd.service"} {
 		if !strings.Contains(commands, want) {
 			t.Errorf("inactive plan missing %q:\n%s", want, commands)
 		}

@@ -84,7 +84,7 @@ func BuildISO(target string, files Files) error {
 			return fmt.Errorf("close CIDATA file %s: %w", name, closeErr)
 		}
 	}
-	if err := fs.Finalize(iso9660.FinalizeOptions{RockRidge: true, VolumeIdentifier: "CIDATA", PublisherIdentifier: "Farrow"}); err != nil {
+	if err := fs.Finalize(iso9660.FinalizeOptions{RockRidge: true, VolumeIdentifier: "CIDATA", PublisherIdentifier: "Barn"}); err != nil {
 		return fmt.Errorf("finalize CIDATA ISO9660: %w", err)
 	}
 	if err := temp.Sync(); err != nil {

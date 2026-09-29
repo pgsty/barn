@@ -8,10 +8,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/platform"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 // Service is the one command-level façade over the catalog, the store, and

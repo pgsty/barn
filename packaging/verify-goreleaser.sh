@@ -11,7 +11,7 @@ if [[ $# -ne 2 ]]; then
 fi
 version=$1
 directory=$2
-farrow_is_semver "${version}" || { printf 'invalid version: %s\n' "${version}" >&2; exit 2; }
+barn_is_semver "${version}" || { printf 'invalid version: %s\n' "${version}" >&2; exit 2; }
 [[ ${directory} == /* && -d ${directory} ]] || { printf 'GoReleaser dist must be an absolute directory\n' >&2; exit 2; }
 if [[ ! ${SOURCE_DATE_EPOCH:-} =~ ^[0-9]+$ ]] || (( SOURCE_DATE_EPOCH <= 0 )); then
   printf 'SOURCE_DATE_EPOCH must be positive\n' >&2
@@ -34,18 +34,18 @@ else
 fi
 
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
-temporary=$(mktemp -d "${temporary_parent}/farrow-goreleaser-verify.XXXXXX")
+temporary=$(mktemp -d "${temporary_parent}/barn-goreleaser-verify.XXXXXX")
 temporary=$(cd "${temporary}" && pwd -P)
 cleanup() {
   case ${temporary} in
-    "${temporary_parent}"/farrow-goreleaser-verify.*) rm -rf -- "${temporary}" ;;
+    "${temporary_parent}"/barn-goreleaser-verify.*) rm -rf -- "${temporary}" ;;
     *) printf 'refuse unsafe GoReleaser verification cleanup: %s\n' "${temporary}" >&2 ;;
   esac
 }
 trap cleanup EXIT
 
 expected_paths=()
-inventory=$(farrow_archive_payload_paths "${repo}")
+inventory=$(barn_archive_payload_paths "${repo}")
 [[ -n ${inventory} ]] || { printf 'release archive payload inventory is empty\n' >&2; exit 1; }
 while IFS= read -r path; do
   expected_paths+=("${path}")
@@ -74,14 +74,14 @@ expected_checksum_names=$(
   {
     for os_name in darwin linux; do
       for arch in amd64 arm64; do
-        printf 'farrow_%s_%s_%s.tar.gz\n' "${version}" "${os_name}" "${arch}"
-        printf 'farrow_%s_%s_%s.tar.gz.spdx.json\n' "${version}" "${os_name}" "${arch}"
+        printf 'barn_%s_%s_%s.tar.gz\n' "${version}" "${os_name}" "${arch}"
+        printf 'barn_%s_%s_%s.tar.gz.spdx.json\n' "${version}" "${os_name}" "${arch}"
       done
     done
     for arch in amd64 arm64; do
       for format in deb rpm; do
-        printf 'farrow_%s_linux_%s.%s\n' "${version}" "${arch}" "${format}"
-        printf 'farrow_%s_linux_%s.%s.spdx.json\n' "${version}" "${arch}" "${format}"
+        printf 'barn_%s_linux_%s.%s\n' "${version}" "${arch}" "${format}"
+        printf 'barn_%s_linux_%s.%s.spdx.json\n' "${version}" "${arch}" "${format}"
       done
     done
   } | LC_ALL=C sort
@@ -94,7 +94,7 @@ host_arch=$(uname -m)
 [[ ${host_arch} == aarch64 ]] && host_arch=arm64
 for os_name in darwin linux; do
   for arch in amd64 arm64; do
-    archive_name=farrow_${version}_${os_name}_${arch}.tar.gz
+    archive_name=barn_${version}_${os_name}_${arch}.tar.gz
     root_name=${archive_name%.tar.gz}
     archive=${directory}/${archive_name}
     sbom=${archive}.spdx.json
@@ -134,14 +134,14 @@ for os_name in darwin linux; do
     [[ -z $(find "${root}" ! -type f ! -type d -print -quit) ]] || { printf 'archive contains a special entry: %s\n' "${archive}" >&2; exit 1; }
     actual_list=$(cd "${root}" && find . -type f -print | sed 's#^\./##' | LC_ALL=C sort)
     [[ ${actual_list} == "${expected_list}" ]] || { printf 'unexpected archive payload in %s\n' "${archive}" >&2; diff -u <(printf '%s\n' "${expected_list}") <(printf '%s\n' "${actual_list}") >&2 || true; exit 1; }
-    [[ $(file_mode "${root}/bin/farrow") == 755 && $(file_mode "${root}/bin/farrow-hosts-helper") == 755 ]] || {
+    [[ $(file_mode "${root}/bin/barn") == 755 && $(file_mode "${root}/bin/barn-hosts-helper") == 755 ]] || {
       printf 'archive binaries are not mode 755 in %s\n' "${archive}" >&2
       exit 1
     }
     for path in "${expected_paths[@]}"; do
-      case ${path} in bin/farrow|bin/farrow-hosts-helper) continue ;; esac
+      case ${path} in bin/barn|bin/barn-hosts-helper) continue ;; esac
       case ${path} in
-        "bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner")
+        "bin/Barn Mac.app/Contents/MacOS/barn-mac-runner")
           [[ $(file_mode "${root}/${path}") == 755 ]] || { printf 'native Mac entry point is not executable: %s\n' "${path}" >&2; exit 1; }
           continue ;;
       esac
@@ -150,21 +150,21 @@ for os_name in darwin linux; do
     for path in "${expected_paths[@]}"; do
       [[ $(file_mtime "${root}/${path}") == "${SOURCE_DATE_EPOCH}" ]] || { printf 'archive member mtime is not the fixed source epoch: %s/%s\n' "${archive}" "${path}" >&2; exit 1; }
     done
-    for binary in bin/farrow bin/farrow-hosts-helper; do
-      farrow_verify_binary_format "${root}/${binary}" "${os_name}/${arch}"
-      go version -m "${root}/${binary}" | sed -n '1p' | grep -F "go${FARROW_GO_VERSION}" >/dev/null || {
-        printf '%s was not built with the pinned Go %s: %s\n' "${binary}" "${FARROW_GO_VERSION}" "$(go version -m "${root}/${binary}" | sed -n '1p')" >&2
+    for binary in bin/barn bin/barn-hosts-helper; do
+      barn_verify_binary_format "${root}/${binary}" "${os_name}/${arch}"
+      go version -m "${root}/${binary}" | sed -n '1p' | grep -F "go${BARN_GO_VERSION}" >/dev/null || {
+        printf '%s was not built with the pinned Go %s: %s\n' "${binary}" "${BARN_GO_VERSION}" "$(go version -m "${root}/${binary}" | sed -n '1p')" >&2
         exit 1
       }
     done
-    helper_sha=$(shasum -a 256 "${root}/bin/farrow-hosts-helper" | awk '{print $1}')
-    grep -a -F "${helper_sha}" "${root}/bin/farrow" >/dev/null || {
+    helper_sha=$(shasum -a 256 "${root}/bin/barn-hosts-helper" | awk '{print $1}')
+    grep -a -F "${helper_sha}" "${root}/bin/barn" >/dev/null || {
       printf 'the CLI in %s does not carry the digest of its paired helper %s\n' "${archive}" "${helper_sha}" >&2
       exit 1
     }
     archive_sha=$(shasum -a 256 "${archive}" | awk '{print $1}')
-    jq -e --arg name "${archive_name}" --arg created "${created}" --arg go_version "go${FARROW_GO_VERSION}" \
-      --arg namespace "https://github.com/pgsty/farrow/sbom/${archive_name}/${archive_sha}" '
+    jq -e --arg name "${archive_name}" --arg created "${created}" --arg go_version "go${BARN_GO_VERSION}" \
+      --arg namespace "https://github.com/pgsty/barn/sbom/${archive_name}/${archive_sha}" '
       .spdxVersion == "SPDX-2.3" and .name == $name and
       .creationInfo.created == $created and .documentNamespace == $namespace and
       any(.packages[]?; .name == "go.yaml.in/yaml/v3") and
@@ -172,17 +172,17 @@ for os_name in darwin linux; do
       ((.packages | length) > 0) and ((.files | length) > 0)
     ' "${sbom}" >/dev/null || { printf 'SPDX document does not describe %s as expected: %s\n' "${archive_name}" "${sbom}" >&2; exit 1; }
     if [[ ${os_name} == "${host_os}" && ${arch} == "${host_arch}" ]]; then
-      "${root}/bin/farrow" version | grep -F "farrow ${version}" >/dev/null || {
-        printf 'the native archive binary does not report version %s: %s\n' "${version}" "$("${root}/bin/farrow" version)" >&2
+      "${root}/bin/barn" version | grep -F "barn ${version}" >/dev/null || {
+        printf 'the native archive binary does not report version %s: %s\n' "${version}" "$("${root}/bin/barn" version)" >&2
         exit 1
       }
-      if [[ -d ${root}/bin/Farrow\ Mac.app ]]; then
-        codesign --verify --deep --strict "${root}/bin/Farrow Mac.app"
-        if [[ ${FARROW_MAC_REQUIRE_NOTARIZATION:-0} == 1 ]]; then
-          xcrun stapler validate "${root}/bin/Farrow Mac.app"
-          spctl --assess --type execute "${root}/bin/Farrow Mac.app"
+      if [[ -d ${root}/bin/Barn\ Mac.app ]]; then
+        codesign --verify --deep --strict "${root}/bin/Barn Mac.app"
+        if [[ ${BARN_MAC_REQUIRE_NOTARIZATION:-0} == 1 ]]; then
+          xcrun stapler validate "${root}/bin/Barn Mac.app"
+          spctl --assess --type execute "${root}/bin/Barn Mac.app"
         fi
-        "${root}/bin/Farrow Mac.app/Contents/MacOS/farrow-mac-runner" probe >/dev/null
+        "${root}/bin/Barn Mac.app/Contents/MacOS/barn-mac-runner" probe >/dev/null
       fi
     fi
     printf '%s verified; helper=%s\n' "${archive_name}" "${helper_sha}"

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 func fixtureEntries() []Entry {
@@ -24,7 +24,7 @@ func TestReconcileInstallUpdateUninstallPreservesUnownedBytes(t *testing.T) {
 	if err != nil || !changed || len(lines) != 2 {
 		t.Fatalf("install changed=%t lines=%v err=%v", changed, lines, err)
 	}
-	if !strings.HasPrefix(string(after), string(before)) || !strings.Contains(string(after), "# farrow:begin") {
+	if !strings.HasPrefix(string(after), string(before)) || !strings.Contains(string(after), "# barn:begin") {
 		t.Fatalf("install did not preserve prefix or add block:\n%s", after)
 	}
 	idempotent, _, changed, err := ReconcileContent(after, ActionInstall, fixtureEntries())
@@ -45,17 +45,17 @@ func TestReconcileInstallUpdateUninstallPreservesUnownedBytes(t *testing.T) {
 
 func TestReconcileRejectsMalformedMarkersAndConflictingNames(t *testing.T) {
 	t.Parallel()
-	malformed := []byte("127.0.0.1 localhost\n# farrow:begin\n10.10.10.10 meta\n")
+	malformed := []byte("127.0.0.1 localhost\n# barn:begin\n10.10.10.10 meta\n")
 	if _, _, _, err := ReconcileContent(malformed, ActionInstall, fixtureEntries()); err == nil {
 		t.Fatal("unterminated marker block was accepted")
 	}
-	legacyMarker := []byte("127.0.0.1 localhost\n# farrow:11111111-1111-4111-8111-111111111111:begin\n10.10.10.10 meta\n# farrow:11111111-1111-4111-8111-111111111111:end\n")
+	legacyMarker := []byte("127.0.0.1 localhost\n# barn:11111111-1111-4111-8111-111111111111:begin\n10.10.10.10 meta\n# barn:11111111-1111-4111-8111-111111111111:end\n")
 	if _, _, _, err := ReconcileContent(legacyMarker, ActionInstall, fixtureEntries()); err == nil {
 		t.Fatal("pre-simplification per-project marker was accepted")
 	}
-	duplicate := []byte("# farrow:begin\n10.10.10.20 other\n# farrow:end\n# farrow:begin\n10.10.10.21 more\n# farrow:end\n")
+	duplicate := []byte("# barn:begin\n10.10.10.20 other\n# barn:end\n# barn:begin\n10.10.10.21 more\n# barn:end\n")
 	if _, _, _, err := ReconcileContent(duplicate, ActionInstall, fixtureEntries()); err == nil {
-		t.Fatal("duplicate Farrow hosts block was accepted")
+		t.Fatal("duplicate Barn hosts block was accepted")
 	}
 	entries := fixtureEntries()
 	entries[1].Names = []string{"meta"}
@@ -168,7 +168,7 @@ func TestApplyHelperRefusesStaleTargetAndSymlink(t *testing.T) {
 func TestInstalledHelperValidationRejectsUserOwnedAndSymlinkPaths(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	helper := filepath.Join(directory, "farrow-hosts-helper")
+	helper := filepath.Join(directory, "barn-hosts-helper")
 	if err := os.WriteFile(helper, []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestInstalledHelperValidationRejectsUserOwnedAndSymlinkPaths(t *testing.T) 
 	if err := validateInstalledHelper(link); err == nil {
 		t.Fatal("symlink helper was accepted for privileged execution")
 	}
-	if err := validateInstalledHelper(filepath.Join(directory, "..", filepath.Base(directory), "farrow-hosts-helper")); err == nil {
+	if err := validateInstalledHelper(filepath.Join(directory, "..", filepath.Base(directory), "barn-hosts-helper")); err == nil {
 		t.Fatal("non-canonical helper path was accepted")
 	}
 }

@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 type BaseImage struct {

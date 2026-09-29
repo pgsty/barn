@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
-	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/barn/internal/execx"
+	darwinnet "github.com/pgsty/barn/internal/network/darwin"
+	"github.com/pgsty/barn/internal/network/subnet"
 )
 
 type darwinFileInfo struct {

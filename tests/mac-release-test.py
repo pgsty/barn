@@ -23,8 +23,8 @@ spec.loader.exec_module(release)
 class PayloadTests(unittest.TestCase):
     def fixture(self):
         files = {"MACOS.md": (b"guide", 0o644)}
-        files[release.APP + "/Contents/Info.plist"] = plistlib.dumps({"FarrowVersion": "0.8.1-next", "FarrowCommit": "uncommitted", "LSMinimumSystemVersion": "27.0"}), 0o644
-        for name in ("MacOS/farrow-mac-runner", "_CodeSignature/CodeResources"):
+        files[release.APP + "/Contents/Info.plist"] = plistlib.dumps({"BarnVersion": "0.8.1-next", "BarnCommit": "uncommitted", "LSMinimumSystemVersion": "27.0"}), 0o644
+        for name in ("MacOS/barn-mac-runner", "_CodeSignature/CodeResources"):
             files[release.APP + "/Contents/" + name] = b"test bytes", 0o644 if name.startswith("_CodeSignature/") else 0o755
         manifest = {"schema": 1, "version": "0.8.1-next", "commit": "uncommitted", "target": "darwin/arm64", "signing": "ad_hoc", "notarized": False,
                     "files": {name: {"sha256": hashlib.sha256(data).hexdigest(), "mode": mode} for name, (data, mode) in files.items()}}
@@ -47,7 +47,7 @@ class PayloadTests(unittest.TestCase):
 
     def test_missing_corrupt_and_nonexecutable_payloads(self):
         original = self.fixture()
-        path = release.APP + "/Contents/MacOS/farrow-mac-runner"
+        path = release.APP + "/Contents/MacOS/barn-mac-runner"
         for kind in ("missing", "content", "mode", "unexpected"):
             with self.subTest(kind=kind):
                 files = copy.deepcopy(original)
@@ -63,7 +63,7 @@ class PayloadTests(unittest.TestCase):
                     release.validate(files, "0.8.1-next")
 
     def test_formal_release_rejects_development_signing(self):
-        with patch.dict(os.environ, FARROW_MAC_REQUIRE_NOTARIZATION="1"):
+        with patch.dict(os.environ, BARN_MAC_REQUIRE_NOTARIZATION="1"):
             with self.assertRaisesRegex(ValueError, "notarized"):
                 release.validate(self.fixture(), "0.8.1-next")
 

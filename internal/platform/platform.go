@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 // Tier describes release evidence, not whether a platform can compile.
@@ -97,7 +97,7 @@ func QEMUMissing(program string, cause error) error {
 	if !errors.Is(cause, exec.ErrNotFound) {
 		err = fmt.Errorf("QEMU is not usable (%s): %w", program, cause)
 	}
-	return failure.New(failure.Capability, err).Because("qemu_missing").Then("farrow setup")
+	return failure.New(failure.Capability, err).Because("qemu_missing").Then("barn setup")
 }
 
 func allowsRHELQEMUFallback(profile Profile) bool {
@@ -214,7 +214,7 @@ func Native() (Profile, error) { return Resolve(runtime.GOOS, runtime.GOARCH) }
 func Resolve(goos, goarch string) (Profile, error) {
 	profile, ok := profiles[goos+"/"+goarch]
 	if !ok {
-		return Profile{}, fmt.Errorf("unsupported host %s/%s: Farrow runs natively on macOS and Linux, arm64 or amd64", goos, goarch)
+		return Profile{}, fmt.Errorf("unsupported host %s/%s: Barn runs natively on macOS and Linux, arm64 or amd64", goos, goarch)
 	}
 	return profile, nil
 }

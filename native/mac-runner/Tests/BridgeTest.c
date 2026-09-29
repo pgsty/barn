@@ -10,7 +10,7 @@
 #include <fcntl.h>
 
 int main(void) {
-    char root[] = "/tmp/farrow-bridge-test.XXXXXX";
+    char root[] = "/tmp/barn-bridge-test.XXXXXX";
     assert(mkdtemp(root));
     char path[104];
     snprintf(path, sizeof(path), "%s/control.sock", root);

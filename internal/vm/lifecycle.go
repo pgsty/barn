@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/openssh"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/qmp"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/openssh"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/qmp"
+	"github.com/pgsty/barn/internal/state"
 )
 
 type Lifecycle struct {
@@ -544,7 +544,7 @@ func HostKeyAlias(uuid string) string {
 	if uuid == "" {
 		return ""
 	}
-	return fmt.Sprintf("farrow-%x", sha256.Sum256([]byte(strings.ToLower(uuid))))
+	return fmt.Sprintf("barn-%x", sha256.Sum256([]byte(strings.ToLower(uuid))))
 }
 
 func SSHArgsForInstance(user, key, knownHosts, alias string, port uint16, command ...string) []string {
@@ -596,7 +596,7 @@ func (l Lifecycle) WaitReady(parent context.Context, sshPath, key, knownHosts st
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		args := SSHArgsForInstance(l.sshUser(), key, knownHosts, l.HostKeyAlias, port, "cat", "/var/lib/farrow/ready.json")
+		args := SSHArgsForInstance(l.sshUser(), key, knownHosts, l.HostKeyAlias, port, "cat", "/var/lib/barn/ready.json")
 		if args == nil {
 			return nil, fmt.Errorf("invalid SSH user %q", l.sshUser())
 		}
@@ -623,7 +623,7 @@ func (l Lifecycle) WaitReady(parent context.Context, sshPath, key, knownHosts st
 				return nil, fmt.Errorf("SSH access refused: %s", readinessDetail(err))
 			}
 		}
-		errorArgs := SSHArgsForInstance(l.sshUser(), key, knownHosts, l.HostKeyAlias, port, "cat", "/var/lib/farrow/error.json")
+		errorArgs := SSHArgsForInstance(l.sshUser(), key, knownHosts, l.HostKeyAlias, port, "cat", "/var/lib/barn/error.json")
 		errorResult, errorErr := l.Runner.Run(ctx, sshPath, errorArgs...)
 		if errorErr == nil {
 			var marker bootstrapErrorMarker

@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/qmp"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/qmp"
 )
 
 func TestSSHArgsAreIsolated(t *testing.T) {
@@ -34,7 +34,7 @@ func TestSSHArgsAreIsolated(t *testing.T) {
 
 func TestSSHArgsPreserveKnownHostsPathWithSpaces(t *testing.T) {
 	t.Parallel()
-	knownHosts := filepath.Join(t.TempDir(), "Application Support", "farrow", "known_hosts")
+	knownHosts := filepath.Join(t.TempDir(), "Application Support", "barn", "known_hosts")
 	args := SSHArgsForUser("dba", "/key", knownHosts, 2222)
 	wantOption := `UserKnownHostsFile="` + knownHosts + `"`
 	found := false
@@ -98,9 +98,9 @@ type readinessRunner struct {
 func (runner readinessRunner) Run(_ context.Context, _ string, args ...string) (execx.Result, error) {
 	command := args[len(args)-1]
 	switch {
-	case strings.Contains(command, "/var/lib/farrow/ready.json") && runner.ready != nil:
+	case strings.Contains(command, "/var/lib/barn/ready.json") && runner.ready != nil:
 		return execx.Result{Stdout: runner.ready}, nil
-	case strings.Contains(command, "/var/lib/farrow/error.json") && runner.error != nil:
+	case strings.Contains(command, "/var/lib/barn/error.json") && runner.error != nil:
 		return execx.Result{Stdout: runner.error}, nil
 	default:
 		return execx.Result{}, errors.New("marker is not present")

@@ -7,20 +7,20 @@ import (
 
 func TestRepositorySources(t *testing.T) {
 	t.Parallel()
-	catalog, err := RepositoryCatalogSource("http://m0/repos/farrow/")
-	if err != nil || catalog != "http://m0/repos/farrow/catalog.json" {
+	catalog, err := RepositoryCatalogSource("http://m0/repos/barn/")
+	if err != nil || catalog != "http://m0/repos/barn/catalog.json" {
 		t.Fatalf("catalog source = %q, %v", catalog, err)
 	}
-	artifact, err := RepositoryArtifactSource("http://m0/repos/farrow", "u24/u24-1-arm64.qcow2")
-	if err != nil || artifact != "http://m0/repos/farrow/u24/u24-1-arm64.qcow2" {
+	artifact, err := RepositoryArtifactSource("http://m0/repos/barn", "u24/u24-1-arm64.qcow2")
+	if err != nil || artifact != "http://m0/repos/barn/u24/u24-1-arm64.qcow2" {
 		t.Fatalf("artifact source = %q, %v", artifact, err)
 	}
-	flat, err := RepositoryArtifactSource("https://repo.example/farrow", "images/d13-1-arm64.qcow2")
-	if err != nil || flat != "https://repo.example/farrow/images/d13-1-arm64.qcow2" {
+	flat, err := RepositoryArtifactSource("https://repo.example/barn", "images/d13-1-arm64.qcow2")
+	if err != nil || flat != "https://repo.example/barn/images/d13-1-arm64.qcow2" {
 		t.Fatalf("flat artifact source = %q, %v", flat, err)
 	}
-	canonical, err := RepositoryCatalogSource("https://repo.pigsty.io/farrow/nested/../.")
-	if err != nil || canonical != "https://repo.pigsty.io/farrow/catalog.json" {
+	canonical, err := RepositoryCatalogSource("https://repo.pigsty.io/barn/nested/../.")
+	if err != nil || canonical != "https://repo.pigsty.io/barn/catalog.json" {
 		t.Fatalf("canonical official catalog source = %q, %v", canonical, err)
 	}
 	local := filepath.Join(t.TempDir(), "repo")
@@ -32,11 +32,11 @@ func TestRepositorySources(t *testing.T) {
 
 func TestPublicDefaultRepository(t *testing.T) {
 	t.Parallel()
-	const expected = "https://repo.pigsty.io/farrow"
+	const expected = "https://repo.pigsty.io/barn"
 	if DefaultRepositoryURL != expected {
 		t.Fatalf("default repository = %q, want %q", DefaultRepositoryURL, expected)
 	}
-	if MirrorRepositoryURL != "https://repo.pigsty.cc/farrow" {
+	if MirrorRepositoryURL != "https://repo.pigsty.cc/barn" {
 		t.Fatalf("mirror repository = %q", MirrorRepositoryURL)
 	}
 	for _, repository := range []string{
@@ -46,7 +46,7 @@ func TestPublicDefaultRepository(t *testing.T) {
 		ChinaRepositoryURL + "/.",
 		GlobalRepositoryURL + "/nested/..",
 		GlobalRepositoryURL + "/%2e",
-		"https://REPO.PIGSTY.IO.:443/farrow",
+		"https://REPO.PIGSTY.IO.:443/barn",
 	} {
 		if RepositoryAllowsUnsigned(repository) {
 			t.Errorf("official repository %q unexpectedly permits an unsigned catalog", repository)
@@ -55,7 +55,7 @@ func TestPublicDefaultRepository(t *testing.T) {
 }
 
 func TestResolveRepositoryPrecedence(t *testing.T) {
-	t.Setenv("FARROW_REPO", "https://environment.example/farrow")
+	t.Setenv("BARN_REPO", "https://environment.example/barn")
 
 	for _, test := range []struct {
 		name       string
@@ -65,13 +65,13 @@ func TestResolveRepositoryPrecedence(t *testing.T) {
 		explicit   bool
 	}{
 		{name: "default", want: GlobalRepositoryURL},
-		{name: "environment", want: "https://environment.example/farrow", explicit: true},
+		{name: "environment", want: "https://environment.example/barn", explicit: true},
 		{name: "mirror beats environment", mirror: true, want: ChinaRepositoryURL, explicit: true},
-		{name: "repo beats mirror", repository: "https://command.example/farrow/", mirror: true, want: "https://command.example/farrow", explicit: true},
+		{name: "repo beats mirror", repository: "https://command.example/barn/", mirror: true, want: "https://command.example/barn", explicit: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.name == "default" {
-				t.Setenv("FARROW_REPO", "")
+				t.Setenv("BARN_REPO", "")
 			}
 			got, explicit, err := ResolveRepository(test.repository, test.mirror)
 			if err != nil || got != test.want || explicit != test.explicit {

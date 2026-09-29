@@ -7,7 +7,7 @@ package runtimepath
 import (
 	"errors"
 	"fmt"
-	"github.com/pgsty/farrow/internal/naming"
+	"github.com/pgsty/barn/internal/naming"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,7 +19,7 @@ func fallbackBase(uid int) string {
 	if runtime.GOOS == "darwin" {
 		root = "/private/tmp"
 	}
-	return filepath.Join(root, fmt.Sprintf("farrow-%d", uid))
+	return filepath.Join(root, fmt.Sprintf("barn-%d", uid))
 }
 
 func ownerUID(info os.FileInfo) (int, bool) {
@@ -70,13 +70,13 @@ func maxSocketPath() int {
 }
 
 // Directory returns the node's runtime location without creating it:
-// <base>/farrow/<node>, where base is XDG_RUNTIME_DIR or the UID /tmp root.
+// <base>/barn/<node>, where base is XDG_RUNTIME_DIR or the UID /tmp root.
 func Directory(node string, uid int) (string, error) {
 	base, err := selectedBase(uid)
 	if err != nil {
 		return "", err
 	}
-	directory := filepath.Join(base, "farrow", node)
+	directory := filepath.Join(base, "barn", node)
 	if err := Validate(directory, node, uid); err != nil {
 		return "", err
 	}
@@ -89,9 +89,9 @@ func Validate(directory, node string, uid int) error {
 	if !naming.ValidNodeName(node) || uid < 0 || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return errors.New("runtime directory identity is invalid")
 	}
-	farrowDir := filepath.Dir(directory)
-	base := filepath.Dir(farrowDir)
-	if filepath.Base(directory) != node || filepath.Base(farrowDir) != "farrow" || base == "/" || base == "." {
+	barnDir := filepath.Dir(directory)
+	base := filepath.Dir(barnDir)
+	if filepath.Base(directory) != node || filepath.Base(barnDir) != "barn" || base == "/" || base == "." {
 		return errors.New("runtime directory does not match the node identity")
 	}
 	if len(filepath.Join(directory, "qmp.sock")) > maxSocketPath() {
@@ -118,16 +118,16 @@ func Ensure(directory string, uid int) error {
 		return errors.New("runtime directory must be a clean absolute path")
 	}
 	nodeDir := directory
-	farrowDir := filepath.Dir(nodeDir)
-	base := filepath.Dir(farrowDir)
-	if filepath.Base(farrowDir) != "farrow" || !naming.ValidNodeName(filepath.Base(nodeDir)) {
+	barnDir := filepath.Dir(nodeDir)
+	base := filepath.Dir(barnDir)
+	if filepath.Base(barnDir) != "barn" || !naming.ValidNodeName(filepath.Base(nodeDir)) {
 		return errors.New("runtime directory has an invalid managed layout")
 	}
 	allowBaseCreate := base == fallbackBase(uid)
 	if err := ensureOne(base, uid, allowBaseCreate); err != nil {
 		return err
 	}
-	for _, path := range []string{farrowDir, nodeDir} {
+	for _, path := range []string{barnDir, nodeDir} {
 		if err := ensureOne(path, uid, true); err != nil {
 			return err
 		}
@@ -141,12 +141,12 @@ func PruneEmptyParents(directory string, uid int) error {
 	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return errors.New("runtime directory must be a clean absolute path")
 	}
-	farrowDir := filepath.Dir(directory)
-	base := filepath.Dir(farrowDir)
-	if filepath.Base(farrowDir) != "farrow" || !naming.ValidNodeName(filepath.Base(directory)) {
+	barnDir := filepath.Dir(directory)
+	base := filepath.Dir(barnDir)
+	if filepath.Base(barnDir) != "barn" || !naming.ValidNodeName(filepath.Base(directory)) {
 		return errors.New("runtime directory has an invalid managed layout")
 	}
-	candidates := []string{farrowDir}
+	candidates := []string{barnDir}
 	if base == fallbackBase(uid) {
 		candidates = append(candidates, base)
 	}

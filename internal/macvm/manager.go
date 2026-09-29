@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 // HostVMLimit is Apple's limit on concurrently running macOS guests per host,
@@ -30,9 +30,6 @@ type Manager struct {
 	// SSHHome selects the home whose ~/.ssh holds the Mac SSH fragment. Empty
 	// uses the current user's home.
 	SSHHome string
-	// Sudo caches administrator credentials before a privileged step. Nil
-	// requires sudo to work without a prompt. Only migrate needs it.
-	Sudo func(ctx context.Context, reason string) error
 
 	hostRoutes func(context.Context) ([]DarwinRoute, error)
 	hostLimits func(context.Context) (int, int64, error)
@@ -117,7 +114,7 @@ func (m *Manager) requireRunner(ctx context.Context) error {
 		return err
 	}
 	if os.Geteuid() == 0 {
-		return failure.New(failure.Usage, errors.New("run farrow mac as your normal macOS login user, not as root")).Because("mac_root")
+		return failure.New(failure.Usage, errors.New("run barn mac as your normal macOS login user, not as root")).Because("mac_root")
 	}
 	if m.Runner.Binary == "" {
 		binary, err := FindRunner()
@@ -194,7 +191,7 @@ func (m *Manager) List(ctx context.Context, probeSSH bool) (Status, error) {
 func (m *Manager) Machine(name string) (*Machine, error) {
 	machine, err := m.Store.LoadMachine(name)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, failure.New(failure.Conflict, fmt.Errorf("no Mac machine named %s", name)).Because("mac_machine_absent").Then("farrow mac up " + name)
+		return nil, failure.New(failure.Conflict, fmt.Errorf("no Mac machine named %s", name)).Because("mac_machine_absent").Then("barn mac up " + name)
 	}
 	return machine, err
 }
@@ -443,7 +440,7 @@ func (m *Manager) startLocked(ctx context.Context, operation *lock.File, machine
 		}
 	} else {
 		if options.Recovery {
-			return outcome, failure.New(failure.Conflict, fmt.Errorf("%s is running; recoveryOS needs a fresh boot", machine.Name)).Then("farrow mac stop " + machine.Name)
+			return outcome, failure.New(failure.Conflict, fmt.Errorf("%s is running; recoveryOS needs a fresh boot", machine.Name)).Then("barn mac stop " + machine.Name)
 		}
 		if action == "started" {
 			action = "running"
@@ -492,7 +489,7 @@ func (m *Manager) launch(ctx context.Context, operation *lock.File, machine *Mac
 	}
 	for _, share := range machine.Shares {
 		if err := checkShareSource(share); err != nil {
-			return failure.WithNext(err, fmt.Sprintf("farrow mac configure %s --unshare %s", machine.Name, share.Name))
+			return failure.WithNext(err, fmt.Sprintf("barn mac configure %s --unshare %s", machine.Name, share.Name))
 		}
 	}
 	basePath, err := m.Store.BasePath(machine.BaseID)
@@ -560,7 +557,7 @@ func (m *Manager) checkVMLimit(ctx context.Context, starting string) error {
 		return nil
 	}
 	return failure.New(failure.Resource, fmt.Errorf("%s are running; macOS allows %d macOS virtual machines at a time", strings.Join(running, " and "), HostVMLimit)).
-		Because("mac_vm_limit").Then("farrow mac stop " + running[len(running)-1])
+		Because("mac_vm_limit").Then("barn mac stop " + running[len(running)-1])
 }
 
 func (m *Manager) showWindow(ctx context.Context, machine *Machine) error {
@@ -596,7 +593,7 @@ func (m *Manager) startOne(ctx context.Context, name string, options StartOption
 		return outcome, err
 	}
 	if !machine.Initialized && !options.Recovery {
-		return outcome, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name)
+		return outcome, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("barn mac up " + name)
 	}
 	return m.startLocked(ctx, operation, machine, options, "started")
 }
@@ -737,7 +734,7 @@ func (m *Manager) stopRuntimeWith(ctx context.Context, machine *Machine, force b
 	}
 	done, err := m.waitStopped(ctx, machine, 30*time.Second)
 	if err == nil && !done {
-		err = fmt.Errorf("%s did not power off within 30 seconds; inspect farrow mac logs %s", machine.Name, machine.Name)
+		err = fmt.Errorf("%s did not power off within 30 seconds; inspect barn mac logs %s", machine.Name, machine.Name)
 	}
 	return done, true, err
 }
@@ -785,7 +782,7 @@ func (m *Manager) Restart(ctx context.Context, name string, options StartOptions
 		return Outcome{}, err
 	}
 	if !machine.Initialized {
-		return Outcome{}, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name)
+		return Outcome{}, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("barn mac up " + name)
 	}
 	stopped, err := m.stopOne(ctx, name, false)
 	if err != nil {
@@ -816,7 +813,7 @@ func (m *Manager) Open(ctx context.Context, name string) (outcome Outcome, retEr
 		return outcome, nil
 	}
 	if !machine.Initialized {
-		return outcome, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name + " --open")
+		return outcome, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("barn mac up " + name + " --open")
 	}
 	outcome, err = m.startOne(ctx, name, StartOptions{NoWait: true, Window: true})
 	if err == nil {
@@ -997,7 +994,7 @@ func (m *Manager) updatedBase(machine *Machine) (*BaseImage, error) {
 		return nil, err
 	}
 	if config.DefaultBaseID == "" {
-		return nil, failure.New(failure.Conflict, errors.New("no prepared default base")).Then("farrow mac image update")
+		return nil, failure.New(failure.Conflict, errors.New("no prepared default base")).Then("barn mac image update")
 	}
 	base, err := m.Store.LoadBase(config.DefaultBaseID)
 	if err != nil || base.DiskBytes == machine.DiskBytes {
@@ -1007,7 +1004,7 @@ func (m *Manager) updatedBase(machine *Machine) (*BaseImage, error) {
 		return ready, nil
 	}
 	return nil, failure.New(failure.Conflict, fmt.Errorf("%s has a %d GiB disk, but macOS %s (%s) is prepared only at %d GiB", machine.Name, machine.DiskBytes>>30, base.Version, base.Build, base.DiskBytes>>30)).
-		Then(fmt.Sprintf("farrow mac setup --disk %dG, then farrow mac recreate %s --update", machine.DiskBytes>>30, machine.Name))
+		Then(fmt.Sprintf("barn mac setup --disk %dG, then barn mac recreate %s --update", machine.DiskBytes>>30, machine.Name))
 }
 
 // validateBase checks a base's small metadata and required files before a
@@ -1058,14 +1055,14 @@ func (m *Manager) Connection(ctx context.Context, name string) (Connection, erro
 		return Connection{}, err
 	}
 	if !machine.Initialized {
-		return Connection{}, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name)
+		return Connection{}, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("barn mac up " + name)
 	}
 	if err := m.checkSSHMaterial(machine); err != nil {
 		return Connection{}, err
 	}
 	status, err := m.status(ctx, machine)
 	if err != nil || status.State != "running" {
-		return Connection{}, failure.New(failure.Conflict, fmt.Errorf("%s is not running", name)).Because("mac_not_running").Then("farrow mac start " + name)
+		return Connection{}, failure.New(failure.Conflict, fmt.Errorf("%s is not running", name)).Because("mac_not_running").Then("barn mac start " + name)
 	}
 	return m.connection(machine)
 }

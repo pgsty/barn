@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 type fakeNodeLifecycle struct {

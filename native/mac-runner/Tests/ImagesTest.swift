@@ -7,7 +7,7 @@ import Virtualization
 struct ImagesTest {
     @MainActor static func main() throws {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("farrow-runner-test-\(UUID().uuidString)")
+        let root = fm.temporaryDirectory.appendingPathComponent("barn-runner-test-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: root) }
         let base = root.appendingPathComponent("base")
         try fm.createDirectory(at: base, withIntermediateDirectories: true)

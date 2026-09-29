@@ -6,9 +6,9 @@ import (
 	"net"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/identity"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/identity"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 type SeedInput struct {

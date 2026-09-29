@@ -1,4 +1,4 @@
-// Package webclient builds Farrow's outbound HTTP clients. Every download —
+// Package webclient builds Barn's outbound HTTP clients. Every download —
 // images, catalogs, socket_vmnet — honors the standard proxy environment
 // (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY) through an explicit
 // transport rather than the mutable process-global default.

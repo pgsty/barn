@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func TestParseSize(t *testing.T) {

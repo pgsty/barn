@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/network/portalloc"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/network/portalloc"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func (NativeLifecycle) PortAvailable(bind string, port uint16) bool {

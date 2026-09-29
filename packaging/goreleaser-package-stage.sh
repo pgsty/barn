@@ -26,7 +26,7 @@ script_directory=$(cd "$(dirname "$0")" && pwd -P)
 repo=$(cd "${script_directory}/.." && pwd -P)
 # shellcheck disable=SC1091
 source "${script_directory}/semver.sh"
-farrow_is_semver "${version}" || { printf 'invalid package version: %s\n' "${version}" >&2; exit 2; }
+barn_is_semver "${version}" || { printf 'invalid package version: %s\n' "${version}" >&2; exit 2; }
 if [[ ${staging_root} != /* ]]; then
   staging_root=${repo}/${staging_root}
 fi
@@ -43,7 +43,7 @@ esac
 resolved_stage=$(cd "${stage}" && pwd -P)
 [[ ${resolved_stage} == "${expected_root}/${goos}_${goarch}" ]] || { printf 'package target stage resolves outside the repository\n' >&2; exit 2; }
 stage=${resolved_stage}
-helper=${stage}/farrow-hosts-helper
+helper=${stage}/barn-hosts-helper
 [[ -f ${helper} && ! -L ${helper} ]] || { printf 'paired package helper is missing: %s\n' "${helper}" >&2; exit 1; }
 
 for tool in awk chmod cp find grep install jq rm shasum touch; do
@@ -58,12 +58,12 @@ for path in "${package_content}" "${sbom_root}"; do
   esac
 done
 install -d -m 0755 \
-  "${package_content}/opt/farrow/libexec" \
+  "${package_content}/opt/barn/libexec" \
   "${package_content}/usr/bin" \
-  "${package_content}/usr/share/doc/farrow/licenses"
-install -m 0755 "${helper}" "${package_content}/opt/farrow/libexec/farrow-hosts-helper"
-install -m 0644 "${repo}/LICENSE" "${repo}/README.md" "${package_content}/usr/share/doc/farrow/"
-"${repo}/packaging/dependency-licenses.sh" stage "${package_content}/usr/share/doc/farrow/licenses"
+  "${package_content}/usr/share/doc/barn/licenses"
+install -m 0755 "${helper}" "${package_content}/opt/barn/libexec/barn-hosts-helper"
+install -m 0644 "${repo}/LICENSE" "${repo}/README.md" "${package_content}/usr/share/doc/barn/"
+"${repo}/packaging/dependency-licenses.sh" stage "${package_content}/usr/share/doc/barn/licenses"
 
 binary_sha=$(shasum -a 256 "${binary}" | awk '{print $1}')
 helper_sha=$(shasum -a 256 "${helper}" | awk '{print $1}')
@@ -72,9 +72,9 @@ jq -n \
   --arg version "${version}" --arg commit "${commit}" --arg date "${build_date}" \
   --arg arch "${goarch}" --arg binary_sha "${binary_sha}" --arg helper_sha "${helper_sha}" \
   --argjson source_epoch "${source_epoch}" \
-  '{schema:1,version:$version,commit:$commit,date:$date,source_date_epoch:$source_epoch,goos:"linux",goarch:$arch,cgo_enabled:false,farrow_sha256:$binary_sha,hosts_helper_sha256:$helper_sha}' \
-  >"${package_content}/usr/share/doc/farrow/BUILD_INFO.json"
-chmod 0644 "${package_content}/usr/share/doc/farrow/BUILD_INFO.json"
+  '{schema:1,version:$version,commit:$commit,date:$date,source_date_epoch:$source_epoch,goos:"linux",goarch:$arch,cgo_enabled:false,barn_sha256:$binary_sha,hosts_helper_sha256:$helper_sha}' \
+  >"${package_content}/usr/share/doc/barn/BUILD_INFO.json"
+chmod 0644 "${package_content}/usr/share/doc/barn/BUILD_INFO.json"
 
 touch_stamp=${build_date:0:4}${build_date:5:2}${build_date:8:2}${build_date:11:2}${build_date:14:2}.${build_date:17:2}
 while IFS= read -r -d '' path; do
@@ -83,5 +83,5 @@ done < <(find "${package_content}" -depth -print0)
 
 install -d -m 0755 "${sbom_root}"
 cp -R "${package_content}/." "${sbom_root}/"
-install -m 0755 "${binary}" "${sbom_root}/usr/bin/farrow"
+install -m 0755 "${binary}" "${sbom_root}/usr/bin/barn"
 printf 'prepared GoReleaser package payload for %s/%s\n' "${goos}" "${goarch}"

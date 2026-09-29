@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "recipe_id": "https://github.com/pgsty/farrow/packaging/image-pipeline/v1",
+  "recipe_id": "https://github.com/pgsty/barn/packaging/image-pipeline/v1",
   "max_source_bytes": 17179869184,
   "max_package_bytes": 536870912,
   "max_package_bundle_bytes": 1073741824,
@@ -48,7 +48,7 @@
     "engine": "virt-customize",
     "network": false,
     "guest_script": "normalize-guest.sh",
-    "marker": "/var/lib/farrow-image/normalization.json",
+    "marker": "/var/lib/barn-image/normalization.json",
     "login_user": "dba",
     "login_uid": 88,
     "primary_group": "admin",

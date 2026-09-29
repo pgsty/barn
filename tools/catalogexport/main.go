@@ -1,4 +1,4 @@
-// Command catalogexport writes the exact embedded Farrow image catalog for
+// Command catalogexport writes the exact embedded Barn image catalog for
 // repository staging. Signing remains a separate catalogsign operation.
 package main
 
@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/image"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/image"
 )
 
 func main() {

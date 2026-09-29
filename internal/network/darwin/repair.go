@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/barn/internal/network/subnet"
 )
 
 // Repair reuses the verified installed binaries and interface identity. It
@@ -66,7 +66,7 @@ func (e Executor) Repair(ctx context.Context, mode, cidr string, restart bool) e
 	if err != nil {
 		return err
 	}
-	staging, err := os.MkdirTemp(e.StagingParent, "farrow-network-repair-")
+	staging, err := os.MkdirTemp(e.StagingParent, "barn-network-repair-")
 	if err != nil {
 		return err
 	}

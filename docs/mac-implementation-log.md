@@ -1,15 +1,17 @@
 # Farrow Mac implementation and acceptance log
 
-This log records how the current `farrow mac` was validated and what is not
-yet covered. The user contract is [the Mac guide](mac.md).
+This historical log records how `farrow mac` was validated before the Barn
+rename. Its results are not acceptance evidence for a later Barn build. The
+current user contract is [the Mac guide](mac.md).
 
 No release before 0.9.0 contained `farrow mac`. Development builds from
 2026-09-21 to 2026-09-28 used two fixed slots, passwords in the login Keychain
 and a root network daemon. That design was replaced on 2026-09-29; its
 proposals, reviews and acceptance records remain in git history up to commit
-`45f931b`. The hidden `farrow mac migrate` command converts machines those
-builds created. Raw evidence (logs, JSON results, screenshots) stays on the
-test host and is summarized here.
+`45f931b`. Those development builds included a hidden `farrow mac migrate`
+command; Barn removes it and starts a new namespace without adopting their
+state. Raw evidence (logs, JSON results, screenshots) stays on the test host
+and is summarized here.
 
 ## Design, 2026-09-29
 

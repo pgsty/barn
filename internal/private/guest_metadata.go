@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 
-	"github.com/pgsty/farrow/internal/cloudinit"
-	"github.com/pgsty/farrow/internal/lock"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 func guestMetadataCommand(resolved spec.Resolved, control bool) string {
@@ -16,15 +16,15 @@ func guestMetadataCommand(resolved spec.Resolved, control bool) string {
 	write := func(path, contents string) string {
 		return "printf %s " + base64.StdEncoding.EncodeToString([]byte(contents)) + " | base64 -d | sudo -n tee " + path + " >/dev/null"
 	}
-	command := "set -eu; " + write("/usr/local/libexec/farrow-hosts", cloudinit.RenderHostsScript(hosts)) + " && sudo -n /usr/local/libexec/farrow-hosts"
+	command := "set -eu; " + write("/usr/local/libexec/barn-hosts", cloudinit.RenderHostsScript(hosts)) + " && sudo -n /usr/local/libexec/barn-hosts"
 	if control {
 		payload := base64.StdEncoding.EncodeToString([]byte(cloudinit.RenderControlSSHConfig(resolved.SSHUser, hosts)))
-		command += ` && temporary=$(mktemp "$HOME/.ssh/.farrow-XXXXXX") && { printf %s ` + payload + ` | base64 -d; if test -f "$HOME/.ssh/config"; then sed '/^# BEGIN FARROW$/,/^# END FARROW$/d' "$HOME/.ssh/config"; fi; } >"$temporary" && install -m 600 "$temporary" "$HOME/.ssh/config" && rm -f "$temporary"`
+		command += ` && temporary=$(mktemp "$HOME/.ssh/.barn-XXXXXX") && { printf %s ` + payload + ` | base64 -d; if test -f "$HOME/.ssh/config"; then sed '/^# BEGIN BARN$/,/^# END BARN$/d' "$HOME/.ssh/config"; fi; } >"$temporary" && install -m 600 "$temporary" "$HOME/.ssh/config" && rm -f "$temporary"`
 	}
 	return command
 }
 
-// RefreshGuestMetadata updates the small Farrow-owned hosts/SSH fragments in
+// RefreshGuestMetadata updates the small Barn-owned hosts/SSH fragments in
 // running guests after topology changes. Stopped guests catch up on their next up.
 func (m Manager) RefreshGuestMetadata(ctx context.Context) (returnErr error) {
 	deployment, err := m.openDeployment(false)

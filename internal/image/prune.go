@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 type PruneItem struct {
@@ -157,7 +157,7 @@ func (s Store) Prune(ctx context.Context, apply bool, resolveReferences func() (
 		return PruneReport{Apply: apply, Items: []PruneItem{}}, nil
 	}
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o022 != 0 {
-		return PruneReport{}, errors.New("farrow home directory is unsafe")
+		return PruneReport{}, errors.New("barn home directory is unsafe")
 	}
 	if !apply {
 		referenced, resolveErr := resolveReferences()

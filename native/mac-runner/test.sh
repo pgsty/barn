@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-temporary="$(mktemp -d "${TMPDIR:-/tmp}/farrow-mac-runner-test.XXXXXX")"
+temporary="$(mktemp -d "${TMPDIR:-/tmp}/barn-mac-runner-test.XXXXXX")"
 trap 'rm -rf "$temporary"' EXIT
 xcrun clang -O2 -Wall -Wextra -Werror -mmacosx-version-min=27.0 -c Bridge.c -o "$temporary/Bridge.o"
 xcrun clang -O2 -Wall -Wextra -Werror -mmacosx-version-min=27.0 Tests/BridgeTest.c "$temporary/Bridge.o" -framework vmnet -framework CoreFoundation -o "$temporary/bridge-test"

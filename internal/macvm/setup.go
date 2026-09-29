@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
 	"golang.org/x/sys/unix"
 )
 
@@ -141,7 +141,7 @@ func (m *Manager) preflightSetup(ctx context.Context, config *Config, options Se
 			}
 			if image.Build != build {
 				return plan, failure.New(failure.Conflict, fmt.Errorf("the default base is macOS %s (%s), but Apple now offers %s (%s), so a %d GiB base of %s cannot be prepared", defaultBase.Version, build, image.Version, image.Build, plan.diskBytes>>30, build)).
-					Then("farrow mac image update, then retry")
+					Then("barn mac image update, then retry")
 			}
 			discovered, plan.metadata = &image, image.RestoreMetadata
 		}
@@ -327,7 +327,7 @@ func (m *Manager) obtainInstaller(ctx context.Context, plan setupPlan, options S
 
 func lowSpace(free, needed int64) error {
 	return failure.New(failure.Resource, fmt.Errorf("preparing macOS needs %.0f GiB free on this volume, but only %.0f GiB is available", float64(needed)/(1<<30), float64(free)/(1<<30))).
-		Because("disk_full").Then("free disk space, or remove unused images with farrow mac image prune --installers --yes")
+		Because("disk_full").Then("free disk space, or remove unused images with barn mac image prune --installers --yes")
 }
 
 func (m *Manager) downloadProgress(spec IPSWSpec) func(done, total int64) {

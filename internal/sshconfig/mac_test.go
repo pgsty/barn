@@ -9,37 +9,37 @@ import (
 )
 
 func macEntry(name, host string) MacEntry {
-	return MacEntry{Name: name, User: "farrow", Host: host, Identity: "/data/mac/slots/" + name + "/id_ed25519",
-		KnownHosts: "/data/mac/slots/" + name + "/known_hosts", HostKeyAlias: "farrow-mac-" + name}
+	return MacEntry{Name: name, User: "barn", Host: host, Identity: "/data/mac/slots/" + name + "/id_ed25519",
+		KnownHosts: "/data/mac/slots/" + name + "/known_hosts", HostKeyAlias: "barn-mac-" + name}
 }
 
 func TestMacFragmentCoexistsWithTheLinuxFragment(t *testing.T) {
 	home := t.TempDir()
-	if _, err := InstallMany(home, []Entry{{Name: "farrow", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2222, Identity: "/k/id", KnownHosts: "/k/known"}}); err != nil {
+	if _, err := InstallMany(home, []Entry{{Name: "barn", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2222, Identity: "/k/id", KnownHosts: "/k/known"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InstallMac(home, "/data/mac", []MacEntry{macEntry("mac1", "10.10.20.10"), macEntry("dev", "10.10.30.10")}, false); err != nil {
 		t.Fatal(err)
 	}
 	config, _ := os.ReadFile(filepath.Join(home, ".ssh", "config"))
-	if strings.Count(string(config), "# farrow:include") != 1 || strings.Count(string(config), "# farrow-mac:include") != 1 {
+	if strings.Count(string(config), "# barn:include") != 1 || strings.Count(string(config), "# barn-mac:include") != 1 {
 		t.Fatalf("config:\n%s", config)
 	}
 	fragment, _ := os.ReadFile(filepath.Join(home, ".ssh", MacFragment+"_config"))
-	for _, want := range []string{"# farrow-mac:root /data/mac", "Host mac1 10.10.20.10", "HostKeyAlias farrow-mac-dev", "StrictHostKeyChecking yes", "ForwardAgent no"} {
+	for _, want := range []string{"# barn-mac:root /data/mac", "Host mac1 10.10.20.10", "HostKeyAlias barn-mac-dev", "StrictHostKeyChecking yes", "ForwardAgent no"} {
 		if !strings.Contains(string(fragment), want) {
 			t.Errorf("fragment lacks %q:\n%s", want, fragment)
 		}
 	}
 	// Linux install and removal leave the Mac block alone, and vice versa.
-	if _, err := InstallMany(home, []Entry{{Name: "farrow", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2223, Identity: "/k/id", KnownHosts: "/k/known"}}); err != nil {
+	if _, err := InstallMany(home, []Entry{{Name: "barn", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2223, Identity: "/k/id", KnownHosts: "/k/known"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Remove(home, "farrow"); err != nil {
+	if _, err := Remove(home, "barn"); err != nil {
 		t.Fatal(err)
 	}
 	config, _ = os.ReadFile(filepath.Join(home, ".ssh", "config"))
-	if strings.Contains(string(config), "# farrow:include") || !strings.Contains(string(config), "# farrow-mac:include") {
+	if strings.Contains(string(config), "# barn:include") || !strings.Contains(string(config), "# barn-mac:include") {
 		t.Fatalf("config after Linux removal:\n%s", config)
 	}
 	if installed, err := MacInstalled(home, "/data/mac"); err != nil || !installed {
@@ -49,7 +49,7 @@ func TestMacFragmentCoexistsWithTheLinuxFragment(t *testing.T) {
 		t.Fatal(err)
 	}
 	config, _ = os.ReadFile(filepath.Join(home, ".ssh", "config"))
-	if strings.Contains(string(config), "farrow") {
+	if strings.Contains(string(config), "barn") {
 		t.Fatalf("config after Mac removal:\n%s", config)
 	}
 }
@@ -79,9 +79,9 @@ func TestMacFragmentBelongsToOneHome(t *testing.T) {
 
 func TestMacEntriesAreValidated(t *testing.T) {
 	for _, entry := range []MacEntry{
-		{Name: "bad name", User: "farrow", Host: "10.10.20.10", Identity: "/k", KnownHosts: "/k", HostKeyAlias: "a"},
-		{Name: "mac1", User: "farrow", Host: "10.10.20.10\nProxyCommand x", Identity: "/k", KnownHosts: "/k", HostKeyAlias: "a"},
-		{Name: "mac1", User: "farrow", Host: "10.10.20.10", Identity: "relative", KnownHosts: "/k", HostKeyAlias: "a"},
+		{Name: "bad name", User: "barn", Host: "10.10.20.10", Identity: "/k", KnownHosts: "/k", HostKeyAlias: "a"},
+		{Name: "mac1", User: "barn", Host: "10.10.20.10\nProxyCommand x", Identity: "/k", KnownHosts: "/k", HostKeyAlias: "a"},
+		{Name: "mac1", User: "barn", Host: "10.10.20.10", Identity: "relative", KnownHosts: "/k", HostKeyAlias: "a"},
 	} {
 		if _, err := RenderMac("/data/mac", []MacEntry{entry}); err == nil {
 			t.Errorf("accepted %+v", entry)

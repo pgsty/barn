@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
-	linuxnet "github.com/pgsty/farrow/internal/network/linux"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/execx"
+	linuxnet "github.com/pgsty/barn/internal/network/linux"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 type qemuVersionRunner struct {
@@ -41,7 +41,7 @@ func TestSelectDarwinBackendUsesFDForOldOrMissingStream(t *testing.T) {
 		{platform.Version{Major: 10, Minor: 2}, "user stream socket", false},
 		{platform.Version{Major: 11, Minor: 1}, "user stream socket", false},
 	} {
-		backend := selectDarwinBackend(test.version, test.help, "/private/var/run/farrow-vmnet.sock")
+		backend := selectDarwinBackend(test.version, test.help, "/private/var/run/barn-vmnet.sock")
 		if backend.DarwinUseFD != test.wantFD || (test.wantFD && backend.ReconnectMS != 0) || (!test.wantFD && backend.ReconnectMS != 1000) {
 			t.Errorf("version=%s help=%q backend=%#v", test.version, test.help, backend)
 		}

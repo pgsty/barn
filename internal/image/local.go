@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 const LocalAliasesSchema = 2
@@ -99,7 +99,7 @@ func localEntry(alias LocalAlias) Entry {
 		Alias: alias.Name, Release: "local-" + alias.Digest[:12], Arch: alias.Arch,
 		CacheFile: alias.File, SHA256: alias.Digest, Format: "qcow2", ArtifactSize: alias.ArtifactSize, VirtualSize: alias.VirtualSize,
 		SourceUser: alias.SourceUser, Boot: alias.Boot, Status: "testing",
-		Provenance: "explicit local import into the Farrow image directory",
+		Provenance: "explicit local import into the Barn image directory",
 	}
 }
 
@@ -110,7 +110,7 @@ func (s Store) RegisterLocalAlias(ctx context.Context, name, pathname string, me
 	name = strings.ToLower(strings.TrimSpace(name))
 	relative, err := filepath.Rel(s.imagesRoot(), pathname)
 	if err != nil || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || relative == ".." {
-		return Entry{}, "", Metadata{}, errors.New("imported image is outside the Farrow home")
+		return Entry{}, "", Metadata{}, errors.New("imported image is outside the Barn home")
 	}
 	value := LocalAlias{Name: name, File: filepath.ToSlash(relative), Digest: metadata.Digest, ArtifactSize: metadata.ArtifactSize, VirtualSize: metadata.VirtualSize, Arch: arch, Boot: boot, SourceUser: strings.TrimSpace(sourceUser), CreatedAt: time.Now().UTC()}
 	if err := validateLocalAlias(value); err != nil {

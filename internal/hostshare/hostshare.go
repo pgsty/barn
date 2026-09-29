@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
 	"golang.org/x/sys/unix"
 )
 
@@ -35,7 +35,7 @@ func overlaps(first, second string) bool {
 
 func validateProtectedPaths(root string, share spec.Share) error {
 	if root != "" && overlaps(share.Host, root) {
-		return fmt.Errorf("host share %q overlaps the protected Farrow data root %q", share.Host, root)
+		return fmt.Errorf("host share %q overlaps the protected Barn data root %q", share.Host, root)
 	}
 	return nil
 }
@@ -104,7 +104,7 @@ func openDirectory(share spec.Share) (*os.File, error) {
 	if permissions&required != required {
 		return nil, fmt.Errorf("host share %q owner permissions %#o do not provide required %#o", share.Host, permissions, required)
 	}
-	file := os.NewFile(uintptr(descriptor), "farrow-host-share")
+	file := os.NewFile(uintptr(descriptor), "barn-host-share")
 	if file == nil {
 		return nil, errors.New("wrap host share directory descriptor")
 	}
@@ -125,7 +125,7 @@ func Open(root string, shares []spec.Share) (*Bundle, error) {
 		if err != nil {
 			_ = bundle.Close()
 			if errors.Is(err, os.ErrNotExist) {
-				return nil, missingShare(fmt.Sprintf("host share %s (for %s) does not exist; restore the directory or its mount, then retry (Farrow never creates an empty one)", share.Host, share.Guest))
+				return nil, missingShare(fmt.Sprintf("host share %s (for %s) does not exist; restore the directory or its mount, then retry (Barn never creates an empty one)", share.Host, share.Guest))
 			}
 			return nil, fmt.Errorf("host share %q -> %q: %w", share.Host, share.Guest, err)
 		}
@@ -158,7 +158,7 @@ func (b *Bundle) ValidateQEMUAccess() error {
 		reopened, err := os.OpenFile(path, os.O_RDONLY|unix.O_DIRECTORY, 0)
 		if err != nil {
 			share := b.shares[index]
-			return failure.New(failure.Capability, fmt.Errorf("host share %q -> %q cannot be safely opened by QEMU on macOS: %w; omit vm_shares when creating a new node, or use a Linux host; changing shares on an existing node requires explicit recreate and replaces its root disk, so preserve needed data first; Farrow will not bypass directory identity checks", share.Host, share.Guest, err)).Because(ReasonUnsupportedOnDarwin)
+			return failure.New(failure.Capability, fmt.Errorf("host share %q -> %q cannot be safely opened by QEMU on macOS: %w; omit vm_shares when creating a new node, or use a Linux host; changing shares on an existing node requires explicit recreate and replaces its root disk, so preserve needed data first; Barn will not bypass directory identity checks", share.Host, share.Guest, err)).Because(ReasonUnsupportedOnDarwin)
 		}
 		if err := reopened.Close(); err != nil {
 			return fmt.Errorf("close host-share capability probe: %w", err)

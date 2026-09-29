@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/image"
-	"github.com/pgsty/farrow/internal/naming"
-	"github.com/pgsty/farrow/internal/network/subnet"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/naming"
+	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/spec"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -134,7 +134,7 @@ var (
 	dnsName        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
 	diskName       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	shareGuestPath = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
-	reservedMounts = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/farrow"}
+	reservedMounts = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn"}
 )
 
 func safeDiskMount(value string) bool {
@@ -167,7 +167,7 @@ func (node NodeConfig) label() string {
 	return fmt.Sprintf("host %s (%s)", node.Address, node.Name)
 }
 
-// minMemory is the smallest guest memory Farrow boots.
+// minMemory is the smallest guest memory Barn boots.
 const minMemory = 512 << 20
 
 func safeShareHost(value string) bool {

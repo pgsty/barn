@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func TestRenderSeedsPrivateContractAndKeyBoundary(t *testing.T) {
@@ -85,7 +85,7 @@ func TestSingleNodeControlReceivesLateralKeyForFutureScaleOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(files["meta"].UserData, []byte("PRIVATE KEY")) || !bytes.Contains(files["meta"].UserData, []byte("farrow-install-control-ssh")) {
+	if !bytes.Contains(files["meta"].UserData, []byte("PRIVATE KEY")) || !bytes.Contains(files["meta"].UserData, []byte("barn-install-control-ssh")) {
 		t.Fatal("single-node control guest lacks the key required for additive scale-out")
 	}
 }

@@ -1,4 +1,4 @@
-// Package naming owns identifiers shared across Farrow's filesystem, state,
+// Package naming owns identifiers shared across Barn's filesystem, state,
 // QEMU, provisioning, and guest-rendering boundaries.
 package naming
 

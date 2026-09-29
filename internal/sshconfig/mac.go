@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/openssh"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/openssh"
 )
 
 // MacFragment names the one fragment that holds every Mac machine.
-const MacFragment = "farrow-mac"
+const MacFragment = "barn-mac"
 
 // MacEntry is one macOS guest. Its host key is pinned under the instance
 // alias, so the address may change without weakening host verification.
@@ -29,11 +29,11 @@ type MacEntry struct {
 	AddressOnly bool
 }
 
-const macRootPrefix = "# farrow-mac:root "
+const macRootPrefix = "# barn-mac:root "
 
-// ErrMacForeign marks a Mac fragment written for another Farrow home. Only an
+// ErrMacForeign marks a Mac fragment written for another Barn home. Only an
 // explicit install replaces it; lifecycle refreshes leave it alone.
-var ErrMacForeign = errors.New("the Mac SSH fragment belongs to another Farrow home")
+var ErrMacForeign = errors.New("the Mac SSH fragment belongs to another Barn home")
 
 func renderMac(root string, entries []MacEntry) (string, error) {
 	if !safeOpenSSHPath(root) {
@@ -86,7 +86,7 @@ func macOwner(root string, takeover bool) func([]byte) error {
 				return nil
 			}
 		}
-		return failure.New(failure.Conflict, ErrMacForeign).Because("mac_ssh_config_foreign").Then("farrow mac ssh-config --install")
+		return failure.New(failure.Conflict, ErrMacForeign).Because("mac_ssh_config_foreign").Then("barn mac ssh-config --install")
 	}
 }
 

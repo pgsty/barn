@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/state"
 )
 
 type rejectingAuditRunner struct{}
@@ -64,7 +64,7 @@ func serveQMPIdentity(t *testing.T, socket, name, uuid string) {
 func TestRuntimeIdentityAuditorQMPFirstAuthority(t *testing.T) {
 	t.Parallel()
 	// Unix socket paths are length-bounded; t.TempDir can exceed the limit.
-	directory, err := os.MkdirTemp("/tmp", "farrow-private-qmp-")
+	directory, err := os.MkdirTemp("/tmp", "barn-private-qmp-")
 	if err != nil {
 		t.Fatal(err)
 	}

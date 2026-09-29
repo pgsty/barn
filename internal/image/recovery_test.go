@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/activity"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func TestCachePermissionRecoveryVerifiesBytes(t *testing.T) {
@@ -103,7 +103,7 @@ func TestCacheRecoveryPreservesReferencedBackingEvenAfterCatalogDigestChange(t *
 		t.Fatal(err)
 	}
 	now := time.Now()
-	node := state.NodeState{Schema: state.NodeSchema, FarrowVersion: "test", Node: "meta", VMUUID: "instance", Phase: state.Running, Generation: 1, SpecHash: "fixture", CreatedAt: now, UpdatedAt: now, Image: state.Image{Alias: entry.Alias, Release: entry.Release, Digest: strings.Repeat("a", 64)}}
+	node := state.NodeState{Schema: state.NodeSchema, BarnVersion: "test", Node: "meta", VMUUID: "instance", Phase: state.Running, Generation: 1, SpecHash: "fixture", CreatedAt: now, UpdatedAt: now, Image: state.Image{Alias: entry.Alias, Release: entry.Release, Digest: strings.Repeat("a", 64)}}
 	if err := (state.Store{Root: store.DataRoot}).WriteNode(node); err != nil {
 		t.Fatal(err)
 	}

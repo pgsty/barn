@@ -16,7 +16,7 @@ type Reference struct {
 }
 
 // ParseReference accepts image, image:channel, or image@version-selector.
-// Architecture stays orthogonal because Farrow already models it as
+// Architecture stays orthogonal because Barn already models it as
 // deployment-wide vm_arch.
 func ParseReference(value string) (Reference, error) {
 	value = strings.TrimSpace(value)

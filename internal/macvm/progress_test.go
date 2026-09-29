@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/barn/internal/activity"
 )
 
 func TestRunnerProgressBecomesEvents(t *testing.T) {

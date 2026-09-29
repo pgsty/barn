@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 func appleRestoreURL(raw string) bool {

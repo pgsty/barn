@@ -94,21 +94,21 @@ else
   exit 3
 fi
 
-version=${FARROW_VERSION:-dev}
+version=${BARN_VERSION:-dev}
 [[ ${version} =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]] || {
-  printf 'FARROW_VERSION contains unsupported characters: %s\n' "${version}" >&2
+  printf 'BARN_VERSION contains unsupported characters: %s\n' "${version}" >&2
   exit 2
 }
-install_keep=${FARROW_INSTALL_KEEP:-3}
+install_keep=${BARN_INSTALL_KEEP:-3}
 if [[ ! ${install_keep} =~ ^[0-9]+$ || ${#install_keep} -gt 9 ]]; then
-  printf 'FARROW_INSTALL_KEEP must be a non-negative integer of at most nine digits\n' >&2
+  printf 'BARN_INSTALL_KEEP must be a non-negative integer of at most nine digits\n' >&2
   exit 2
 fi
 install_keep=$((10#${install_keep}))
 
-commit=${FARROW_COMMIT:-}
+commit=${BARN_COMMIT:-}
 if [[ -n ${commit} && ! ${commit} =~ ^[0-9a-f]{40}$ && ${commit} != uncommitted ]]; then
-  printf 'FARROW_COMMIT must be a full lowercase Git hash or uncommitted\n' >&2
+  printf 'BARN_COMMIT must be a full lowercase Git hash or uncommitted\n' >&2
   exit 2
 fi
 if [[ -z ${commit} ]]; then
@@ -119,35 +119,35 @@ if [[ -z ${commit} ]]; then
 fi
 [[ ${commit} =~ ^[0-9a-f]{40}$ ]] || commit=uncommitted
 
-build_date=${FARROW_BUILD_DATE:-}
+build_date=${BARN_BUILD_DATE:-}
 if [[ -z ${build_date} ]]; then
   build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 fi
 [[ ${build_date} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
-  printf 'FARROW_BUILD_DATE must be an RFC3339 UTC timestamp\n' >&2
+  printf 'BARN_BUILD_DATE must be an RFC3339 UTC timestamp\n' >&2
   exit 2
 }
 
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
-temporary=$(mktemp -d "${temporary_parent}/farrow-dev-build.XXXXXX")
+temporary=$(mktemp -d "${temporary_parent}/barn-dev-build.XXXXXX")
 temporary=$(cd "${temporary}" && pwd -P)
 release_stage=
 link_stage=
 cleanup() {
   if [[ -n ${release_stage} ]]; then
     case ${release_stage} in
-      "${output}"/.farrow-release.next.*) rm -rf -- "${release_stage}" ;;
+      "${output}"/.barn-release.next.*) rm -rf -- "${release_stage}" ;;
       *) printf 'refuse unsafe development release cleanup: %s\n' "${release_stage}" >&2 ;;
     esac
   fi
   if [[ -n ${link_stage} ]]; then
     case ${link_stage} in
-      "${output}"/.farrow-links.next.*) rm -rf -- "${link_stage}" ;;
+      "${output}"/.barn-links.next.*) rm -rf -- "${link_stage}" ;;
       *) printf 'refuse unsafe development link cleanup: %s\n' "${link_stage}" >&2 ;;
     esac
   fi
   case ${temporary} in
-    "${temporary_parent}"/farrow-dev-build.*) rm -rf -- "${temporary}" ;;
+    "${temporary_parent}"/barn-dev-build.*) rm -rf -- "${temporary}" ;;
     *) printf 'refuse unsafe development build cleanup: %s\n' "${temporary}" >&2 ;;
   esac
 }
@@ -224,23 +224,23 @@ prune_retained_releases() {
   done
 }
 
-helper=${temporary}/farrow-hosts-helper
-binary=${temporary}/farrow
-common_ldflags="-buildid= -X github.com/pgsty/farrow/internal/version.Version=${version} -X github.com/pgsty/farrow/internal/version.Commit=${commit} -X github.com/pgsty/farrow/internal/version.Date=${build_date}"
+helper=${temporary}/barn-hosts-helper
+binary=${temporary}/barn
+common_ldflags="-buildid= -X github.com/pgsty/barn/internal/version.Version=${version} -X github.com/pgsty/barn/internal/version.Commit=${commit} -X github.com/pgsty/barn/internal/version.Date=${build_date}"
 
 (
   cd "${repo}"
   CGO_ENABLED=0 GOOS=${goos} GOARCH=${goarch} GOFLAGS=-mod=readonly \
     go build -trimpath -buildvcs=false -ldflags "${common_ldflags}" \
-      -o "${helper}" ./cmd/farrow-hosts-helper
+      -o "${helper}" ./cmd/barn-hosts-helper
 )
 helper_sha=$(sha256_file "${helper}")
 (
   cd "${repo}"
   CGO_ENABLED=0 GOOS=${goos} GOARCH=${goarch} GOFLAGS=-mod=readonly \
     go build -trimpath -buildvcs=false \
-      -ldflags "${common_ldflags} -X github.com/pgsty/farrow/internal/hostconfig.ExpectedHelperSHA256=${helper_sha}" \
-      -o "${binary}" ./cmd/farrow
+      -ldflags "${common_ldflags} -X github.com/pgsty/barn/internal/hostconfig.ExpectedHelperSHA256=${helper_sha}" \
+      -o "${binary}" ./cmd/barn
 )
 grep -a -F "${helper_sha}" "${binary}" >/dev/null || {
   printf 'built CLI does not contain the companion helper digest\n' >&2
@@ -248,7 +248,7 @@ grep -a -F "${helper_sha}" "${binary}" >/dev/null || {
 }
 
 binary_sha=$(sha256_file "${binary}")
-releases=${output}/.farrow-releases
+releases=${output}/.barn-releases
 if [[ -L ${releases} || (-e ${releases} && ! -d ${releases}) ]]; then
   printf 'development release root is unsafe: %s\n' "${releases}" >&2
   exit 7
@@ -261,7 +261,7 @@ if [[ -L ${releases} || ! -d ${releases} ]]; then
   exit 7
 fi
 resolved_releases=$(cd "${releases}" && pwd -P)
-[[ ${resolved_releases} == "${output}/.farrow-releases" && -O ${resolved_releases} ]] || {
+[[ ${resolved_releases} == "${output}/.barn-releases" && -O ${resolved_releases} ]] || {
   printf 'development release root resolves outside the owned output: %s\n' "${resolved_releases}" >&2
   exit 7
 }
@@ -271,25 +271,25 @@ release_id=${goos}_${goarch}-${binary_sha:0:16}
 release_root=${releases}/${release_id}
 if [[ -e ${release_root} || -L ${release_root} ]]; then
   if [[ -L ${release_root} || ! -d ${release_root} || ! -O ${release_root} ]] ||
-    ! cmp -s "${binary}" "${release_root}/farrow" ||
-    ! cmp -s "${helper}" "${release_root}/farrow-hosts-helper"; then
+    ! cmp -s "${binary}" "${release_root}/barn" ||
+    ! cmp -s "${helper}" "${release_root}/barn-hosts-helper"; then
     printf 'existing development release differs from the built pair: %s\n' "${release_root}" >&2
     exit 7
   fi
   chmod 0700 "${release_root}"
-  chmod 0755 "${release_root}/farrow" "${release_root}/farrow-hosts-helper"
+  chmod 0755 "${release_root}/barn" "${release_root}/barn-hosts-helper"
 else
-  release_stage=$(mktemp -d "${output}/.farrow-release.next.XXXXXX")
+  release_stage=$(mktemp -d "${output}/.barn-release.next.XXXXXX")
   chmod 0700 "${release_stage}"
-  install -m 0755 "${binary}" "${release_stage}/farrow"
-  install -m 0755 "${helper}" "${release_stage}/farrow-hosts-helper"
-  cmp -s "${binary}" "${release_stage}/farrow"
-  cmp -s "${helper}" "${release_stage}/farrow-hosts-helper"
+  install -m 0755 "${binary}" "${release_stage}/barn"
+  install -m 0755 "${helper}" "${release_stage}/barn-hosts-helper"
+  cmp -s "${binary}" "${release_stage}/barn"
+  cmp -s "${helper}" "${release_stage}/barn-hosts-helper"
   mv "${release_stage}" "${release_root}"
   release_stage=
 fi
 
-for name in farrow farrow-hosts-helper; do
+for name in barn barn-hosts-helper; do
   target=${output}/${name}
   if [[ -e ${target} || -L ${target} ]]; then
     if [[ -d ${target} || (! -f ${target} && ! -L ${target}) ]]; then
@@ -298,28 +298,28 @@ for name in farrow farrow-hosts-helper; do
     fi
   fi
 done
-link_stage=$(mktemp -d "${output}/.farrow-links.next.XXXXXX")
+link_stage=$(mktemp -d "${output}/.barn-links.next.XXXXXX")
 chmod 0700 "${link_stage}"
-for name in farrow farrow-hosts-helper; do
-  ln -s ".farrow-releases/${release_id}/${name}" "${link_stage}/${name}"
+for name in barn barn-hosts-helper; do
+  ln -s ".barn-releases/${release_id}/${name}" "${link_stage}/${name}"
 done
-# farrow resolves the companion beside its real versioned path, so publishing
+# barn resolves the companion beside its real versioned path, so publishing
 # the CLI first cannot expose a mismatched helper even if this process stops.
-for name in farrow farrow-hosts-helper; do
+for name in barn barn-hosts-helper; do
   mv -f "${link_stage}/${name}" "${output}/${name}"
 done
 rmdir "${link_stage}"
 link_stage=
 
-installed_helper_sha=$(sha256_file "${output}/farrow-hosts-helper")
+installed_helper_sha=$(sha256_file "${output}/barn-hosts-helper")
 [[ ${installed_helper_sha} == "${helper_sha}" ]]
-grep -a -F "${installed_helper_sha}" "${output}/farrow" >/dev/null
-for name in farrow farrow-hosts-helper; do
-  [[ -L ${output}/${name} && $(readlink "${output}/${name}") == ".farrow-releases/${release_id}/${name}" && -x ${output}/${name} ]] || {
+grep -a -F "${installed_helper_sha}" "${output}/barn" >/dev/null
+for name in barn barn-hosts-helper; do
+  [[ -L ${output}/${name} && $(readlink "${output}/${name}") == ".barn-releases/${release_id}/${name}" && -x ${output}/${name} ]] || {
     printf 'development entry point does not name the verified release: %s\n' "${output}/${name}" >&2
     exit 7
   }
 done
 prune_retained_releases "${releases}" "${release_root}" "${install_keep}"
-printf 'built Farrow for %s/%s in %s\n' "${goos}" "${goarch}" "${output}"
+printf 'built Barn for %s/%s in %s\n' "${goos}" "${goarch}" "${output}"
 printf 'helper sha256 %s\n' "${installed_helper_sha}"

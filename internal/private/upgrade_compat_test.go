@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/config"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/config"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 func inventoryDefaultDiskResolved(t *testing.T, persistent bool) (spec.Resolved, spec.Resolved) {

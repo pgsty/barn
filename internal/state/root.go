@@ -61,10 +61,9 @@ func unsafeRoot(root, home, cwd string) bool {
 	return false
 }
 
-// ResolveDataRoot implements the complete precedence: FARROW_HOME, then
-// ~/.farrow. It refuses broad or symlinked roots and does not create the
-// directory. A pre-simplification layout (a projects/ registry) is a hard
-// error with its one-line migration path.
+// ResolveDataRoot implements the complete precedence: BARN_HOME, then
+// ~/.barn. It refuses broad or symlinked roots and does not create the
+// directory. An unsupported layout (a projects/ registry) is a hard error.
 func ResolveDataRoot() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -72,12 +71,12 @@ func ResolveDataRoot() (string, error) {
 	}
 	home = canonicalIfExisting(home)
 	cwd, _ := os.Getwd()
-	root := os.Getenv("FARROW_HOME")
+	root := os.Getenv("BARN_HOME")
 	if root == "" {
-		root = filepath.Join(home, ".farrow")
+		root = filepath.Join(home, ".barn")
 	}
 	if !filepath.IsAbs(root) {
-		return "", errors.New("farrow data root must be absolute")
+		return "", errors.New("barn data root must be absolute")
 	}
 	root = filepath.Clean(root)
 	comparisonRoot, err := canonicalWithMissing(root)
@@ -85,15 +84,15 @@ func ResolveDataRoot() (string, error) {
 		return "", err
 	}
 	if unsafeRoot(comparisonRoot, home, canonicalIfExisting(cwd)) {
-		return "", fmt.Errorf("unsafe broad Farrow data root: %s", root)
+		return "", fmt.Errorf("unsafe broad Barn data root: %s", root)
 	}
 	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("farrow data root must not be a symlink: %s", root)
+		return "", fmt.Errorf("barn data root must not be a symlink: %s", root)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
 	if _, err := os.Lstat(filepath.Join(root, "projects")); err == nil {
-		return "", fmt.Errorf("%s holds a pre-simplification multiple-deployment layout; preserve this directory, stop existing VMs with the older Farrow version, then choose a new empty absolute FARROW_HOME for setup/up; existing disks are not migrated automatically", root)
+		return "", fmt.Errorf("%s holds an unsupported multiple-deployment layout; preserve this directory and choose a new empty absolute BARN_HOME for setup/up", root)
 	}
 	return root, nil
 }

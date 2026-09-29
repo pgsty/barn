@@ -10,7 +10,7 @@ import (
 
 func TestHostSetupChecksDoNotInspectUnrelatedDeploymentState(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "state.json"), []byte("broken state"), 0600); err != nil {
 		t.Fatal(err)
 	}

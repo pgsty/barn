@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 const CatalogFilename = "catalog.json"
 
 const (
-	GlobalRepositoryURL = "https://repo.pigsty.io/farrow"
-	ChinaRepositoryURL  = "https://repo.pigsty.cc/farrow"
+	GlobalRepositoryURL = "https://repo.pigsty.io/barn"
+	ChinaRepositoryURL  = "https://repo.pigsty.cc/barn"
 )
 
 // DefaultRepositoryURL and MirrorRepositoryURL are variables so tests can
@@ -25,7 +25,7 @@ var (
 	MirrorRepositoryURL  = ChinaRepositoryURL
 )
 
-// ResolveRepository applies --repo > --mirror > FARROW_REPO > the global
+// ResolveRepository applies --repo > --mirror > BARN_REPO > the global
 // default. The boolean result records whether the default was overridden,
 // which lets the catalog verifier retain the existing custom-repository policy.
 func ResolveRepository(repository string, mirror bool) (string, bool, error) {
@@ -36,7 +36,7 @@ func ResolveRepository(repository string, mirror bool) (string, bool, error) {
 		explicit = true
 	}
 	if repository == "" {
-		repository = strings.TrimSpace(os.Getenv("FARROW_REPO"))
+		repository = strings.TrimSpace(os.Getenv("BARN_REPO"))
 		explicit = repository != ""
 	}
 	if repository == "" {
@@ -56,7 +56,7 @@ func RepositoryAllowsUnsigned(value string) bool {
 		return false
 	}
 	parsed, _ := url.Parse(normalized)
-	if parsed.Scheme == "https" && (parsed.Port() == "" || parsed.Port() == "443") && path.Clean(parsed.Path) == "/farrow" {
+	if parsed.Scheme == "https" && (parsed.Port() == "" || parsed.Port() == "443") && path.Clean(parsed.Path) == "/barn" {
 		host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
 		if host == "repo.pigsty.io" || host == "repo.pigsty.cc" {
 			return false

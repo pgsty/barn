@@ -225,8 +225,8 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
             created.collectionBehavior.insert(.fullScreenPrimary)
             created.contentMinSize = NSSize(width: 640, height: 400)
             created.tabbingMode = .disallowed
-            if !created.setFrameUsingName("FarrowMac.\(name)") { created.center() }
-            created.setFrameAutosaveName("FarrowMac.\(name)")
+            if !created.setFrameUsingName("BarnMac.\(name)") { created.center() }
+            created.setFrameAutosaveName("BarnMac.\(name)")
             window = created
             clipboard?.window = created
         }
@@ -326,14 +326,14 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
         return true
     }
 
-    // Shutdown goes through farrow mac stop so the CLI keeps its record and
+    // Shutdown goes through barn mac stop so the CLI keeps its record and
     // its graceful-then-forced policy.
     func requestDesktopShutdown() async throws {
         guard shutdownProcess == nil else { return }
         let parent = Bundle.main.bundleURL.deletingLastPathComponent()
-        let candidates = [parent.appendingPathComponent("farrow"),
-                          parent.deletingLastPathComponent().appendingPathComponent("bin/farrow"),
-                          parent.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("bin/farrow")]
+        let candidates = [parent.appendingPathComponent("barn"),
+                          parent.deletingLastPathComponent().appendingPathComponent("bin/barn"),
+                          parent.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("bin/barn")]
         guard Bundle.main.bundleURL.pathExtension == "app",
               let cli = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
             try await requestGuestShutdown()
@@ -343,7 +343,7 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
         process.executableURL = cli
         process.arguments = ["mac", "stop", name]
         var environment = ProcessInfo.processInfo.environment
-        environment["FARROW_HOME"] = slot.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
+        environment["BARN_HOME"] = slot.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.standardError
@@ -353,18 +353,18 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
                 guard let self else { return }
                 self.shutdownProcess = nil
                 if completed.terminationStatus != 0, self.vm.state != .stopped {
-                    self.showShutdownError("The normal shutdown did not complete. Run farrow mac logs \(self.name) for details.")
+                    self.showShutdownError("The normal shutdown did not complete. Run barn mac logs \(self.name) for details.")
                 }
             }
         }
         try process.run()
         shutdownProcess = process
-        progress("desktop_shutdown_requested", ["instance": instance, "method": "farrow mac stop"])
+        progress("desktop_shutdown_requested", ["instance": instance, "method": "barn mac stop"])
     }
 
     // requestGuestShutdown is the runner's own normal stop, for signals and a
     // desktop without its CLI: macOS shuts down over the pinned SSH connection,
-    // as farrow mac stop does, because Virtualization's request does not stop
+    // as barn mac stop does, because Virtualization's request does not stop
     // an initialized guest. The VM is powered off after the same grace period.
     func requestGuestShutdown() async throws {
         if vm.state == .stopped { finish(); return }
@@ -391,7 +391,7 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "\(name) is still running"
-        alert.informativeText = "Shut it down from its Apple menu, or run farrow mac stop \(name).\n\n\(message)"
+        alert.informativeText = "Shut it down from its Apple menu, or run barn mac stop \(name).\n\n\(message)"
         alert.runModal()
     }
 
@@ -504,7 +504,7 @@ func vmnetFailure(_ status: UInt32) -> String {
     case 1009: // VMNET_SHARING_SERVICE_BUSY
         return "Cannot create this machine's private network: the macOS network sharing service is busy (vmnet status 1009). Turn off Internet Sharing or quit the other tool that uses it, then start again"
     case 1010: // VMNET_NOT_AUTHORIZED
-        return "macOS did not allow this machine's private network (vmnet status 1010). Check Farrow Mac.app with farrow mac doctor"
+        return "macOS did not allow this machine's private network (vmnet status 1010). Check Barn Mac.app with barn mac doctor"
     default:
         return "Cannot create this machine's private network (vmnet status \(status))"
     }

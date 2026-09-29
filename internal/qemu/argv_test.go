@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/platform"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 func testConfig(t *testing.T, goos, arch string) Config {
@@ -19,8 +19,8 @@ func testConfig(t *testing.T, goos, arch string) Config {
 		CPUs: 2, Memory: 4 * 1024 * MiB,
 		Root: Disk{Path: "/data/root.qcow2", Serial: "root0000000000000001"},
 		Data: []Disk{{Path: "/data/data.qcow2", Serial: "abcde234567abcde2345"}},
-		Seed: "/data/seed.iso", QMP: "/tmp/farrow/p/m/qmp.sock",
-		PIDFile: "/tmp/farrow/p/m/qemu.pid", SerialLog: "/data/serial.log",
+		Seed: "/data/seed.iso", QMP: "/tmp/barn/p/m/qmp.sock",
+		PIDFile: "/tmp/barn/p/m/qemu.pid", SerialLog: "/data/serial.log",
 		MgmtMAC:  "02:11:22:33:44:55",
 		Forwards: []Forward{{Bind: "127.0.0.1", Host: 2222, Guest: 22}, {Bind: "127.0.0.1", Host: 15432, Guest: 5432}},
 		Detach:   true,
@@ -103,13 +103,13 @@ func TestBuildRejectsIPv6ForwardBindBeforeArgvConstruction(t *testing.T) {
 func TestBuildPrivateStreamAndFDBackends(t *testing.T) {
 	t.Parallel()
 	stream := testConfig(t, "darwin", "arm64")
-	stream.Private = &PrivateNetwork{MAC: "02:aa:bb:cc:dd:ee", StreamSocket: "/private/var/run/farrow-vmnet.sock", ReconnectMS: 1000}
+	stream.Private = &PrivateNetwork{MAC: "02:aa:bb:cc:dd:ee", StreamSocket: "/private/var/run/barn-vmnet.sock", ReconnectMS: 1000}
 	invocation, err := Build(stream)
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(invocation.Args, "\n")
-	if !strings.Contains(joined, "stream,id=private,server=off,addr.type=unix,addr.path=/private/var/run/farrow-vmnet.sock,reconnect-ms=1000") || !strings.Contains(joined, "virtio-net-pci,netdev=private,mac=02:aa:bb:cc:dd:ee") {
+	if !strings.Contains(joined, "stream,id=private,server=off,addr.type=unix,addr.path=/private/var/run/barn-vmnet.sock,reconnect-ms=1000") || !strings.Contains(joined, "virtio-net-pci,netdev=private,mac=02:aa:bb:cc:dd:ee") {
 		t.Fatalf("private stream missing:\n%s", joined)
 	}
 
@@ -127,13 +127,13 @@ func TestBuildPrivateStreamAndFDBackends(t *testing.T) {
 func TestBuildLinuxPrivateBridgeBackend(t *testing.T) {
 	t.Parallel()
 	config := testConfig(t, "linux", "amd64")
-	config.Private = &PrivateNetwork{MAC: "02:aa:bb:cc:dd:f0", Bridge: "farrow0", BridgeHelper: "/usr/libexec/qemu-bridge-helper"}
+	config.Private = &PrivateNetwork{MAC: "02:aa:bb:cc:dd:f0", Bridge: "barn0", BridgeHelper: "/usr/libexec/qemu-bridge-helper"}
 	invocation, err := Build(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(invocation.Args, "\n")
-	if !strings.Contains(joined, "bridge,id=private,br=farrow0,helper=/usr/libexec/qemu-bridge-helper") {
+	if !strings.Contains(joined, "bridge,id=private,br=barn0,helper=/usr/libexec/qemu-bridge-helper") {
 		t.Fatalf("Linux private bridge missing:\n%s", joined)
 	}
 }
@@ -148,7 +148,7 @@ func TestBuildHostSharesUseAnchoredFDsAndColdPlugRootBus(t *testing.T) {
 		{goos: "linux", arch: "amd64", firstFD: "/proc/self/fd/3"},
 	} {
 		config := testConfig(t, test.goos, test.arch)
-		config.Shares = []Share{{Tag: "farrow-0123456789abcdefabcd", Readonly: true}, {Tag: "farrow-fedcba9876543210fedc"}}
+		config.Shares = []Share{{Tag: "barn-0123456789abcdefabcd", Readonly: true}, {Tag: "barn-fedcba9876543210fedc"}}
 		invocation, err := Build(config)
 		if err != nil {
 			t.Fatal(err)
@@ -156,8 +156,8 @@ func TestBuildHostSharesUseAnchoredFDsAndColdPlugRootBus(t *testing.T) {
 		joined := strings.Join(invocation.Args, "\n")
 		for _, want := range []string{
 			"local,id=share0,path=" + test.firstFD + ",security_model=mapped-xattr,multidevs=remap,fmode=0600,dmode=0700,readonly=on",
-			"virtio-9p-pci,id=share0dev,bus=pcie.0,fsdev=share0,mount_tag=farrow-0123456789abcdefabcd",
-			"virtio-9p-pci,id=share1dev,bus=pcie.0,fsdev=share1,mount_tag=farrow-fedcba9876543210fedc",
+			"virtio-9p-pci,id=share0dev,bus=pcie.0,fsdev=share0,mount_tag=barn-0123456789abcdefabcd",
+			"virtio-9p-pci,id=share1dev,bus=pcie.0,fsdev=share1,mount_tag=barn-fedcba9876543210fedc",
 		} {
 			if !strings.Contains(joined, want) {
 				t.Errorf("%s/%s invocation missing %q:\n%s", test.goos, test.arch, want, joined)
@@ -173,7 +173,7 @@ func TestBuildPrivateFDReservesFD3BeforeShares(t *testing.T) {
 	t.Parallel()
 	config := testConfig(t, "darwin", "arm64")
 	config.Private = &PrivateNetwork{MAC: "02:aa:bb:cc:dd:ef", FD: 3}
-	config.Shares = []Share{{Tag: "farrow-0123456789abcdefabcd", Readonly: true}}
+	config.Shares = []Share{{Tag: "barn-0123456789abcdefabcd", Readonly: true}}
 	invocation, err := Build(config)
 	if err != nil {
 		t.Fatal(err)

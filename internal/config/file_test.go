@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/spec"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -159,7 +159,7 @@ func TestCustomPrivateNetworkRequiresCoordinatedLayout(t *testing.T) {
 
 func TestDiskMountTraversalAndSystemPathsAreRejected(t *testing.T) {
 	t.Parallel()
-	for _, mount := range []string{"/", "/data/../etc", "relative", "/proc/data", "/etc", "/usr/lib/farrow", "/var/lib/farrow/data"} {
+	for _, mount := range []string{"/", "/data/../etc", "relative", "/proc/data", "/etc", "/usr/lib/barn", "/var/lib/barn/data"} {
 		input := "version: 1\nname: quick\nnetwork: {mode: private}\nnodes:\n  - name: meta\n    address: 10.10.10.10\n    disks:\n      - {name: data, size: 1GiB, mount: " + fmt.Sprintf("%q", mount) + "}\n"
 		if _, err := decodeTestFile(input); err == nil {
 			t.Errorf("unsafe disk mount %q accepted", mount)
@@ -220,7 +220,7 @@ func TestShareStructuralPathValidation(t *testing.T) {
 			t.Errorf("unsafe share host %q accepted", host)
 		}
 	}
-	for _, guest := range []string{"relative", "/", "/src/../src", "/src//nested", "/proc/src", "/usr/local/src", "/var", "/var/lib", "/var/lib/farrow/src", "/home", "/home/dba", "/home/dba/.ssh", "/home/dba/.ssh/cache", "/src code", "/src:code"} {
+	for _, guest := range []string{"relative", "/", "/src/../src", "/src//nested", "/proc/src", "/usr/local/src", "/var", "/var/lib", "/var/lib/barn/src", "/home", "/home/dba", "/home/dba/.ssh", "/home/dba/.ssh/cache", "/src code", "/src:code"} {
 		file := valid()
 		file.Nodes[0].Shares[0].Guest = guest
 		if err := file.Validate(); err == nil {

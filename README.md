@@ -1,26 +1,26 @@
-# Farrow
+# Barn
 
-Farrow turns one Pigsty-compatible Ansible inventory into one fixed-IP local
+Barn turns one Pigsty-compatible Ansible inventory into one fixed-IP local
 Linux QEMU deployment on macOS or Linux. The inventory you hand to Pigsty is the same
 file that describes the virtual machines, so there is no second project format
 to keep in sync.
 
-The independent [`farrow mac` command](https://github.com/pgsty/farrow/blob/main/docs/mac.md) runs macOS 27
+The independent [`barn mac` command](https://github.com/pgsty/barn/blob/main/docs/mac.md) runs macOS 27
 virtual machines on Apple Silicon, with their own state, images, SSH trust and
 private networks. It never reads the Linux inventory and needs no root. It is a
 preview: its native component is built from source until a release includes a
 signed, notarized one.
 
-Authoritative documentation: <https://farrow.pgsty.com/>
+Authoritative documentation: <https://barn.pgsty.com/>
 
 ```bash
-farrow up            # prepare the host and start your first VM
-farrow ssh           # connect
+barn up            # prepare the host and start your first VM
+barn ssh           # connect
 ```
 
-On first use in a terminal, `up` creates a one-node `farrow.yml` if no inventory
-or applied deployment exists. To customize it first, run `farrow init` and edit
-the file; use `farrow init full` for the four-node template.
+On first use in a terminal, `up` creates a one-node `barn.yml` if no inventory
+or applied deployment exists. To customize it first, run `barn init` and edit
+the file; use `barn init full` for the four-node template.
 
 ## What it is
 
@@ -28,11 +28,11 @@ the file; use `farrow init full` for the four-node template.
   everything else in the file stays opaque and is passed through to Pigsty
   untouched. There is no separate VM manifest.
 - **Fixed IPs, not DHCP.** Nodes get the addresses the inventory names, on a
-  host-global private network Farrow installs once. `10.10.10.10` is
+  host-global private network Barn installs once. `10.10.10.10` is
   `10.10.10.10` across reboots and recreates.
-- **Declarative, but never surprising.** `farrow plan` shows the difference
+- **Declarative, but never surprising.** `barn plan` shows the difference
   between the inventory and the applied state. Removing a host from the file
-  never destroys a machine — deletion is always an explicit `farrow destroy`.
+  never destroys a machine — deletion is always an explicit `barn destroy`.
 - **Ubuntu 24.04 by default.** New inventories use `u24:stable`; set
   `vm_image` explicitly to choose another supported distribution.
 - **Verified images.** Guest images come from a signed catalog with SHA-256,
@@ -43,12 +43,12 @@ the file; use `farrow init full` for the four-node template.
   successful nodes available. QMP/process identity, image digests, and disk
   ownership are still verified before changing resources.
 
-Farrow is a local development-lab runtime. It is not a cluster manager, not a
+Barn is a local development-lab runtime. It is not a cluster manager, not a
 cloud provisioner, and not a container runtime.
 
 `plan` reads local configuration and catalog data without requiring host setup.
 It shows exact images, resources, and disk effects; `up` checks host capabilities
-before applying changes. Starting commands also refresh the Farrow-managed
+before applying changes. Starting commands also refresh the Barn-managed
 hosts and SSH entries inside running guests. `--no-wait` skips readiness and
 that guest refresh; a later `up` completes them.
 
@@ -60,14 +60,14 @@ command that retains the inventory path. `status` keeps the detailed table;
 `--verbose` exposes diagnostic detail and time spent in each foreground stage,
 including waits and prompts. Redirected output uses occasional plain
 progress lines on stderr, and `--json`/`--yaml` keep stdout machine-readable.
-Bare `farrow` shows the next few actions; `farrow --help` is the full reference.
+Bare `barn` shows the next few actions; `barn --help` is the full reference.
 
-`up` can install missing host tools and restore an inactive, verified Farrow
+`up` can install missing host tools and restore an inactive, verified Barn
 network during an interactive session. The hosts-file helper is installed only
-when `farrow hosts install` needs it. A fresh, untouched default template can use
-an available subnet; its original is saved as `farrow.yml.before-network-change`.
+when `barn hosts install` needs it. A fresh, untouched default template can use
+an available subnet; its original is saved as `barn.yml.before-network-change`.
 Explicit `-f` files, edited templates, and existing deployments keep their subnet.
-For unattended first setup, run `farrow setup --yes` explicitly.
+For unattended first setup, run `barn setup --yes` explicitly.
 
 Interrupted image downloads retry and resume automatically. Official image
 repositories can fail over to their counterpart; custom repositories stay
@@ -86,13 +86,13 @@ network checks run independently with bounded waits. Unavailable features produc
 failed disk or share is named; an unavailable data disk is never reported as
 mounted. Internet access is optional, so offline labs can finish setup.
 
-Repeating `farrow up [node...]` retries unfinished guest setup and updates old
+Repeating `barn up [node...]` retries unfinished guest setup and updates old
 guest helpers in place. Running VMs keep their process and root disk; healthy
 setup stages are skipped. `--no-wait` skips these guest checks as well as waiting
 for readiness. No separate repair command is needed.
 
 Each node gets a 128 GiB `/data` disk unless `vm_disks` says otherwise;
-`vm_disks: []` gives a node none. `farrow plan` lists every node's data disks.
+`vm_disks: []` gives a node none. `barn plan` lists every node's data disks.
 
 Data disks are disposable test storage. Working filesystems are reused. If a
 configured data disk has no recognizable filesystem, or cannot mount and a
@@ -104,19 +104,19 @@ reported without formatting; other guest features remain available. Root disks
 and host shared directories are never reset by this recovery.
 
 Writable shares use the guest user's identity for newly created files. If the
-host directory does not permit guest writes, Farrow mounts it read-only and
+host directory does not permit guest writes, Barn mounts it read-only and
 reports the limitation. It does not recursively change host project ownership.
-After fixing access, repeat `farrow up` to retry the writable mount.
+After fixing access, repeat `barn up` to retry the writable mount.
 
 Host-side share failures are different from a guest mount limitation: QEMU must
 open each configured source before that node can start. `up` and `start` keep
 independent nodes progressing if one source is missing. Restore the original
-directory or its mount and retry the affected node; Farrow does not create an
+directory or its mount and retry the affected node; Barn does not create an
 empty source. Restart/reload/recreate check the selected sources before stopping
 or deleting existing VMs.
 
 **Known macOS limitation:** QEMU's 9p backend cannot reopen the directory
-descriptor used by Farrow on the tested macOS/QEMU 11.1.1 host. Such nodes cannot
+descriptor used by Barn on the tested macOS/QEMU 11.1.1 host. Such nodes cannot
 start; the CLI now diagnoses the limitation without bypassing path identity
 checks. Omit `vm_shares` for new macOS labs. Changing an existing node's shares
 requires explicit recreation and replaces its root disk, so preserve needed
@@ -144,11 +144,11 @@ preserves the VM result and gives a warning; a later `up` retries the refresh.
 On an Apple Silicon Mac with macOS 27 or later:
 
 ```bash
-farrow mac up                 # create mac1, wait until SSH and sudo work
-farrow mac open               # show its desktop; closing the window keeps it running
-farrow mac ssh                # shell with the machine's own pinned key
-farrow mac up dev --cpu 8 --memory 16G --share ~/src
-farrow mac ls
+barn mac up                 # create mac1, wait until SSH and sudo work
+barn mac open               # show its desktop; closing the window keeps it running
+barn mac ssh                # shell with the machine's own pinned key
+barn mac up dev --cpu 8 --memory 16G --share ~/src
+barn mac ls
 ```
 
 The first `up` downloads macOS only from Apple (about 27 GB, resumable,
@@ -158,12 +158,12 @@ Machines have their own private network with a fixed address, text clipboard
 sharing while their window is focused, and shared folders under
 `/Volumes/My Shared Files`. Apple allows two running macOS VMs per Mac.
 
-Mac commands use `$FARROW_HOME/mac` and never read `farrow.yml`; Linux
+Mac commands use `$BARN_HOME/mac` and never read `barn.yml`; Linux
 `destroy` and `purge` leave them alone. They need the native component,
-`Farrow Mac.app`, next to `farrow`. Releases do not include it until it is
+`Barn Mac.app`, next to `barn`. Releases do not include it until it is
 signed and notarized by Apple; until then build both with Xcode 27 —
-`make mac-build` puts them in `bin/mac`. See [the guide](https://github.com/pgsty/farrow/blob/main/docs/mac.md)
-and the [acceptance log](https://github.com/pgsty/farrow/blob/main/docs/mac-implementation-log.md).
+`make mac-build` puts them in `bin/mac`. See [the guide](https://github.com/pgsty/barn/blob/main/docs/mac.md)
+and the [acceptance log](https://github.com/pgsty/barn/blob/main/docs/mac-implementation-log.md).
 
 ## Linux guest requirements
 
@@ -176,50 +176,53 @@ and the [acceptance log](https://github.com/pgsty/farrow/blob/main/docs/mac-impl
 
 Tier 1 is the dated, natively validated matrix; tier 2 is cross-built and
 package-verified against the narrower status published at
-<https://farrow.pgsty.com/docs/about/status/>. You also need `qemu-img`, UEFI
+<https://barn.pgsty.com/docs/about/status/>. You also need `qemu-img`, UEFI
 firmware for arm64 guests, and an OpenSSH client.
 
-`farrow doctor` reports host dependencies, persisted state, and network setup;
-`farrow status` audits live QMP/process identity and safely converges interrupted
-transitions. `farrow setup` installs what it can and asks for administrator
+`barn doctor` reports host dependencies, persisted state, and network setup;
+`barn status` audits live QMP/process identity and safely converges interrupted
+transitions. `barn setup` installs what it can and asks for administrator
 access only when a host transaction genuinely needs it.
 
 ## Install
 
-Farrow is pre-1.0. A successful build from source is not evidence of a tagged
+Barn is pre-1.0. A successful build from source is not evidence of a tagged
 release, a published package, or a supported guest image.
 
-Version 0.8.0 improves startup recovery and refreshes the operating-system
-catalog. See the [0.8.0 notes](.github/releases/0.8.0.md) for the verified paths
-and remaining limitations.
+Version 0.9.0 introduces the Barn name. See the
+[0.9.0 notes](.github/releases/0.9.0.md) for changes and validation scope.
+This checkout prepares that release; use a source build until its assets are
+published.
 
-Download `install.sh`, `farrow.rb`, or the native package from the
-[Farrow 0.8.0 release](https://github.com/pgsty/farrow/releases/tag/v0.8.0).
+Download `install.sh`, `barn.rb`, or the native package from the
+[Barn 0.9.0 release](https://github.com/pgsty/barn/releases/tag/v0.9.0), once published.
 
 ```bash
 # From a release: user-scoped, no sudo, checksum-verified
-curl -fLO https://github.com/pgsty/farrow/releases/download/v0.8.0/install.sh
+curl -fLO https://github.com/pgsty/barn/releases/download/v0.9.0/install.sh
 chmod +x install.sh
-FARROW_VERSION=0.8.0 ./install.sh
+BARN_VERSION=0.9.0 ./install.sh
 
 # Homebrew formula (shipped as a release asset)
-brew install --formula ./farrow.rb
+brew install --formula ./barn.rb
 
 # Debian/Ubuntu and RHEL-family packages are release assets too
-sudo apt install ./farrow_<version>_linux_amd64.deb
-sudo dnf install ./farrow_<version>_linux_amd64.rpm
+sudo apt install ./barn_<version>_linux_amd64.deb
+sudo dnf install ./barn_<version>_linux_amd64.rpm
 ```
 
-GitHub does not expose pre-1.0 prereleases through `/releases/latest`, so
-`FARROW_VERSION` is required until a stable release exists. The installer
+GitHub does not expose prereleases through `/releases/latest`, so
+`BARN_VERSION` is required until a stable release exists. The installer
 always verifies the selected archive against the `checksums.txt` produced by
 the GitHub release workflow.
 
-When upgrading an existing Debian lab whose inventory omits `vm_image`, set
-`vm_image: d13` in `all.vars` to keep that choice. Upgrading Farrow does not
-replace healthy VM disks; `farrow plan` shows configuration changes before you
-apply them. Since 0.7.0, `up` can reset damaged data filesystems, including
-persistent disks, as described above. The policy is unchanged in 0.8.0.
+Barn starts a new internal installation namespace: `barn.yml`, `BARN_*`,
+`~/.barn`, and Barn-owned host resources. It does not read Farrow state,
+environment variables, network ownership, or SSH fragments and has no old-name
+aliases or migration command. Stop and retire an old internal lab with its
+original executable before setting up Barn on the same subnet. Preserve any
+needed guest files and inventory before rebuilding; changing the binary name
+does not convert an existing lab.
 
 From source:
 
@@ -231,25 +234,25 @@ export PATH="$PWD/bin:$PATH"
 ## Everyday commands
 
 ```bash
-farrow init full             # a four-node inventory instead of one
-farrow validate              # parse and resolve without touching anything
-farrow plan                  # what would change, and why
-farrow up                    # converge
-farrow update                # fetch and activate a newer image catalog
-farrow status                # audit/converge selected runtime state, from anywhere
-farrow ssh meta -- uptime    # run something in a guest
-farrow hosts install --yes   # publish node names into the host hosts file
-farrow destroy               # explicit, confirmed teardown
-farrow purge                 # no-confirmation disposal; images/network remain
+barn init full             # a four-node inventory instead of one
+barn validate              # parse and resolve without touching anything
+barn plan                  # what would change, and why
+barn up                    # converge
+barn update                # fetch and activate a newer image catalog
+barn status                # audit/converge selected runtime state, from anywhere
+barn ssh meta -- uptime    # run something in a guest
+barn hosts install --yes   # publish node names into the host hosts file
+barn destroy               # explicit, confirmed teardown
+barn purge                 # no-confirmation disposal; images/network remain
 ```
 
 Every command accepts `--json` or `--yaml` for stable machine-readable output.
 Presentation flags never change an exit status.
 
-`farrow exec meta -- command arg...` preserves argument boundaries, including
+`barn exec meta -- command arg...` preserves argument boundaries, including
 quoted spaces and empty values. Use `sh -c 'script'` for shell expressions.
-The single-string shorthand (`farrow exec meta -- 'uptime; id'`) and ordinary
-`farrow ssh` shell semantics remain available.
+The single-string shorthand (`barn exec meta -- 'uptime; id'`) and ordinary
+`barn ssh` shell semantics remain available.
 
 ### Exit codes and errors
 
@@ -258,8 +261,8 @@ The single-string shorthand (`farrow exec meta -- 'uptime; id'`) and ordinary
 | 0 | | success |
 | 1 | `runtime` | the operation ran and failed (a tool, download, or guest failed) |
 | 2 | `usage` | the command line or inventory is wrong |
-| 3 | `capability` | the host lacks a tool, the Farrow network, or a privilege |
-| 4 | `conflict` | the deployment's current state forbids it, or another farrow command holds it |
+| 3 | `capability` | the host lacks a tool, the Barn network, or a privilege |
+| 4 | `conflict` | the deployment's current state forbids it, or another barn command holds it |
 | 5 | `partial` | some nodes succeeded and some failed |
 | 6 | `resource` | a host address, port, subnet, or disk is taken |
 | 7 | `integrity` | a verified digest, signature, identity, or ownership did not match |
@@ -271,7 +274,7 @@ one clear thing to do. With `--json`, stdout carries the same failure:
 
 ```json
 {"error": "conflict", "reason": "node_not_running", "message": "node meta is not running",
- "next": "farrow start meta", "operation_id": "…"}
+ "next": "barn start meta", "operation_id": "…"}
 ```
 
 `reason` is a stable identifier for automation and is present only where it
@@ -281,29 +284,29 @@ failures keep their full result document, as before.
 
 `ssh`, `exec`, and a single-node `provision` pass the guest command's own exit
 status through unchanged, so their non-zero codes are the remote program's,
-not one of the categories above. Farrow's own failures on those paths still use
+not one of the categories above. Barn's own failures on those paths still use
 the table.
 
 ## State
 
-Linux deployment state lives under `$FARROW_HOME` (default `~/.farrow`): the
+Linux deployment state lives under `$BARN_HOME` (default `~/.barn`): the
 applied deployment, per-node state and journals, the verified image cache, and
 the signed catalog. Applied-state commands therefore work from any directory.
-Outside that tree Farrow writes only three marked things: the host network
-(`farrow network uninstall`), the hosts-file block (`farrow hosts uninstall`),
-and `~/.ssh/farrow_config` with one `Include` line in `~/.ssh/config`
-(`farrow ssh-config --remove`). When `~/.ssh/config` is a symlink or hard link,
-as dotfile managers create, Farrow leaves it alone and asks you to add the
-`Include` line once. Mac machines keep their data under `$FARROW_HOME/mac`
-and their SSH entries in `~/.ssh/farrow-mac_config` with a separately marked
-`Include` (`farrow mac ssh-config --remove`); see [Mac storage](https://github.com/pgsty/farrow/blob/main/docs/mac.md#storage).
+Outside that tree Barn writes only three marked things: the host network
+(`barn network uninstall`), the hosts-file block (`barn hosts uninstall`),
+and `~/.ssh/barn_config` with one `Include` line in `~/.ssh/config`
+(`barn ssh-config --remove`). When `~/.ssh/config` is a symlink or hard link,
+as dotfile managers create, Barn leaves it alone and asks you to add the
+`Include` line once. Mac machines keep their data under `$BARN_HOME/mac`
+and their SSH entries in `~/.ssh/barn-mac_config` with a separately marked
+`Include` (`barn mac ssh-config --remove`); see [Mac storage](https://github.com/pgsty/barn/blob/main/docs/mac.md#storage).
 
-The image catalog ships inside each Farrow release, and Farrow never refreshes
-it implicitly. `farrow update` fetches the configured repository's catalog;
-`farrow image sync` activates an exact URL or file. Ordinary commands use the
-active local catalog. The default repository is `https://repo.pigsty.io/farrow`;
-`--mirror` selects `https://repo.pigsty.cc/farrow`, while an explicit `--repo`
-overrides `--mirror`, `FARROW_REPO`, and the default.
+The image catalog ships inside each Barn release, and Barn never refreshes
+it implicitly. `barn update` fetches the configured repository's catalog;
+`barn image sync` activates an exact URL or file. Ordinary commands use the
+active local catalog. The default repository is `https://repo.pigsty.io/barn`;
+`--mirror` selects `https://repo.pigsty.cc/barn`, while an explicit `--repo`
+overrides `--mirror`, `BARN_REPO`, and the default.
 
 Optional integration warnings appear in structured lifecycle results as
 `warnings` with `code`, `message`, `detail`, and an optional `next` command.
@@ -318,7 +321,7 @@ SSH port or a reset data disk. Automation that requires every configured guest f
 `nodes[].warnings` as well as the exit code.
 
 Setup and lifecycle retries reuse one `operation_id`. After a failed first setup,
-`farrow logs --source events --json` works even without deployment state. Event
+`barn logs --source events --json` works even without deployment state. Event
 files are bounded; setup traces contain phase/category summaries, while the
 command output retains the actual cause. Missing deployment public keys are
 derived from the original private key during startup. If that private key is
@@ -339,7 +342,7 @@ installer trust boundaries, and the dependency-license inventory. See
 
 ## Security
 
-Farrow asks for root when installing Linux host packages, setting up the
+Barn asks for root when installing Linux host packages, setting up the
 private network, or publishing node names into the system hosts file through
 a separate helper binary. See
 [SECURITY.md](SECURITY.md) for the privilege boundary and how to report a

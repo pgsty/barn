@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/image"
-	netpreflight "github.com/pgsty/farrow/internal/network/preflight"
-	"github.com/pgsty/farrow/internal/platform"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/image"
+	netpreflight "github.com/pgsty/barn/internal/network/preflight"
+	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 func singlePrivateResolved() spec.Resolved {
@@ -74,7 +74,7 @@ func TestMaterializeMissingNodePortsSkipsUnselectedMissingPeersAndReservesExisti
 	)
 	store := state.Store{Root: t.TempDir()}
 	if err := store.WriteNode(state.NodeState{
-		Schema: state.NodeSchema, FarrowVersion: "test", Node: "meta", SSHPort: 2223,
+		Schema: state.NodeSchema, BarnVersion: "test", Node: "meta", SSHPort: 2223,
 		VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped, Generation: 1,
 		SpecHash: strings.Repeat("a", 64), CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
 	}); err != nil {
@@ -104,7 +104,7 @@ func TestCommittedNodeUUIDsSkipsDesiredNodesWithoutState(t *testing.T) {
 	)
 	store := state.Store{Root: t.TempDir()}
 	if err := store.WriteNode(state.NodeState{
-		Schema: state.NodeSchema, FarrowVersion: "test", Node: "meta", SSHPort: 2222,
+		Schema: state.NodeSchema, BarnVersion: "test", Node: "meta", SSHPort: 2222,
 		VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped, Generation: 1,
 		SpecHash: strings.Repeat("a", 64), CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
 	}); err != nil {
@@ -124,7 +124,7 @@ func (failAfterSelectedImageRunner) Run(context.Context, string, ...string) (exe
 
 func TestPrivateSelectedFreshUpResolvesOnlySelectedImageAndAddress(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "data")
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	if err := os.MkdirAll(filepath.Join(root, "locks"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestPrivateSelectedFreshUpResolvesOnlySelectedImageAndAddress(t *testing.T)
 	resolvedImages := make([]string, 0)
 	preflightAddresses := make([]string, 0)
 	manager := Manager{
-		Nodes: []string{"node-2"}, FarrowVersion: "test", Runner: failAfterSelectedImageRunner{},
+		Nodes: []string{"node-2"}, BarnVersion: "test", Runner: failAfterSelectedImageRunner{},
 		NativeProfile: func() (platform.Profile, error) { return profile, nil },
 		NetworkPreflight: func(_ context.Context, _ platform.Profile, request netpreflight.Request, _ execx.Runner) netpreflight.Report {
 			preflightAddresses = append(preflightAddresses, request.Addresses...)
@@ -194,7 +194,7 @@ func planFixtureManager(t *testing.T) Manager {
 
 func TestPrivatePlanIsReadOnlyAndSupportsOneNode(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "data")
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	manager := planFixtureManager(t)
 	plan, err := manager.Plan(context.Background(), singlePrivateResolved())
 	if err != nil {
@@ -210,7 +210,7 @@ func TestPrivatePlanIsReadOnlyAndSupportsOneNode(t *testing.T) {
 
 func TestPrivatePlanTreatsEmptyDataRootWithoutStateAsCreate(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	manager := planFixtureManager(t)
 	plan, err := manager.Plan(context.Background(), singlePrivateResolved())
 	if err != nil || plan.Action != "create" || plan.Destructive {
@@ -220,7 +220,7 @@ func TestPrivatePlanTreatsEmptyDataRootWithoutStateAsCreate(t *testing.T) {
 
 func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	resolved := singlePrivateResolved()
 	resolved.Nodes = append(resolved.Nodes,
 		spec.Node{Name: "node-1", Address: "10.10.10.11", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB},
@@ -231,7 +231,7 @@ func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := state.Store{Root: root}
-	if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, FarrowVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Unix(1, 0).UTC()}); err != nil {
+	if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Unix(1, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	metaHash, err := spec.NodeHash(resolved, "meta")
@@ -239,7 +239,7 @@ func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.WriteNode(state.NodeState{
-		Schema: state.NodeSchema, FarrowVersion: "test", Node: "meta", SSHPort: 2222,
+		Schema: state.NodeSchema, BarnVersion: "test", Node: "meta", SSHPort: 2222,
 		VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped, Generation: 1,
 		SpecHash: metaHash, Invocation: qemu.Invocation{Binary: "/fixture/qemu-system-aarch64", Args: []string{"-accel", "hvf"}},
 		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
@@ -256,14 +256,14 @@ func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 
 func TestPrivateDriftPlansRecreateAndUpReturnsTypedConflict(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	persisted := singlePrivateResolved()
 	persistedHash, err := spec.Hash(persisted)
 	if err != nil {
 		t.Fatal(err)
 	}
 	store := state.Store{Root: root}
-	if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, FarrowVersion: "test", SpecHash: persistedHash, Resolved: persisted, UpdatedAt: time.Unix(1, 0).UTC()}); err != nil {
+	if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: persistedHash, Resolved: persisted, UpdatedAt: time.Unix(1, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	metaHash, err := spec.NodeHash(persisted, "meta")
@@ -271,7 +271,7 @@ func TestPrivateDriftPlansRecreateAndUpReturnsTypedConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.WriteNode(state.NodeState{
-		Schema: state.NodeSchema, FarrowVersion: "test", Node: "meta",
+		Schema: state.NodeSchema, BarnVersion: "test", Node: "meta",
 		VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped, Generation: 1,
 		SpecHash: metaHash, CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
 	}); err != nil {
@@ -307,7 +307,7 @@ func TestPrivateDriftPlansRecreateAndUpReturnsTypedConflict(t *testing.T) {
 
 func TestPrivatePlanWorksBeforeHostNetworkSetup(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "data")
-	t.Setenv("FARROW_HOME", root)
+	t.Setenv("BARN_HOME", root)
 	profile, err := platform.Resolve("darwin", "arm64")
 	if err != nil {
 		t.Fatal(err)
@@ -339,14 +339,14 @@ func TestRestartAndRecreatePreflightBeforeLifecycleMutation(t *testing.T) {
 	for _, command := range []string{"restart", "recreate"} {
 		t.Run(command, func(t *testing.T) {
 			root := t.TempDir()
-			t.Setenv("FARROW_HOME", root)
+			t.Setenv("BARN_HOME", root)
 			resolved := singlePrivateResolved()
 			hash, err := spec.Hash(resolved)
 			if err != nil {
 				t.Fatal(err)
 			}
 			store := state.Store{Root: root}
-			if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, FarrowVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Unix(1, 0).UTC()}); err != nil {
+			if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Unix(1, 0).UTC()}); err != nil {
 				t.Fatal(err)
 			}
 			profile, err := platform.Resolve("darwin", "arm64")
@@ -480,7 +480,7 @@ func assertPrivateShareCapabilityFailurePreservesState(t *testing.T, fixture Sta
 
 func TestPrivateRestartShareCapabilityPrecedesStop(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
 	persistPrivateShare(t, store, privateShareFixture(t))
 	beforeNode, err := store.ReadNode("meta")
@@ -509,7 +509,7 @@ func TestPrivateRecreateShareCapabilityPrecedesDestroy(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture, _ := preparedStartFixture(t)
-			t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+			t.Setenv("BARN_HOME", fixture.Deployment.Root)
 			store := state.Store{Root: fixture.Deployment.Root}
 			share := privateShareFixture(t)
 			deploymentState, err := store.ReadDeployment()
@@ -546,7 +546,7 @@ func TestPrivateRecreateShareCapabilityPrecedesDestroy(t *testing.T) {
 
 func TestPrivateRecreateRuntimePolicyPrecedesDestroy(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
 	deploymentState, err := store.ReadDeployment()
 	if err != nil {
@@ -564,7 +564,7 @@ func TestPrivateRecreateRuntimePolicyPrecedesDestroy(t *testing.T) {
 
 func TestPrivateRecreateRuntimeDriftRequiresWholeDeployment(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
-	t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
 	deploymentState, err := store.ReadDeployment()
 	if err != nil {
@@ -628,7 +628,7 @@ func TestPrivateRecreateSelectedRuntimeInputsPrecedeDestroy(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture, _ := preparedStartFixture(t)
-			t.Setenv("FARROW_HOME", fixture.Deployment.Root)
+			t.Setenv("BARN_HOME", fixture.Deployment.Root)
 			store := state.Store{Root: fixture.Deployment.Root}
 			deploymentState, err := store.ReadDeployment()
 			if err != nil {
@@ -654,7 +654,7 @@ func TestPrivateRecreateSelectedRuntimeInputsPrecedeDestroy(t *testing.T) {
 }
 
 func TestPrivatePlanDoesNotRequireForeignRuntimeInstallation(t *testing.T) {
-	t.Setenv("FARROW_HOME", t.TempDir())
+	t.Setenv("BARN_HOME", t.TempDir())
 	resolved := singlePrivateResolved()
 	resolved.Arch = "amd64"
 	profile, _ := platform.Resolve("darwin", "arm64")

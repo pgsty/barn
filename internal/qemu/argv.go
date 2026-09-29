@@ -1,4 +1,4 @@
-// Package qemu builds the typed argv for Farrow's single QEMU backend.
+// Package qemu builds the typed argv for Barn's single QEMU backend.
 package qemu
 
 import (
@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/naming"
-	"github.com/pgsty/farrow/internal/platform"
+	"github.com/pgsty/barn/internal/naming"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 const MiB int64 = 1024 * 1024
@@ -244,8 +244,8 @@ func validate(config Config) error {
 		} else if hasFD && config.Private.FD != 3 {
 			return fmt.Errorf("private inherited FD must be 3, got %d", config.Private.FD)
 		} else if hasBridge {
-			if config.Private.Bridge != "farrow0" {
-				return fmt.Errorf("v1 private bridge must be farrow0, got %q", config.Private.Bridge)
+			if config.Private.Bridge != "barn0" {
+				return fmt.Errorf("v1 private bridge must be barn0, got %q", config.Private.Bridge)
 			}
 			if err := validateAbsolute("qemu bridge helper", config.Private.BridgeHelper); err != nil {
 				return err

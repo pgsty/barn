@@ -20,16 +20,16 @@ case ${artifact} in
   *) printf 'unsupported package SBOM artifact: %s\n' "${artifact}" >&2; exit 2 ;;
 esac
 case ${stem} in
-  farrow_*_linux_amd64) goarch=amd64; version=${stem#farrow_}; version=${version%_linux_amd64} ;;
-  farrow_*_linux_arm64) goarch=arm64; version=${stem#farrow_}; version=${version%_linux_arm64} ;;
-  *) printf 'unexpected Farrow package name: %s\n' "${artifact}" >&2; exit 2 ;;
+  barn_*_linux_amd64) goarch=amd64; version=${stem#barn_}; version=${version%_linux_amd64} ;;
+  barn_*_linux_arm64) goarch=arm64; version=${stem#barn_}; version=${version%_linux_arm64} ;;
+  *) printf 'unexpected Barn package name: %s\n' "${artifact}" >&2; exit 2 ;;
 esac
 
 script_directory=$(cd "$(dirname "$0")" && pwd -P)
 repo=$(cd "${script_directory}/.." && pwd -P)
 # shellcheck disable=SC1091
 source "${script_directory}/semver.sh"
-farrow_is_semver "${version}" || { printf 'invalid package SBOM version: %s\n' "${version}" >&2; exit 2; }
+barn_is_semver "${version}" || { printf 'invalid package SBOM version: %s\n' "${version}" >&2; exit 2; }
 sbom_root=${repo}/.goreleaser-companion/linux_${goarch}/sbom-root
 [[ -d ${sbom_root} && ! -L ${sbom_root} && -O ${sbom_root} ]] || { printf 'package SBOM root is missing or unsafe: %s\n' "${sbom_root}" >&2; exit 1; }
 resolved_sbom_root=$(cd "${sbom_root}" && pwd -P)
@@ -52,7 +52,7 @@ trap cleanup EXIT
 SYFT_CHECK_FOR_APP_UPDATE=false syft scan "dir:${sbom_root}" --source-name "${artifact}" --source-version "${version}" \
   --output "spdx-json=${raw}" >/dev/null
 jq --arg name "${artifact}" --arg version "${version}" --arg package_sha "${package_sha}" \
-  --arg namespace "https://github.com/pgsty/farrow/sbom/${version}/${goarch}/${format}/${package_sha}" \
+  --arg namespace "https://github.com/pgsty/barn/sbom/${version}/${goarch}/${format}/${package_sha}" \
   --arg created "${created}" '
   .name = $name |
   .documentNamespace = $namespace |

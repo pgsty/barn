@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/process"
-	"github.com/pgsty/farrow/internal/runtimepath"
-	"github.com/pgsty/farrow/internal/state"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/runtimepath"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
 )
 
 type StopLifecycle interface {
@@ -51,7 +51,7 @@ func (config StopConfig) now() time.Time {
 	return time.Now().UTC()
 }
 
-// A prepared node may share a runtime path with a different FARROW_HOME.
+// A prepared node may share a runtime path with a different BARN_HOME.
 // Never unlink a listening socket or a pidfile that still has a live owner.
 func checkRuntimeUnused(node state.NodeState) error {
 	if node.Runtime.QMP != "" {
@@ -125,9 +125,9 @@ func loadStoppableNodes(store state.Store, names []string) ([]state.NodeState, e
 		case state.Stopping, state.Starting:
 			// An interrupted transition: re-drive the stop when the process
 			// identity is complete; a dead or identity-less transition is
-			// converged by `farrow status` first.
+			// converged by `barn status` first.
 			if !completeProcess(node.Process) {
-				return nil, failure.WithNext(fmt.Errorf("node %s was interrupted while %s and its process cannot be identified", name, node.Phase), "farrow status, then retry")
+				return nil, failure.WithNext(fmt.Errorf("node %s was interrupted while %s and its process cannot be identified", name, node.Phase), "barn status, then retry")
 			}
 		case state.Stopped, state.Prepared:
 			if node.Process.PID != 0 {

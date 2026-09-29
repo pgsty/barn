@@ -47,7 +47,7 @@ func TestXDGDirectoryAndEnsure(t *testing.T) {
 	if err := PruneEmptyParents(directory, os.Getuid()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(filepath.Join(root, "farrow")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(root, "barn")); !os.IsNotExist(err) {
 		t.Fatalf("empty managed parents remain: %v", err)
 	}
 	if _, err := os.Lstat(root); err != nil {

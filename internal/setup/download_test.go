@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	darwinnet "github.com/pgsty/farrow/internal/network/darwin"
+	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 )
 
 type doerFunc func(*http.Request) (*http.Response, error)

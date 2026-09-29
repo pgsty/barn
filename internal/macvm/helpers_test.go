@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/lock"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewStore(filepath.Join(t.TempDir(), "farrow"))
+	s, err := NewStore(filepath.Join(t.TempDir(), "barn"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func testMachine(t *testing.T, m *Manager, name, subnet string, initialized bool
 	}
 	id, _ := NewInstanceID()
 	mac, _ := newMAC()
-	machine := &Machine{SchemaVersion: SchemaVersion, Name: name, InstanceID: id, BaseID: config.DefaultBaseID, State: "stopped", User: "farrow",
+	machine := &Machine{SchemaVersion: SchemaVersion, Name: name, InstanceID: id, BaseID: config.DefaultBaseID, State: "stopped", User: "barn",
 		Initialized: initialized, CPU: DefaultCPU, MemoryBytes: DefaultMemoryBytes, DiskBytes: DefaultDiskBytes, MAC: mac,
 		Network: NetworkFor(netip.MustParsePrefix(subnet)), Clipboard: true, Version: "27.0", Build: "26A428", CreatedAt: time.Now().UTC()}
 	if !initialized {
@@ -253,13 +253,4 @@ func requireMac(t *testing.T) {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" || HostSupported() != nil {
 		t.Skip("requires macOS 27 on Apple Silicon")
 	}
-}
-
-func holdRunnerLockFile(t *testing.T, path string) *lock.File {
-	t.Helper()
-	held, err := lock.TryAcquire(path, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return held
 }

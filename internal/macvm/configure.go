@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/lock"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 // ConfigureOptions change a machine's settings. Hardware, network and shares
@@ -36,7 +36,7 @@ func (o ConfigureOptions) needsStopped() bool {
 // does not already have, so up never silently ignores a request.
 func checkExistingOptions(machine *Machine, options CreateOptions) error {
 	var changed []string
-	next := "farrow mac configure " + machine.Name
+	next := "barn mac configure " + machine.Name
 	if options.CPU != 0 && options.CPU != machine.CPU {
 		changed, next = append(changed, "--cpu"), next+fmt.Sprintf(" --cpu %d", options.CPU)
 	}
@@ -76,10 +76,10 @@ func checkExistingOptions(machine *Machine, options CreateOptions) error {
 	}
 	switch {
 	case fixed:
-		next = "create another machine for these settings: farrow mac up NEW-NAME"
+		next = "create another machine for these settings: barn mac up NEW-NAME"
 	case options.Setup.IPSW != "":
 		changed = append(changed, "--ipsw")
-		next = "farrow mac image update --ipsw " + options.Setup.IPSW + ", then farrow mac recreate " + machine.Name + " --update"
+		next = "barn mac image update --ipsw " + options.Setup.IPSW + ", then barn mac recreate " + machine.Name + " --update"
 	}
 	return failure.New(failure.Conflict, fmt.Errorf("%s already exists, so %s would not apply; its configuration and data were preserved", machine.Name, strings.Join(changed, ", "))).
 		Because("mac_configuration_conflict").Then(next)
@@ -136,7 +136,7 @@ func (m *Manager) Configure(ctx context.Context, name string, options ConfigureO
 	if options.needsStopped() {
 		if status, err := m.status(ctx, machine); err == nil && status.State != "stopped" {
 			return outcome, failure.New(failure.Conflict, fmt.Errorf("%s is %s; stop it to change its hardware, network or shared folders", name, status.State)).
-				Because("mac_running").Then("farrow mac stop " + name)
+				Because("mac_running").Then("barn mac stop " + name)
 		}
 		if ctx.Err() != nil {
 			return outcome, ctx.Err()
@@ -193,7 +193,7 @@ func (m *Manager) Configure(ctx context.Context, name string, options ConfigureO
 	outcome.State = displayState(machine)
 	if status, err := m.status(ctx, machine); err == nil && status.State != "stopped" {
 		outcome.State = "running"
-		outcome.Warnings = append(outcome.Warnings, "the change applies at the next start: farrow mac restart "+name)
+		outcome.Warnings = append(outcome.Warnings, "the change applies at the next start: barn mac restart "+name)
 	}
 	if subnetChanged {
 		if warning := m.refreshSSHConfig(); warning != "" {

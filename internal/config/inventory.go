@@ -12,14 +12,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/image"
-	"github.com/pgsty/farrow/internal/naming"
-	"github.com/pgsty/farrow/internal/network/subnet"
-	"github.com/pgsty/farrow/internal/spec"
+	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/naming"
+	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/spec"
 	"go.yaml.in/yaml/v3"
 )
 
-// The configuration is a Pigsty-compatible Ansible inventory. Farrow reads
+// The configuration is a Pigsty-compatible Ansible inventory. Barn reads
 // exactly the vm_* namespace plus a short whitelist of native Pigsty
 // variables; everything else in the file is opaque and never validated.
 //
@@ -33,7 +33,7 @@ const maxInventoryBytes = 4 << 20
 // deployments. Naming from file content or directory would move the drift hash
 // when the file or directory is renamed, so the name is deliberately constant;
 // deployment identity is the single owner-scoped state root.
-const InventoryDeploymentName = "farrow"
+const InventoryDeploymentName = "barn"
 
 const (
 	defaultCPU      = 2
@@ -319,7 +319,7 @@ func (host inventoryHost) lookup(key string) (*yaml.Node, string, bool, error) {
 		return nil, "", false, fmt.Errorf("host %s variable %q: %w", host.address, key, err)
 	}
 	if containsTemplate(value) {
-		return nil, "", false, fmt.Errorf("host %s variable %q contains a template expression; farrow reads literal values only", host.address, key)
+		return nil, "", false, fmt.Errorf("host %s variable %q contains a template expression; barn reads literal values only", host.address, key)
 	}
 	winner, err = resolveAlias(winner)
 	return winner, origin, true, err
@@ -852,7 +852,7 @@ func ParseInventory(data []byte) (File, error) {
 			if vmArchHosts == 1 {
 				vmArch, vmArchOwner = value, host.address
 			} else if vmArch != value {
-				return File{}, fmt.Errorf("hosts %s and %s declare different vm_arch values; farrow uses one guest architecture per deployment", vmArchOwner, host.address)
+				return File{}, fmt.Errorf("hosts %s and %s declare different vm_arch values; barn uses one guest architecture per deployment", vmArchOwner, host.address)
 			}
 		}
 
@@ -906,12 +906,12 @@ func ParseInventory(data []byte) (File, error) {
 		if sshUser == "" {
 			sshUser, sshUserOwner = user, host.address
 		} else if sshUser != user {
-			return File{}, fmt.Errorf("hosts %s and %s declare different node_admin_username values; farrow uses one login user per deployment", sshUserOwner, host.address)
+			return File{}, fmt.Errorf("hosts %s and %s declare different node_admin_username values; barn uses one login user per deployment", sshUserOwner, host.address)
 		}
 		if value, found, err := host.lookupInt("node_admin_uid", 0, 1<<31-1); err != nil {
 			return File{}, err
 		} else if found && user == defaultSSHUser && value != defaultAdminUID {
-			return File{}, fmt.Errorf("host %s sets node_admin_uid=%d; farrow provisions %s with the fixed UID %d", host.address, value, defaultSSHUser, defaultAdminUID)
+			return File{}, fmt.Errorf("host %s sets node_admin_uid=%d; barn provisions %s with the fixed UID %d", host.address, value, defaultSSHUser, defaultAdminUID)
 		}
 
 		if host.address == adminIP {

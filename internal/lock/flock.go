@@ -1,4 +1,4 @@
-// Package lock implements bounded advisory file locks for Farrow's fixed lock
+// Package lock implements bounded advisory file locks for Barn's fixed lock
 // order: cache/global, deployment allocator, deployment, then node.
 package lock
 

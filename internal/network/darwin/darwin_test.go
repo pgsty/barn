@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/network/subnet"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/network/subnet"
 )
 
 func TestPinnedRelease(t *testing.T) {
@@ -314,8 +314,8 @@ func TestPartialInstallRollbackIsExactAndIncludesInterfaceEvidence(t *testing.T)
 
 func TestInterfaceEvidencePathsArePublicProtectedAndTargeted(t *testing.T) {
 	t.Parallel()
-	if InterfaceMarkerPath != "/Library/Application Support/io.pgsty.farrow/network-interface.json" ||
-		InterfaceStatePath != "/private/var/db/farrow/network-interface.json" {
+	if InterfaceMarkerPath != "/Library/Application Support/io.pgsty.barn/network-interface.json" ||
+		InterfaceStatePath != "/private/var/db/barn/network-interface.json" {
 		t.Fatalf("interface evidence paths changed: public=%q protected=%q", InterfaceMarkerPath, InterfaceStatePath)
 	}
 	targets := darwinTargets()

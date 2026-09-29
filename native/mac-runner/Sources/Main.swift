@@ -17,8 +17,8 @@ struct Main {
         app.setActivationPolicy(.accessory)
         if CommandLine.arguments.count == 1 && Bundle.main.bundleURL.pathExtension == "app" {
             let alert = NSAlert()
-            alert.messageText = "Farrow Mac runs from Terminal"
-            alert.informativeText = "Run farrow mac up to create and start a macOS virtual machine, then farrow mac open to show its desktop."
+            alert.messageText = "Barn Mac runs from Terminal"
+            alert.informativeText = "Run barn mac up to create and start a macOS virtual machine, then barn mac open to show its desktop."
             alert.addButton(withTitle: "OK")
             app.activate(ignoringOtherApps: true)
             alert.runModal()
@@ -33,8 +33,8 @@ struct Main {
                     try args.validate(values: [])
                     let host = ProcessInfo.processInfo.operatingSystemVersion
                     response = ["ok": true, "protocol_version": protocolVersion, "architecture": "arm64", "virtualization_supported": VZVirtualMachine.isSupported,
-                                "version": Bundle.main.object(forInfoDictionaryKey: "FarrowVersion") as? String ?? "standalone",
-                                "commit": Bundle.main.object(forInfoDictionaryKey: "FarrowCommit") as? String ?? "unknown",
+                                "version": Bundle.main.object(forInfoDictionaryKey: "BarnVersion") as? String ?? "standalone",
+                                "commit": Bundle.main.object(forInfoDictionaryKey: "BarnCommit") as? String ?? "unknown",
                                 "host_version": "\(host.majorVersion).\(host.minorVersion).\(host.patchVersion)", "cpu_count": ProcessInfo.processInfo.activeProcessorCount,
                                 "physical_memory": ProcessInfo.processInfo.physicalMemory, "pid": getpid()]
                 case "metadata":

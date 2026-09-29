@@ -1,7 +1,7 @@
-// Command catalogsign generates the Farrow catalog signing keypair and signs
+// Command catalogsign generates the Barn catalog signing keypair and signs
 // catalog files with it, using the same minisign implementation the CLI
 // verifies with. The repository layout and rotation policy live in
-// https://farrow.pgsty.com/docs/reference/images/; the verifier embeds the
+// https://barn.pgsty.com/docs/reference/images/; the verifier embeds the
 // active and standby PUBLIC keys in internal/image/keys.go.
 //
 // The private-key password is read from CATALOGSIGN_PASSWORD (empty allowed).
@@ -95,7 +95,7 @@ func sign(keyPath, password string, files []string) error {
 			return err
 		}
 		trusted := fmt.Sprintf("timestamp:%d", time.Now().Unix())
-		untrusted := "farrow catalog: " + filepath.Base(file)
+		untrusted := "barn catalog: " + filepath.Base(file)
 		signature := minisign.SignWithComments(privateKey, data, trusted, untrusted)
 		if err := os.WriteFile(file+".minisig", signature, 0o644); err != nil {
 			return err

@@ -71,11 +71,11 @@ case "$(basename "$0")" in
   esac ;;
  xfs_repair) if [[ "$CASE" == xfs-corrupt ]]; then exit 1; else exit 0; fi ;;
  mkfs.ext4|mkfs.xfs) printf fresh > "$DEVICE"; touch "$FIXTURE/formatted" ;;
- farrow-warning) printf '%s %s\n' "$1" "$2" >> "$FIXTURE/warnings" ;;
+ barn-warning) printf '%s %s\n' "$1" "$2" >> "$FIXTURE/warnings" ;;
  *) exit 97 ;;
 esac
 `
-			for _, name := range []string{"sleep", "timeout", "blkid", "lsblk", "mountpoint", "findmnt", "umount", "blockdev", "dd", "mount", "e2fsck", "xfs_repair", "mkfs.ext4", "mkfs.xfs", "farrow-warning"} {
+			for _, name := range []string{"sleep", "timeout", "blkid", "lsblk", "mountpoint", "findmnt", "umount", "blockdev", "dd", "mount", "e2fsck", "xfs_repair", "mkfs.ext4", "mkfs.xfs", "barn-warning"} {
 				if err := os.WriteFile(filepath.Join(bin, name), []byte(stub), 0700); err != nil {
 					t.Fatal(err)
 				}
@@ -85,7 +85,7 @@ esac
 				fs = "xfs"
 			}
 			script := renderDiskScript([]Disk{{Serial: serial, Mount: filepath.Join(dir, "data"), Filesystem: fs, Fresh: tc.fresh}})
-			script = strings.NewReplacer("/dev/disk/by-id", devdir, "/var/lib/farrow", dir, "/etc/fstab", filepath.Join(dir, "fstab"), "/usr/local/libexec/farrow-warning", filepath.Join(bin, "farrow-warning"), `[[ -b "${dev}" ]]`, `[[ -f "${dev}" ]]`).Replace(script)
+			script = strings.NewReplacer("/dev/disk/by-id", devdir, "/var/lib/barn", dir, "/etc/fstab", filepath.Join(dir, "fstab"), "/usr/local/libexec/barn-warning", filepath.Join(bin, "barn-warning"), `[[ -b "${dev}" ]]`, `[[ -f "${dev}" ]]`).Replace(script)
 			cmd := exec.Command("bash")
 			cmd.Stdin = strings.NewReader(script)
 			cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin", "CASE="+tc.name, "FIXTURE="+dir, "DEVICE="+device, "FS_TYPE="+fs)

@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/naming"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/naming"
 )
 
 const (
@@ -40,7 +40,7 @@ type Identity struct {
 }
 
 // Record is the on-disk ownership marker.  Path and OwnerUID bind the marker
-// to the exact Farrow-owned file and local account.
+// to the exact Barn-owned file and local account.
 type Record struct {
 	Schema      int       `json:"schema"`
 	Node        string    `json:"node"`

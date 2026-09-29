@@ -12,9 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/disk"
-	"github.com/pgsty/farrow/internal/execx"
-	"github.com/pgsty/farrow/internal/fsutil"
+	"github.com/pgsty/barn/internal/disk"
+	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/fsutil"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -29,7 +29,7 @@ type RepoVariant struct {
 	File     string `yaml:"file,omitempty"`
 	Upstream string `yaml:"upstream,omitempty"`
 	// SourceUser is the distribution image's original guest login identity.
-	// It records normalization/import provenance; Farrow provisions and uses
+	// It records normalization/import provenance; Barn provisions and uses
 	// the deployment SSH user separately.
 	SourceUser string `yaml:"source_user,omitempty"`
 	Boot       string `yaml:"boot,omitempty"`

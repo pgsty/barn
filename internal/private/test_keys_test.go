@@ -25,5 +25,5 @@ func testSSHKeyPair(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublic))) + " farrow-test", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}))
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublic))) + " barn-test", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}))
 }

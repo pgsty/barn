@@ -1,5 +1,5 @@
 // Package provision runs explicit, bounded guest provisioning scripts over
-// Farrow's existing SSH trust channel. It deliberately does not add a plugin
+// Barn's existing SSH trust channel. It deliberately does not add a plugin
 // system, implicit up hook, or shell execution on the host.
 package provision
 
@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pgsty/farrow/internal/failure"
-	"github.com/pgsty/farrow/internal/naming"
-	"github.com/pgsty/farrow/internal/vm"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/naming"
+	"github.com/pgsty/barn/internal/vm"
 	"golang.org/x/sys/unix"
 )
 

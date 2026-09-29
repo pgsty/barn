@@ -2,7 +2,7 @@
 
 # Strict SemVer 2.0.0 validation shared by release scripts. The v prefix is
 # deliberately excluded because callers validate tags and versions separately.
-farrow_is_semver() {
+barn_is_semver() {
   local value=${1:-} base metadata prerelease core identifier
   local -a identifiers
 
@@ -35,19 +35,19 @@ farrow_is_semver() {
   [[ ${core} =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 }
 
-farrow_is_prerelease_semver() {
+barn_is_prerelease_semver() {
   local value=${1:-}
-  farrow_is_semver "${value}" && [[ ${value%%+*} == *-* ]]
+  barn_is_semver "${value}" && [[ ${value%%+*} == *-* ]]
 }
 
-# farrow_is_stable_release is the single definition of "finished release": 1.0.0
+# barn_is_stable_release is the single definition of "finished release": 1.0.0
 # or later with no prerelease suffix. Everything under 1.0.0 is a pre-1.0
 # developer release however the tag is spelled. The release channel recorded in
 # release.json and the GitHub pre-release flag both follow this one rule, so the
 # artifacts and the Release page can never disagree about what was shipped.
-farrow_is_stable_release() {
+barn_is_stable_release() {
   local value=${1:-}
-  farrow_is_semver "${value}" || return 1
-  farrow_is_prerelease_semver "${value}" && return 1
+  barn_is_semver "${value}" || return 1
+  barn_is_prerelease_semver "${value}" && return 1
   [[ ${value%%.*} != 0 ]]
 }

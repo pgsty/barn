@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 const liveRoutesFixture = `Routing tables
@@ -85,7 +85,7 @@ func TestStartRefusesAnOccupiedSubnetWithTheRightNext(t *testing.T) {
 	}
 	err := m.checkNetworkFree(context.Background(), machine)
 	class, reason, next := failure.Classify(err)
-	if class != failure.Resource || reason != "mac_subnet_in_use" || next != "farrow mac configure dev --subnet auto" {
+	if class != failure.Resource || reason != "mac_subnet_in_use" || next != "barn mac configure dev --subnet auto" {
 		t.Fatalf("err=%v class=%s reason=%s next=%s", err, class, reason, next)
 	}
 }

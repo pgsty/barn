@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pgsty/farrow/internal/execx"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 func keyRoot(t *testing.T) string {
@@ -46,8 +46,8 @@ func TestEnsureKeysCreatesFixedModesAndIsIdempotent(t *testing.T) {
 	root := keyRoot(t)
 	privateKey, knownHosts, publicKey := ensured(t, root)
 
-	if !strings.HasPrefix(publicKey, "ssh-ed25519 ") || !strings.HasSuffix(publicKey, " farrow") {
-		t.Fatalf("public key = %q, want a farrow-commented Ed25519 key", publicKey)
+	if !strings.HasPrefix(publicKey, "ssh-ed25519 ") || !strings.HasSuffix(publicKey, " barn") {
+		t.Fatalf("public key = %q, want a barn-commented Ed25519 key", publicKey)
 	}
 	for path, want := range map[string]os.FileMode{
 		filepath.Join(root, "keys"): 0o700,

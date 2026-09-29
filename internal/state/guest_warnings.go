@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pgsty/farrow/internal/naming"
+	"github.com/pgsty/barn/internal/naming"
 )
 
 // Warnings are a disposable observation, separate from the strict node state

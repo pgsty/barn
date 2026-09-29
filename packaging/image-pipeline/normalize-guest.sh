@@ -43,7 +43,7 @@ install_locked_packages() {
   local packages=()
   case ${profile} in
     el8)
-      [[ ${package_dir} == /var/tmp/farrow-image-packages && -d ${package_dir} ]] || {
+      [[ ${package_dir} == /var/tmp/barn-image-packages && -d ${package_dir} ]] || {
         printf 'el8 profile requires the locked RPM bundle\n' >&2
         exit 3
       }
@@ -54,7 +54,7 @@ install_locked_packages() {
       [[ ${#packages[@]} -gt 0 ]] || { printf 'locked RPM bundle is empty\n' >&2; exit 3; }
       rocky_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-8
       [[ -f ${rocky_key} ]] || { printf 'Rocky package signing key is missing\n' >&2; exit 3; }
-      key_database=/var/tmp/farrow-rpm-signature-db
+      key_database=/var/tmp/barn-rpm-signature-db
       [[ ! -e ${key_database} ]] || { printf 'temporary RPM signature database already exists\n' >&2; exit 3; }
       install -d -o root -g root -m 0700 "${key_database}"
       rpm --dbpath "${key_database}" --initdb
@@ -66,7 +66,7 @@ install_locked_packages() {
       rpm -Uvh --replacepkgs --nosignature "${packages[@]}"
       ;;
     d12|d13)
-      [[ ${package_dir} == /var/tmp/farrow-image-packages && -d ${package_dir} ]] || {
+      [[ ${package_dir} == /var/tmp/barn-image-packages && -d ${package_dir} ]] || {
         printf '%s profile requires the locked DEB bundle\n' "${profile}" >&2
         exit 3
       }
@@ -274,22 +274,22 @@ for user in root "${source_user}" dba "${normal_users[@]}"; do
 done
 
 install -d -o root -g root -m 0755 /etc/sudoers.d
-printf 'dba ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/90-farrow-dba
-chown root:root /etc/sudoers.d/90-farrow-dba
-chmod 0440 /etc/sudoers.d/90-farrow-dba
+printf 'dba ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/90-barn-dba
+chown root:root /etc/sudoers.d/90-barn-dba
+chmod 0440 /etc/sudoers.d/90-barn-dba
 if command -v visudo >/dev/null; then
   visudo -cf /etc/sudoers >/dev/null
 fi
 
 install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
-cat >/etc/ssh/sshd_config.d/99-farrow-image.conf <<'EOF'
+cat >/etc/ssh/sshd_config.d/99-barn-image.conf <<'EOF'
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 ChallengeResponseAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
 EOF
-chmod 0644 /etc/ssh/sshd_config.d/99-farrow-image.conf
+chmod 0644 /etc/ssh/sshd_config.d/99-barn-image.conf
 if [[ ${profile} == el8 ]]; then
   ensure_sshd_dropin_include
 fi
@@ -332,7 +332,7 @@ if [[ -d /var/lib/cloud ]]; then
   [[ -z ${residual} ]] || { printf 'residual cloud-init cache: %s\n' "${residual}" >&2; exit 5; }
 fi
 
-install -d -o root -g root -m 0755 /var/lib/farrow-image
+install -d -o root -g root -m 0755 /var/lib/barn-image
 python3_status=not-requested
 xfsprogs_status=not-requested
 legacy_network_status=not-requested
@@ -347,11 +347,11 @@ if [[ ${profile} == d12 || ${profile} == d13 ]]; then
 fi
 [[ ${profile} == el8 || ${profile} == el9 ]] && legacy_network_status=removed
 [[ ${profile} == el8 ]] && sshd_include_status=verified
-printf '{"schema":1,"recipe":"farrow-official-image-normalization-v1","profile":"%s","source_user":"%s","source_date_epoch":%s,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","locale_default":"%s","locale_en_us":"%s","legacy_network":"%s","sshd_include":"%s"}\n' \
+printf '{"schema":1,"recipe":"barn-official-image-normalization-v1","profile":"%s","source_user":"%s","source_date_epoch":%s,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","locale_default":"%s","locale_en_us":"%s","legacy_network":"%s","sshd_include":"%s"}\n' \
   "${profile}" "${source_user}" "${source_date_epoch}" "${python3_status}" "${xfsprogs_status}" \
   "${locale_default_status}" "${locale_en_us_status}" "${legacy_network_status}" "${sshd_include_status}" \
-  >/var/lib/farrow-image/normalization.json
-chmod 0644 /var/lib/farrow-image/normalization.json
+  >/var/lib/barn-image/normalization.json
+chmod 0644 /var/lib/barn-image/normalization.json
 
 # Normalize the metadata of files created by this recipe. Filesystem journals
 # and allocation are still part of the pinned native toolchain boundary; the
@@ -359,9 +359,9 @@ chmod 0644 /var/lib/farrow-image/normalization.json
 touch -d "@${source_date_epoch}" \
   /home/dba /home/dba/.ssh \
   /etc/machine-id \
-  /etc/sudoers.d/90-farrow-dba \
-  /etc/ssh/sshd_config.d/99-farrow-image.conf \
-  /var/lib/farrow-image /var/lib/farrow-image/normalization.json
+  /etc/sudoers.d/90-barn-dba \
+  /etc/ssh/sshd_config.d/99-barn-image.conf \
+  /var/lib/barn-image /var/lib/barn-image/normalization.json
 if [[ ${profile} == d12 || ${profile} == d13 ]]; then
   touch -d "@${source_date_epoch}" /etc/locale.gen /etc/default/locale
   [[ ! -e /usr/lib/locale/locale-archive ]] || touch -d "@${source_date_epoch}" /usr/lib/locale/locale-archive
@@ -373,7 +373,7 @@ fi
 # is present. Native boot/readiness remains a promotion gate.
 if command -v restorecon >/dev/null; then
   restorecon -F /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/machine-id
-  restorecon -RF /home/dba /etc/sudoers.d/90-farrow-dba \
-    /etc/ssh/sshd_config.d/99-farrow-image.conf /var/lib/farrow-image
+  restorecon -RF /home/dba /etc/sudoers.d/90-barn-dba \
+    /etc/ssh/sshd_config.d/99-barn-image.conf /var/lib/barn-image
   [[ ! -e /var/lib/dbus/machine-id ]] || restorecon -F /var/lib/dbus/machine-id
 fi

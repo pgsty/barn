@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/barn/internal/activity"
 )
 
 // progressWriter turns the runner's timestamped JSONL progress on stderr into

@@ -8,10 +8,10 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/pgsty/farrow/internal/fsutil"
-	"github.com/pgsty/farrow/internal/qemu"
-	"github.com/pgsty/farrow/internal/spec"
-	"github.com/pgsty/farrow/internal/state"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/qemu"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 type CommitResult struct {
@@ -21,7 +21,7 @@ type CommitResult struct {
 }
 
 func desiredDeploymentState(resolved spec.Resolved, hash, version string, now time.Time) state.DeploymentState {
-	return state.DeploymentState{Schema: state.DeploymentSchema, FarrowVersion: version, SpecHash: hash, Resolved: resolved, UpdatedAt: now}
+	return state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: version, SpecHash: hash, Resolved: resolved, UpdatedAt: now}
 }
 
 // envelopeOf strips the node list so deployment-level settings can be compared
@@ -125,7 +125,7 @@ func stateForArtifacts(config PrepareConfig, deploymentValue Deployment, artifac
 		forwards = append(forwards, qemu.Forward{Bind: forward.Bind, Host: forward.Host, Guest: forward.Guest})
 	}
 	return state.NodeState{
-		Schema: state.NodeSchema, FarrowVersion: version,
+		Schema: state.NodeSchema, BarnVersion: version,
 		Node: artifacts.Name, VMUUID: nodePlan.VMUUID, Phase: state.Prepared, Generation: 1, SpecHash: config.NodeHashes[artifacts.Name],
 		Image:    state.Image{Alias: base.Alias, Release: base.Release, Digest: base.Digest, VirtualSize: base.VirtualSize},
 		RootDisk: artifacts.Root, DataDisks: dataState, Seed: artifacts.Seed, NVRAM: artifacts.NVRAM,

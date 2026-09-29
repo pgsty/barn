@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/sshconfig"
+	"github.com/pgsty/barn/internal/sshconfig"
 )
 
 func TestSSHConfigCoversInitializedMachinesOnly(t *testing.T) {
@@ -26,7 +26,7 @@ func TestSSHConfigCoversInitializedMachinesOnly(t *testing.T) {
 		t.Fatalf("install %+v %v", result, err)
 	}
 	config, _ := os.ReadFile(filepath.Join(m.SSHHome, ".ssh", "config"))
-	if !strings.Contains(string(config), "# farrow-mac:include\nInclude ") {
+	if !strings.Contains(string(config), "# barn-mac:include\nInclude ") {
 		t.Fatalf("config %q", config)
 	}
 	if warning := m.refreshSSHConfig(); warning != "" {
@@ -35,7 +35,7 @@ func TestSSHConfigCoversInitializedMachinesOnly(t *testing.T) {
 	if installed, err := sshconfig.MacInstalled(m.SSHHome, m.Store.Root); err != nil || !installed {
 		t.Fatalf("installed=%v err=%v", installed, err)
 	}
-	// Another Farrow home never takes over the fragment implicitly.
+	// Another Barn home never takes over the fragment implicitly.
 	other, _ := testManager(t)
 	other.SSHHome = m.SSHHome
 	testMachine(t, other, "other", "10.10.40.0/24", true)
@@ -50,7 +50,7 @@ func TestSSHConfigCoversInitializedMachinesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	config, _ = os.ReadFile(filepath.Join(m.SSHHome, ".ssh", "config"))
-	if strings.Contains(string(config), "farrow-mac") {
+	if strings.Contains(string(config), "barn-mac") {
 		t.Fatalf("include remains: %q", config)
 	}
 }

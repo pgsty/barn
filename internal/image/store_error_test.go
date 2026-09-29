@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/farrow/internal/failure"
+	"github.com/pgsty/barn/internal/failure"
 )
 
 func TestUnreachableSourceNamesHostAndKeepsRetryableCause(t *testing.T) {

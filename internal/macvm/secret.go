@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pgsty/farrow/internal/fsutil"
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 // The guest's GUI password lives next to its SSH private key with the same
@@ -47,7 +47,7 @@ func (s *Store) Password(name string) (string, error) {
 	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("%s has no saved GUI password; recreate the machine, or set one in the guest with farrow mac exec %s -- sudo dscl . -passwd /Users/<user> <new-password>", name, name)
+		return "", fmt.Errorf("%s has no saved GUI password; recreate the machine, or set one in the guest with barn mac exec %s -- sudo dscl . -passwd /Users/<user> <new-password>", name, name)
 	}
 	if err != nil {
 		return "", err
