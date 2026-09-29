@@ -1,6 +1,6 @@
 {
   "artifact_base_url": "https://repo.pigsty.cc/barn",
-  "manifest_version": 2026092901,
+  "manifest_version": 2026092902,
   "schema": 1,
   "source_date_epoch": 1790640000,
   "targets": [
@@ -136,7 +136,7 @@
         "schema": 1
       },
       "profile": "d13",
-      "release": "20260914.2601.1",
+      "release": "20260914.2601.2",
       "source_filename": "d13-20260914.2601.1-amd64.source.qcow2",
       "source_sha256": "b6e3a4dac69b38d55a763b1752e8fd7bb12e3948672a79fee4ef13fa53839d2f",
       "source_sha512": "a733e7d49442a03e70d03e4eb5aaf3967f3efc69ef70952f9bb10fc1ee2c4876eb95956b5ad2d31350e5fada768feb651352535fb8cd1233f61998a5a7d2e93c",
@@ -182,7 +182,7 @@
         "schema": 1
       },
       "profile": "d13",
-      "release": "20260914.2601.1",
+      "release": "20260914.2601.2",
       "source_filename": "d13-20260914.2601.1-arm64.source.qcow2",
       "source_sha256": "3fa2da19de8343bc144517d15bab29a90352482640d326939c9756af4f553f7b",
       "source_sha512": "bef60fa5c4f5511cf83fe1ade0279edd5318dccbbb44f14eb0aa7f3b467e038d7a7c0b6f837be0ad1c3b2e06c5ed8e27adfdf0fd111a201b8f4c9347cd414863",
@@ -221,7 +221,7 @@
         "schema": 1
       },
       "profile": "el8",
-      "release": "8.10.20240528.1",
+      "release": "8.10.20240528.2",
       "source_filename": "el8-8.10.20240528.0-amd64.qcow2",
       "source_sha256": "e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14",
       "source_sha512": null,
@@ -260,7 +260,7 @@
         "schema": 1
       },
       "profile": "el8",
-      "release": "8.10.20240528.1",
+      "release": "8.10.20240528.2",
       "source_filename": "el8-8.10.20240528.0-arm64.qcow2",
       "source_sha256": "946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f",
       "source_sha512": null,
@@ -273,7 +273,7 @@
       "name": "el9",
       "package_lock": null,
       "profile": "el9",
-      "release": "9.8.20260525.1",
+      "release": "9.8.20260525.2",
       "source_filename": "el9-9.8.20260525.0-amd64.qcow2",
       "source_sha256": "92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8",
       "source_sha512": null,
@@ -286,7 +286,7 @@
       "name": "el9",
       "package_lock": null,
       "profile": "el9",
-      "release": "9.8.20260525.1",
+      "release": "9.8.20260525.2",
       "source_filename": "el9-9.8.20260525.0-arm64.qcow2",
       "source_sha256": "24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe",
       "source_sha512": null,

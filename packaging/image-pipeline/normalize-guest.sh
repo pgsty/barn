@@ -52,6 +52,22 @@ install_locked_packages() {
       packages=("${package_dir}"/*.rpm)
       shopt -u nullglob
       [[ ${#packages[@]} -gt 0 ]] || { printf 'locked RPM bundle is empty\n' >&2; exit 3; }
+      # Rocky 8.10 cloud-init lacks its distro-specific chrony defaults.
+      # Keep NTP opt-in, but use the shipped RHEL template and real service
+      # when Barn user-data enables it. Do not alter pools or network policy.
+      [[ -f /etc/cloud/templates/chrony.conf.rhel.tmpl ]] || {
+        printf 'RHEL chrony template is missing\n' >&2
+        exit 3
+      }
+      install -d -o root -g root -m 0755 /etc/cloud/cloud.cfg.d
+      cat >/etc/cloud/cloud.cfg.d/90-barn-image-ntp.cfg <<'NTP_CONFIG'
+ntp:
+  enabled: false
+  config:
+    service_name: chronyd
+    template_name: chrony.conf.rhel
+NTP_CONFIG
+      chmod 0644 /etc/cloud/cloud.cfg.d/90-barn-image-ntp.cfg
       rocky_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-8
       [[ -f ${rocky_key} ]] || { printf 'Rocky package signing key is missing\n' >&2; exit 3; }
       key_database=/var/tmp/barn-rpm-signature-db
