@@ -1,5 +1,5 @@
 schema: 1
-revision: 2026092901
+revision: 2026092902
 defaults:
   image: "u24"
   channel: "stable"
@@ -21,48 +21,23 @@ images:
           arm64:
             source_user: "dba"
             provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-arm64-20260923-2610.qcow2 sha256:36af134bafc3e426e551f250deec7581e4352d473ba40be7d9fd905fb832d0ed; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-      "20260909.2596.1":
-        status: "supported"
-        variants:
-          amd64:
-            source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260909-2596/debian-12-generic-amd64-20260909-2596.qcow2 sha256:5b842b549629637613f1770ad749b868b08c6e16c437a5940f21178816f3d7e9; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-20; upstream is build provenance only"
-          arm64:
-            source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260909-2596/debian-12-generic-arm64-20260909-2596.qcow2 sha256:38190f378a1564c8bf5cf6a44898999bfcb5972876dc3e4a9b5413b6398a1efa; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-20; upstream is build provenance only"
-      "20260806.2562.1":
-        status: "supported"
-        variants:
-          amd64:
-            source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Debian 12 generic amd64 20260806-2562 sha256:dd3dbd23a3965318cc9aae32592dcfde4abcb8f90a50ca760a9ca9e8f3ba6255; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-03; upstream is build provenance only"
-          arm64:
-            source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Debian 12 generic arm64 20260806-2562 sha256:8c6b8f81e571d530f6561c707538a4e807de8188c9a3f41af7b52b4e5ed010be; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-03; upstream is build provenance only"
+
   d13:
     aliases: ["debian13", "debian", "trixie"]
     boot: "uefi"
     channels:
-      stable: "20260914.2601.1"
+      stable: "20260914.2601.2"
     versions:
-      "20260914.2601.1":
+      "20260914.2601.2":
         status: "supported"
         variants:
           amd64:
             source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-amd64-20260914-2601.qcow2 sha256:b6e3a4dac69b38d55a763b1752e8fd7bb12e3948672a79fee4ef13fa53839d2f; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; xfsprogs 6.13.0-2+deb13u1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-20; upstream is build provenance only"
+            provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-amd64-20260914-2601.qcow2 sha256:b6e3a4dac69b38d55a763b1752e8fd7bb12e3948672a79fee4ef13fa53839d2f; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:2e8e2ec801032229aed52b75c4086c9bd204b390092ee803fd642865fe5460a0; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
           arm64:
             source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-arm64-20260914-2601.qcow2 sha256:3fa2da19de8343bc144517d15bab29a90352482640d326939c9756af4f553f7b; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; xfsprogs 6.13.0-2+deb13u1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-20; upstream is build provenance only"
-      "20260810.2566.1":
-        status: "supported"
-        variants:
-          amd64:
-            source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Debian 13 generic amd64 20260810-2566 sha256:d4e6f5d1e9f571c198a65b45ab1adae6c5734607614e72f9661d84ce5881e5fc; package-lock sha256:759059563e646cae441e087235f94439a961055a3acc146c140d1fc92d69d036; xfsprogs 6.13.0-2+b1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-03; upstream is build provenance only"
-          arm64:
-            source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Debian 13 generic arm64 20260810-2566 sha256:2c546c79ec199983a88e384f6e5d013ab7876353943f7aa614403e3028bbea99; package-lock sha256:6a87dde20a715fb88f4258cf064a1fd5fd714f16aa2fa3df3716dad397f17264; xfsprogs 6.13.0-2+b1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-03; upstream is build provenance only"
+            provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-arm64-20260914-2601.qcow2 sha256:3fa2da19de8343bc144517d15bab29a90352482640d326939c9756af4f553f7b; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:99459a9920a72746b6cbcae529df30b2f7f82cd96ae0a2b9b14b21362e747398; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+
   el10:
     aliases: ["rocky10"]
     boot: "uefi"
@@ -119,32 +94,33 @@ images:
     aliases: ["rocky8"]
     boot: "uefi"
     channels:
-      stable: "8.10.20240528.1"
+      stable: "8.10.20240528.2"
     versions:
-      "8.10.20240528.1":
+      "8.10.20240528.2":
         status: "supported"
         variants:
           amd64:
             source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Rocky Linux 8.10 GenericCloud Base amd64 20240528.0 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; Python 3.6, native interface names, and sshd Include fixed; native KVM dual-NIC SSH/Python smoke passed 2026-09-03; upstream is build provenance only"
+            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base-8.10-20240528.0.x86_64.qcow2 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; recipe sha256:e0882240ee40eb029c13abbfaafe9188aaa40e5fad6ab13a021d63fcabc79e0f; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
           arm64:
             source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Rocky Linux 8.10 GenericCloud Base arm64 20240528.0 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; Python 3.6, native interface names, and sshd Include fixed; TCG dual-NIC SSH/Python smoke passed 2026-09-03; Apple HVF remains incompatible with the upstream 64K-granule kernel; upstream is build provenance only"
+            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:dfc88170d5a387a8b35eb232ec52970fa88f6caef532e32aab6928fb78f89410; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; TCG UEFI (upstream 64 KiB ARM kernel) dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+
   el9:
     aliases: ["rocky9", "rocky"]
     boot: "uefi"
     channels:
-      stable: "9.8.20260525.1"
+      stable: "9.8.20260525.2"
     versions:
-      "9.8.20260525.1":
+      "9.8.20260525.2":
         status: "supported"
         variants:
           amd64:
             source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Rocky Linux 9.8 GenericCloud Base amd64 20260525.0 sha256:92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8; legacy interface naming state removed; native KVM dual-NIC SSH smoke passed 2026-09-03; upstream is build provenance only"
+            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2 sha256:92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
           arm64:
             source_user: "dba"
-            provenance: "Farrow official-image recipe v1 from Rocky Linux 9.8 GenericCloud Base arm64 20260525.0 sha256:24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe; legacy interface naming state removed; native HVF dual-NIC SSH smoke passed 2026-09-03; upstream is build provenance only"
+            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2 sha256:24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
       "9.7.20251123.2":
         status: "supported"
         variants:

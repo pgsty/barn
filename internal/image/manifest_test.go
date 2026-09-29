@@ -39,20 +39,20 @@ func TestEmbeddedFormalGuestMatrixExact(t *testing.T) {
 			sha256: "284aab2b23d91318f169ff464bce4d53404a15a0618ceb34562838c59af4adea", artifactSize: 902889472, virtualSize: 8589934592, sourceUser: "centos",
 		},
 		"el8/amd64": {
-			release: "8.10.20240528.1", url: "",
-			sha256: "8010643eeb7bca72287165127422b3c2ace3b1e942dd531fa23a2bd9db62a699", artifactSize: 2081488896, virtualSize: 10737418240, sourceUser: "dba",
+			release: "8.10.20240528.2", url: "",
+			sha256: "79356d5deb18bda78726340a888fe212071bea4e691d1d0231bf2bb7660fc3dd", artifactSize: 2081619968, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el8/arm64": {
-			release: "8.10.20240528.1", url: "",
-			sha256: "b440c55b9d6e98fe58bfb9a66f52d82299cff1dc97a7fa2530b30b45eefa447d", artifactSize: 1941438464, virtualSize: 10737418240, sourceUser: "dba",
+			release: "8.10.20240528.2", url: "",
+			sha256: "048a5e6322ea21576cad7084b72c2c5d5677fb53cf75677db1712a460249d22f", artifactSize: 1941569536, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el9/amd64": {
-			release: "9.8.20260525.1", url: "",
-			sha256: "b6410ae2c0dee331410680c0b13619f8a9f512560fbf641ab8c495e781b0448d", artifactSize: 655687680, virtualSize: 10737418240, sourceUser: "dba",
+			release: "9.8.20260525.2", url: "",
+			sha256: "97fcb5f117e364a6c26a3536adc2a8f517acabeaf2a0ece30330f16753e7b6dd", artifactSize: 655622144, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el9/arm64": {
-			release: "9.8.20260525.1", url: "",
-			sha256: "8203af2032444144cfefddebf710ea0fd467c3022544f849dd6e12bc5ee0799c", artifactSize: 529727488, virtualSize: 10737418240, sourceUser: "dba",
+			release: "9.8.20260525.2", url: "",
+			sha256: "28628f3ee93d35b0c21b2e53d568817380f9764ae4b89f0eeb0bde9d503c313b", artifactSize: 529727488, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el10/amd64": {
 			release: "10.2.20260525.0", url: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2",
@@ -71,12 +71,12 @@ func TestEmbeddedFormalGuestMatrixExact(t *testing.T) {
 			sha256: "b7a91965bd9612d51c69396c2cb03b230707c69982b8286327844ce59f6cea00", artifactSize: 724500480, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d13/amd64": {
-			release: "20260914.2601.1", url: "",
-			sha256: "3ec9fc9ca0adca84dbdcf9297687e1f0b893138ed4205d6584b47ecda4f76464", artifactSize: 532873216, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20260914.2601.2", url: "",
+			sha256: "d7d9535bebb4e3052e67bf280142e55aabf8d62e4e2f42281a12532ac79374c2", artifactSize: 589430784, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d13/arm64": {
-			release: "20260914.2601.1", url: "",
-			sha256: "9fe2f0a4fe6a43ff04f741d41962f1107b840c14b80f23b7c967a731e0fe1e6e", artifactSize: 582090752, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20260914.2601.2", url: "",
+			sha256: "400a1d2eb921cad7ecd7240762cafa03003771f8ec99a58826528512703d5079", artifactSize: 604962816, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"u22/amd64": {
 			release: "20260926.0.0", url: "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-amd64.img",

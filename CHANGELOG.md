@@ -41,11 +41,13 @@ packages, host resources, and documentation.
 
 ### Changed
 
-- Embed Catalog `2026092901` with Debian 12 `20260923.2610.1`, Ubuntu
-  22.04/24.04 `20260926.0.0`, and Ubuntu 26.04 `20260927.0.0` on amd64 and
-  arm64 (45 artifacts, retaining all 37 previous artifacts). Debian 12 still
-  needs offline XFS tools and `en_US.UTF-8` generation; Ubuntu keeps the
-  upstream image bytes. Both retain `C.UTF-8` as the default locale.
+- Embed Catalog `2026092902` with 39 artifacts across nine image families.
+  Debian 12/13 and Rocky Linux 8/9 use Barn-normalized images; Ubuntu keeps
+  the upstream image bytes. Debian includes offline XFS tools and
+  `en_US.UTF-8`, with `C.UTF-8` retained as the default locale.
+- Rocky Linux 8 uses its shipped RHEL chrony template and the `chronyd`
+  service when cloud-init enables NTP. Guest user-data uses a scalar sudo
+  rule accepted by all supported cloud-init schemas.
 - Every failure has one shape: `error: <message>`, the failing program's last
   stderr lines when an external tool failed, and a `next:` line when there is
   one clear action. External failures name the program (`apt-get exited with

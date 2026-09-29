@@ -172,9 +172,8 @@ refuse older revisions unless --allow-downgrade, and activate it atomically.`,
 
 	resetOptions := imageOptions{Action: "reset"}
 	reset := &cobra.Command{
-		Use:     "reset",
-		Aliases: []string{"reset-manifest"},
-		Short:   "Restore the built-in catalog",
+		Use:   "reset",
+		Short: "Restore the built-in catalog",
 		Long: `Reactivate the catalog embedded in this Barn binary. Downgrade protection
 still remembers the newest revision ever activated.`,
 		Example: `  barn image reset
