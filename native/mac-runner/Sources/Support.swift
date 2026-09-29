@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import Security
 import Darwin
 
 struct RunnerError: Error, LocalizedError {
@@ -62,7 +61,7 @@ struct Arguments {
         while i < raw.count {
             let name = raw[i]
             if !name.hasPrefix("--") { positional.append(name); i += 1; continue }
-            if ["--force", "--help", "--nat"].contains(name) {
+            if ["--force", "--help", "--recovery"].contains(name) {
                 guard flags.insert(name).inserted else { throw RunnerError("argument", "Repeated \(name)") }
                 i += 1; continue
             }
@@ -114,43 +113,4 @@ func sendJSON(_ value: [String: Any], fd: Int32) throws {
             written += count
         }
     }
-}
-
-func keychain(_ args: Arguments) throws -> [String: Any] {
-    try args.validate(values: ["--service", "--account"], positionals: 1)
-    let service = try args.string("--service"), account = try args.string("--account")
-    guard service.hasPrefix("farrow.mac."), UUID(uuidString: account) != nil else {
-        throw RunnerError("argument", "Keychain service must begin farrow.mac. and account must be an instance UUID")
-    }
-    var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-    let operation = args.positional[0]
-    var status: OSStatus
-    switch operation {
-    case "set":
-        let input = try readLineJSON(fd: STDIN_FILENO)
-        guard let password = input["password"] as? String, !password.isEmpty else { throw RunnerError("argument", "stdin password is required") }
-        let attributes: [String: Any] = [kSecValueData as String: Data(password.utf8)]
-        status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            query[kSecValueData as String] = Data(password.utf8)
-            query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            status = SecItemAdd(query as CFDictionary, nil)
-        }
-    case "get":
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecSuccess, let data = item as? Data, let password = String(data: data, encoding: .utf8) {
-            return ["ok": true, "password": password]
-        }
-    case "delete":
-        status = SecItemDelete(query as CFDictionary)
-        if status == errSecItemNotFound { status = errSecSuccess }
-    default: throw RunnerError("argument", "secret expects set, get, or delete")
-    }
-    guard status == errSecSuccess else {
-        throw RunnerError("keychain:\(status)", (SecCopyErrorMessageString(status, nil) as String?) ?? "Keychain operation failed")
-    }
-    return ["ok": true]
 }

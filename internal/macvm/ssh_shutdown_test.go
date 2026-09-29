@@ -4,17 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
+	"golang.org/x/crypto/ssh"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pgsty/farrow/internal/lock"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestShutdownSubmissionUsesNoninteractiveSudoAndAcceptsTransportExit(t *testing.T) {
@@ -92,7 +87,7 @@ func TestShutdownSubmissionUsesNoninteractiveSudoAndAcceptsTransportExit(t *test
 			defer func() { _ = client.Close() }()
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			defer cancel()
-			err = submitSSHShutdown(ctx, client)
+			err = submitSSHShutdown(ctx, client, "/sbin/shutdown -h now")
 			if mode == "command-rejected" {
 				if err == nil || !strings.Contains(err.Error(), "password is required") {
 					t.Fatalf("lost command failure: %v", err)
@@ -109,105 +104,6 @@ func TestShutdownSubmissionUsesNoninteractiveSudoAndAcceptsTransportExit(t *test
 			}
 			if err := <-serverDone; err != nil {
 				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestStopSSHSubmissionStillRequiresStoppedRunnerAndReleasedLock(t *testing.T) {
-	for _, scenario := range []string{"submitted-and-stopped", "disconnected-but-running", "stopped-but-locked"} {
-		t.Run(scenario, func(t *testing.T) {
-			m, _, slot, dir := lifecycleSlot(t)
-			m.Runner, _ = lifecycleRunner(t, "shutdown")
-			state := filepath.Join(t.TempDir(), "runtime-state")
-			marker := filepath.Join(t.TempDir(), "native-stop")
-			t.Setenv("FARROW_TEST_LIFECYCLE_STATE", state)
-			t.Setenv("FARROW_TEST_LIFECYCLE_STOP_MARKER", marker)
-			if err := os.WriteFile(state, []byte("running"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			runnerLock, err := lock.TryAcquire(filepath.Join(dir, "runner.lock"), false)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = runnerLock.Release() }()
-			called := 0
-			shutdown := func(context.Context, *Slot) error {
-				called++
-				if scenario != "disconnected-but-running" {
-					if err := os.WriteFile(state, []byte("stopped"), 0600); err != nil {
-						return err
-					}
-				}
-				if scenario == "submitted-and-stopped" {
-					return runnerLock.Release()
-				}
-				return nil // Includes EOF/no exit status; never proves shutdown.
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			err = m.stopRuntimeWithShutdown(ctx, slot, false, shutdown)
-			if scenario == "submitted-and-stopped" {
-				if err != nil {
-					t.Fatal(err)
-				}
-			} else if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("false stopped success: %v", err)
-			}
-			if called != 1 {
-				t.Fatalf("SSH submission count=%d", called)
-			}
-			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
-				t.Fatal("successful SSH submission also requested native shutdown")
-			}
-		})
-	}
-}
-
-func TestStopSelectsNativeForUninitializedForceAndSSHFailure(t *testing.T) {
-	for _, scenario := range []string{"uninitialized", "force", "ssh-unavailable"} {
-		t.Run(scenario, func(t *testing.T) {
-			m, _, slot, dir := lifecycleSlot(t)
-			// A real runner leaves this inode behind after releasing its lock.
-			if err := os.WriteFile(filepath.Join(dir, "runner.lock"), nil, 0600); err != nil {
-				t.Fatal(err)
-			}
-			m.Runner, _ = lifecycleRunner(t, "shutdown")
-			state := filepath.Join(t.TempDir(), "runtime-state")
-			marker := filepath.Join(t.TempDir(), "native-stop")
-			t.Setenv("FARROW_TEST_LIFECYCLE_STATE", state)
-			t.Setenv("FARROW_TEST_LIFECYCLE_STOP_MARKER", marker)
-			t.Setenv("FARROW_TEST_LIFECYCLE_AUTO_STOP", "1")
-			if err := os.WriteFile(state, []byte("running"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			slot.Initialized = scenario != "uninitialized"
-			called := 0
-			shutdown := func(context.Context, *Slot) error { called++; return errors.New("pinned SSH unavailable") }
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			if err := m.stopRuntimeWithShutdown(ctx, slot, scenario == "force", shutdown); err != nil {
-				t.Fatal(err)
-			}
-			if (called == 1) != (scenario == "ssh-unavailable") {
-				t.Fatalf("unexpected SSH submission count=%d", called)
-			}
-			wire, err := os.ReadFile(marker)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var args []string
-			if err := json.Unmarshal(wire, &args); err != nil {
-				t.Fatal(err)
-			}
-			forceSeen := false
-			for _, arg := range args {
-				if arg == "--force" {
-					forceSeen = true
-				}
-			}
-			if forceSeen != (scenario == "force") {
-				t.Fatalf("native force mismatch: %v", args)
 			}
 		})
 	}

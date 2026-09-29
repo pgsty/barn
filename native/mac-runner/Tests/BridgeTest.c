@@ -30,6 +30,10 @@ int main(void) {
     assert(fm_unix_listen(path, error, sizeof(error)) < 0);
     assert(access(path, F_OK) == 0);
     close(regular); unlink(path); rmdir(root);
-    puts("{\"ok\":true,\"tests\":[\"rpc_socket_connection\",\"refuse_duplicate_listener_and_lock\",\"preserve_non_socket_path\"]}");
+    /* Invalid input is refused before any network exists. */
+    uint32_t status = 0;
+    assert(fm_vmnet_network_create("invalid", "10.10.99.10", "02:00:00:00:00:01", &status) == NULL && status != VMNET_SUCCESS);
+    assert(fm_vmnet_network_create("10.10.99.1", "10.10.99.10", "not-a-mac", &status) == NULL && status != VMNET_SUCCESS);
+    puts("{\"ok\":true,\"tests\":[\"rpc_socket_connection\",\"refuse_duplicate_listener_and_lock\",\"preserve_non_socket_path\",\"refuse_invalid_network\"]}");
     return 0;
 }

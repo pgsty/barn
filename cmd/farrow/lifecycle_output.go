@@ -81,6 +81,9 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 		} else {
 			printPrivateStatus(out, result.Status)
 		}
+		if command == "status" {
+			printMacHint(out)
+		}
 	} else {
 		ready, limited, unchecked := 0, 0, 0
 		changed := false

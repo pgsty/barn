@@ -1,239 +1,312 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"github.com/pgsty/farrow/internal/macvm"
 	"io"
-	"text/tabwriter"
+	"strings"
+
+	"github.com/pgsty/farrow/internal/macvm"
 )
 
-func macOutcome(value any) commandOutcome {
-	return commandOutcome{payload: value, text: func(out, _ io.Writer) error {
-		formatBytes := func(value int64) string {
-			for _, unit := range []struct {
-				bytes int64
-				name  string
-			}{{1 << 30, "GiB"}, {1 << 20, "MiB"}, {1 << 10, "KiB"}} {
-				if value >= unit.bytes {
-					if value%unit.bytes == 0 {
-						return fmt.Sprintf("%d %s", value/unit.bytes, unit.name)
-					}
-					return fmt.Sprintf("%.2f %s", float64(value)/float64(unit.bytes), unit.name)
-				}
+func macCheck(out io.Writer) string { return styled(out, ansiGreen, "✓") }
+
+func macBytes(value int64) string {
+	if value >= 1<<30 && value%(1<<30) == 0 {
+		return fmt.Sprintf("%d GiB", value>>30)
+	}
+	return progressBytes(value)
+}
+
+func macStatusOutcome(status macvm.Status) commandOutcome {
+	return commandOutcome{payload: status, text: func(out, _ io.Writer) error {
+		if len(status.Machines) == 0 {
+			bestEffortln(out, "No Mac machines yet.")
+			if status.Prepared {
+				textField(out, 10, "base", fmt.Sprintf("macOS %s (%s) is prepared", status.Base.Version, status.Base.Build))
 			}
-			return fmt.Sprintf("%d B", value)
-		}
-		allocationNote := "Allocated space counts filesystem blocks; shared blocks may be counted more than once. It is not exclusive physical usage."
-		switch result := value.(type) {
-		case macvm.Status:
-			w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tIP\tSSH\tUSER\tOS\tCPU\tMEMORY\tDISK CAPACITY\tALLOCATED")
-			showAllocationNote := false
-			for _, slot := range result.Slots {
-				ip, user, osVersion := slot.IP, slot.User, slot.Version
-				build := slot.Build
-				if slot.ObservedVersion != "" {
-					osVersion, build = slot.ObservedVersion, slot.ObservedBuild
-				}
-				if ip == "" {
-					ip = "—"
-				}
-				if user == "" {
-					user = "—"
-				}
-				if osVersion == "" {
-					osVersion = "—"
-				} else {
-					osVersion += " (" + build + ")"
-				}
-				cpu, memory, capacity, allocated := "—", "—", "—", "—"
-				if slot.InstanceID != "" {
-					cpu = fmt.Sprintf("%d", slot.CPU)
-					memory = formatBytes(slot.MemoryBytes)
-					capacity = formatBytes(slot.DiskBytes)
-					if slot.DiskAllocatedBytes != nil {
-						allocated = formatBytes(*slot.DiskAllocatedBytes)
-						showAllocationNote = true
-					}
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", slot.Name, slot.State, ip, slot.SSH, user, osVersion, cpu, memory, capacity, allocated)
-			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			textField(out, 10, "data", result.Root)
-			for _, slot := range result.Slots {
-				for _, detail := range []string{slot.RuntimeError, slot.SSHError, slot.LastError} {
-					if detail != "" {
-						textField(out, 10, slot.Name, detail)
-					}
-				}
-			}
-			if !result.Prepared {
-				textField(out, 10, "create", "farrow mac up")
-			}
-			if showAllocationNote && verboseOutput(out) {
-				_, err := fmt.Fprintln(out, allocationNote)
-				return err
-			}
-			return nil
-		case *macvm.Slot:
-			_, err := fmt.Fprintf(out, "%s: %s\n", result.Name, result.State)
-			return err
-		case *macvm.BaseImage:
-			bestEffortf(out, "  %s  macOS %s (%s) base ready\n", styled(out, ansiGreen, "✓"), result.Version, result.Build)
 			textField(out, 10, "create", "farrow mac up")
 			return nil
-		case []macvm.ImageEntry:
-			w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "KIND\tBUILD\tSTATE\tFILE SIZE\tALLOCATED\tDISK CAPACITY\tREFERENCES\tDEFAULT")
-			for _, image := range result {
-				capacity := "—"
-				if image.VirtualCapacityBytes > 0 {
-					capacity = formatBytes(image.VirtualCapacityBytes)
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%v\t%t\n", image.Kind, image.Build, image.State, formatBytes(image.SizeBytes), formatBytes(image.AllocatedBytes), capacity, image.References, image.Default)
-			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			for _, image := range result {
-				if image.Detail != "" {
-					textField(out, 10, image.Kind+" "+image.Build, image.Detail)
-				}
-				if image.State == "damaged" && image.Kind == "installer" {
-					textField(out, 10, "cleanup", "farrow mac image prune --installers")
-				}
-			}
-			if len(result) > 0 && verboseOutput(out) {
-				_, err := fmt.Fprintln(out, allocationNote)
-				return err
-			}
-			return nil
-		case macvm.DoctorReport:
-			w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "CHECK\tRESULT\tDETAIL")
-			for _, check := range result.Checks {
-				state := "ok"
-				if !check.OK {
-					state = "fail"
-				}
-				// Keep multiline process diagnostics inside one table row.
-				detail := []rune(check.Detail)
-				for i, r := range detail {
-					if r == '\n' || r == '\r' || r == '\t' {
-						detail[i] = ' '
-					}
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", check.Name, state, string(detail))
-			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			state := "ready"
-			if !result.OK {
-				state = "needs attention"
-			}
-			_, err := fmt.Fprintln(out, "Mac environment:", state)
-			return err
-		case map[string]any:
-			if slot, ok := result["slot"].(string); ok && result["window"] == "open" {
-				bestEffortf(out, "  %s  %s desktop opened · closing the window keeps it running\n", styled(out, ansiGreen, "✓"), slot)
-				textField(out, 10, "shutdown", "farrow mac stop "+slot)
-				return nil
-			}
-			if _, exists := result["removed"]; exists {
-				removed, _ := result["removed"].([]string)
-				bestEffortf(out, "  %s  %d cached images removed; referenced bases preserved\n", styled(out, ansiGreen, "✓"), len(removed))
-				if verboseOutput(out) {
-					for _, path := range removed {
-						textField(out, 10, "removed", path)
-					}
-				}
-				return nil
-			}
-			_, err := fmt.Fprintln(out, result)
-			return err
-		default:
-			_, err := fmt.Fprintf(out, "%v\n", value)
-			return err
 		}
-	}}
-}
-
-func macMessageOutcome(payload any, message string, next ...string) commandOutcome {
-	return commandOutcome{payload: payload, text: func(out, _ io.Writer) error {
-		bestEffortf(out, "  %s  %s\n", styled(out, ansiGreen, "✓"), message)
-		for _, command := range next {
-			textField(out, 10, "next", command)
-		}
-		return nil
-	}}
-}
-
-func macSlotOutcome(m *macvm.Manager, slot *macvm.Slot, verb string) commandOutcome {
-	return commandOutcome{payload: slot, text: func(out, _ io.Writer) error {
-		if slot == nil {
-			return nil
-		}
-		message := slot.Name + ": " + slot.State
-		if verb == "configure" {
-			message = fmt.Sprintf("%s: resources updated · %d CPUs · %s memory", slot.Name, slot.CPU, progressBytes(slot.MemoryBytes))
-		}
-		if verb == "destroy" {
-			message = slot.Name + ": removed; shared images and network reservation preserved"
-		}
-		bestEffortf(out, "  %s  %s\n", styled(out, ansiGreen, "✓"), message)
-		if slot.State == "ready" {
-			if config, err := m.Store.LoadConfig(); err == nil {
-				if pref, err := config.Preference(slot.Name); err == nil {
-					textField(out, 10, "guest", slot.User+"@"+pref.IP)
-				}
+		rows := make([][]string, 0, len(status.Machines))
+		for _, view := range status.Machines {
+			system := view.Image.Version
+			if view.Observed != nil {
+				system = view.Observed.Version
 			}
-			textField(out, 10, "shell", "farrow mac ssh "+slot.Name)
-			textField(out, 10, "desktop", "farrow mac open "+slot.Name)
-		} else if verb == "configure" || slot.State == "stopped" {
-			if slot.Initialized {
-				textField(out, 10, "start", "farrow mac start "+slot.Name)
-			} else {
-				textField(out, 10, "ready", "farrow mac up "+slot.Name)
+			if system != "" {
+				system = "macOS " + system
 			}
-		} else if slot.State == "created" || slot.State == "provisioning" || slot.State == "running" {
-			textField(out, 10, "ready", "farrow mac up "+slot.Name)
-			if slot.State != "created" {
-				textField(out, 10, "desktop", "farrow mac open "+slot.Name)
+			disk := macBytes(view.Disk.CapacityBytes)
+			if view.Disk.AllocatedBytes != nil {
+				disk = progressBytes(*view.Disk.AllocatedBytes) + " / " + disk
 			}
+			ssh := view.SSH
+			if ssh == "unchecked" || ssh == "offline" {
+				ssh = "—"
+			}
+			shares := []string{}
+			for _, share := range view.Shares {
+				shares = append(shares, share.Name)
+			}
+			rows = append(rows, []string{view.Name, view.State, view.Address, ssh, view.User, system, fmt.Sprintf("%d", view.CPUs), macBytes(view.MemoryBytes), disk, strings.Join(shares, ",")})
 		}
-		return nil
-	}}
-}
-
-func macNetworkOutcome(info macvm.NetworkInfo) commandOutcome {
-	return commandOutcome{payload: info, text: func(out, _ io.Writer) error {
-		status := "not installed"
-		if info.Ready {
-			status = "ready"
-		} else if info.Installed {
-			status = "needs attention"
-		}
-		if info.UpdateRequired {
-			status += " · update available"
-		}
-		textField(out, 12, "network", status)
-		if info.Subnet != "" {
-			textField(out, 12, "subnet", info.Subnet)
-		}
-		if info.Diagnostic != "" {
-			textField(out, 12, "detail", info.Diagnostic)
+		printTable(out, []string{"NAME", "STATE", "ADDRESS", "SSH", "USER", "OS", "CPU", "MEMORY", "DISK", "SHARED"}, rows, 1)
+		for _, view := range status.Machines {
+			if view.Error != "" {
+				textField(out, 10, view.Name, view.Error)
+			}
+			for _, warning := range view.Warnings {
+				textField(out, 10, view.Name, warning)
+			}
 		}
 		if verboseOutput(out) {
-			textField(out, 12, "service", info.ServiceLabel)
-			textField(out, 12, "config", info.ConfigPath)
-			textField(out, 12, "log", info.LogPath)
+			textField(out, 10, "data", status.Root)
 		}
-		if !info.Ready || info.UpdateRequired {
-			textField(out, 12, "next", "farrow mac setup")
+		if status.Running >= status.Limit {
+			textField(out, 10, "limit", fmt.Sprintf("%d of %d macOS VMs are running; stop one before starting another", status.Running, status.Limit))
 		}
 		return nil
 	}}
+}
+
+// macLifecycleOutcome renders one machine's result and its next commands.
+func macLifecycleOutcome(outcome macvm.Outcome, stderr io.Writer) commandOutcome {
+	return commandOutcome{payload: outcome, text: func(out, _ io.Writer) error {
+		for _, warning := range outcome.Warnings {
+			warningf(stderr, "%s", warning)
+		}
+		macOutcomeLine(out, outcome)
+		switch {
+		case outcome.Action == "configured":
+			if outcome.State != "running" {
+				textField(out, 10, "start", "farrow mac start "+outcome.Name)
+			}
+		case outcome.Ready:
+			textField(out, 10, "shell", "farrow mac ssh "+outcome.Name)
+			if !outcome.Window {
+				textField(out, 10, "desktop", "farrow mac open "+outcome.Name)
+			}
+		case outcome.State == "running" && outcome.Action != "opened":
+			textField(out, 10, "ready", "farrow mac up "+outcome.Name)
+			if !outcome.Window {
+				textField(out, 10, "desktop", "farrow mac open "+outcome.Name)
+			}
+		}
+		return nil
+	}}
+}
+
+func macOutcomeLine(out io.Writer, outcome macvm.Outcome) {
+	system := ""
+	if outcome.Version != "" {
+		system = fmt.Sprintf(" · macOS %s (%s)", outcome.Version, outcome.Build)
+	}
+	address := ""
+	if outcome.Address != "" && outcome.User != "" {
+		address = " · " + outcome.User + "@" + outcome.Address
+	}
+	var message string
+	switch outcome.Action {
+	case "created":
+		message = outcome.Name + " created and ready" + system + address
+		if !outcome.Ready {
+			message = outcome.Name + " created and booting" + address
+		}
+	case "started", "restarted", "recreated", "running":
+		verb := map[string]string{"started": "started", "restarted": "restarted", "recreated": "recreated", "running": "running"}[outcome.Action]
+		if outcome.Ready {
+			message = outcome.Name + " " + verb + " and ready" + system + address
+		} else {
+			message = outcome.Name + " " + verb + address
+		}
+	case "opened":
+		message = outcome.Name + " desktop open · closing the window keeps it running"
+	case "stopped":
+		message = outcome.Name + " stopped"
+		if outcome.Forced {
+			message += " · powered off after the normal shutdown did not finish"
+		}
+	case "powered_off":
+		message = outcome.Name + " powered off"
+	case "already_stopped":
+		message = outcome.Name + " was already stopped"
+	case "destroyed":
+		message = outcome.Name + " destroyed · the shared macOS base is kept"
+	case "absent":
+		message = outcome.Name + " does not exist"
+	case "configured":
+		message = outcome.Name + " configured"
+	default:
+		message = outcome.Name + " " + outcome.Action
+	}
+	bestEffortf(out, "  %s  %s\n", macCheck(out), message)
+}
+
+func macOutcomesOutcome(report macvm.Outcomes, stderr io.Writer) commandOutcome {
+	return commandOutcome{payload: report, text: func(out, _ io.Writer) error {
+		for _, outcome := range report.Machines {
+			for _, warning := range outcome.Warnings {
+				warningf(stderr, "%s", warning)
+			}
+			macOutcomeLine(out, outcome)
+		}
+		if len(report.Machines) == 1 {
+			outcome := report.Machines[0]
+			switch {
+			case outcome.Ready:
+				textField(out, 10, "shell", "farrow mac ssh "+outcome.Name)
+			case outcome.State == "stopped" || outcome.State == "prepared":
+				textField(out, 10, "start", "farrow mac start "+outcome.Name)
+			}
+		}
+		return nil
+	}}
+}
+
+func macMessageOutcome(payload any, message string, details ...string) commandOutcome {
+	return commandOutcome{payload: payload, text: func(out, _ io.Writer) error {
+		bestEffortf(out, "  %s  %s\n", macCheck(out), message)
+		for _, detail := range details {
+			textField(out, 10, "file", detail)
+		}
+		return nil
+	}}
+}
+
+func macBaseOutcome(base *macvm.BaseImage) commandOutcome {
+	return commandOutcome{payload: base, text: func(out, _ io.Writer) error {
+		if base == nil {
+			return nil
+		}
+		bestEffortf(out, "  %s  macOS %s (%s) is ready for new machines\n", macCheck(out), base.Version, base.Build)
+		textField(out, 10, "create", "farrow mac up")
+		return nil
+	}}
+}
+
+func macImagesOutcome(images []macvm.ImageEntry) commandOutcome {
+	return commandOutcome{payload: images, text: func(out, _ io.Writer) error {
+		if len(images) == 0 {
+			bestEffortln(out, "No macOS images yet; farrow mac up prepares one.")
+			return nil
+		}
+		rows := make([][]string, 0, len(images))
+		for _, image := range images {
+			kind := map[string]string{"base": "base", "installer": "restore image"}[image.Kind]
+			used := strings.Join(image.References, ",")
+			if image.Default {
+				used = strings.TrimPrefix(used+",default", ",")
+			}
+			capacity := "—"
+			if image.VirtualCapacityBytes > 0 {
+				capacity = macBytes(image.VirtualCapacityBytes)
+			}
+			rows = append(rows, []string{kind, "macOS " + image.Version, image.Build, image.State, progressBytes(image.AllocatedBytes), capacity, used})
+		}
+		printTable(out, []string{"KIND", "OS", "BUILD", "STATE", "ON DISK", "CAPACITY", "USED BY"}, rows, 3)
+		for _, image := range images {
+			if image.Detail != "" {
+				textField(out, 10, image.Build, image.Detail)
+			}
+		}
+		return nil
+	}}
+}
+
+func macPruneOutcome(report macvm.PruneReport) commandOutcome {
+	return commandOutcome{payload: report, text: func(out, _ io.Writer) error {
+		if len(report.Candidates) == 0 {
+			bestEffortf(out, "  %s  nothing to prune\n", macCheck(out))
+			return nil
+		}
+		for _, entry := range report.Candidates {
+			bestEffortf(out, "  %s %s (%s) · %s\n", entry.Kind, entry.Build, entry.State, progressBytes(entry.AllocatedBytes))
+		}
+		if !report.Applied {
+			textField(out, 10, "reclaim", progressBytes(report.ReclaimedBytes))
+			textField(out, 10, "apply", "rerun with --yes")
+			return nil
+		}
+		bestEffortf(out, "  %s  removed %d of %d · %s reclaimed\n", macCheck(out), len(report.Removed), len(report.Candidates), progressBytes(report.ReclaimedBytes))
+		return nil
+	}}
+}
+
+func macDoctorOutcome(report macvm.DoctorReport) commandOutcome {
+	return commandOutcome{payload: report, text: func(out, _ io.Writer) error {
+		rows := make([][]string, 0, len(report.Checks))
+		for _, check := range report.Checks {
+			state := "ok"
+			if !check.OK {
+				state = "fail"
+			}
+			detail := strings.Join(strings.Fields(check.Detail), " ")
+			rows = append(rows, []string{check.Name, state, detail})
+		}
+		printTable(out, []string{"CHECK", "RESULT", "DETAIL"}, rows, 1)
+		for _, check := range report.Checks {
+			if !check.OK && check.Next != "" {
+				textField(out, 10, "next", check.Next)
+			}
+		}
+		return nil
+	}}
+}
+
+func macMigrationOutcome(report macvm.MigrationReport, stderr io.Writer) commandOutcome {
+	return commandOutcome{payload: report, text: func(out, _ io.Writer) error {
+		for _, warning := range report.Warnings {
+			warningf(stderr, "%s", warning)
+		}
+		if report.AlreadyCurrent {
+			bestEffortf(out, "  %s  nothing to migrate; the Mac data is current\n", macCheck(out))
+			return nil
+		}
+		for _, machine := range report.Machines {
+			address := machine.Address
+			if machine.OldAddress != "" && machine.OldAddress != machine.Address {
+				address = machine.OldAddress + " → " + machine.Address
+			}
+			bestEffortf(out, "  %s  %s · %s · password %s\n", macCheck(out), machine.Name, address, machine.Password)
+		}
+		if report.HelperRemoved {
+			bestEffortf(out, "  %s  earlier root network daemon removed\n", macCheck(out))
+		}
+		if report.KeychainErased > 0 {
+			bestEffortf(out, "  %s  %d earlier Keychain item(s) erased\n", macCheck(out), report.KeychainErased)
+		}
+		if verboseOutput(out) {
+			for _, backup := range report.Backups {
+				textField(out, 10, "backup", backup)
+			}
+		}
+		textField(out, 10, "start", "farrow mac start --all")
+		return nil
+	}}
+}
+
+// printMacHint mentions Mac machines under the Linux status. It reads only
+// local records, never the machines, and stays silent on any error.
+func printMacHint(out io.Writer) {
+	if !macSupported() {
+		return
+	}
+	store, err := macStore()
+	if err != nil {
+		return
+	}
+	machines, err := store.ListMachines()
+	if errors.Is(err, macvm.ErrLegacyState) {
+		textField(out, 10, "mac", "machines from an earlier Farrow · farrow mac migrate")
+		return
+	}
+	if err != nil || len(machines) == 0 {
+		return
+	}
+	names := make([]string, 0, len(machines))
+	for _, machine := range machines {
+		names = append(names, machine.Name)
+	}
+	textField(out, 10, "mac", strings.Join(names, ", ")+" · farrow mac ls")
 }

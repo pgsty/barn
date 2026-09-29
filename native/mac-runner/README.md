@@ -1,9 +1,11 @@
 # Farrow macOS VM runner
 
-This is the macOS 27 / Apple Silicon process behind `farrow mac`. Go owns download,
-cache manifests, slot state, bootstrap SSH and lifecycle policy. This runner owns
-Apple restore validation, DiskImageKit disks, Virtualization lifecycle, native GUI,
-and Keychain calls. It never reads `farrow.yml` or Linux VM state.
+This is the macOS 27 / Apple Silicon process behind `farrow mac`. Go owns
+downloads, cache manifests, machine records, SSH provisioning and lifecycle
+policy. The runner owns Apple restore validation, DiskImageKit disks, the
+Virtualization lifecycle, each machine's private vmnet network, and the native
+desktop window with its clipboard sharing. It never reads `farrow.yml` or Linux
+VM state, and it never needs root.
 
 Build with Xcode 27 on Apple Silicon:
 
@@ -12,99 +14,91 @@ bash native/mac-runner/build.sh
 bash native/mac-runner/test.sh
 ```
 
-The default output is `bin/farrow-mac-runner`. `FARROW_CODESIGN_IDENTITY` selects a
-signing identity; development defaults to ad hoc. The entitlement is only
-`com.apple.security.virtualization`. This does **not** grant the restricted
-`com.apple.vm.networking` entitlement. The network helper is a separate, privileged
-component, providing a connected datagram descriptor through SCM_RIGHTS.
+The default output is `bin/farrow-mac-runner`. `FARROW_CODESIGN_IDENTITY` selects
+a signing identity; development defaults to ad hoc. The only entitlement is
+`com.apple.security.virtualization`. Creating a private shared-mode vmnet
+network needs no other entitlement and no privilege.
 
-## Protocol 1
+## Protocol 2
 
-Commands emit one JSON object on stdout, with `ok: true`, or
-`{"ok":false,"error":{"code":"...","message":"..."}}` and exit 1.
-Progress is timestamped JSONL on stderr. No password appears in arguments, progress
-or persisted metadata. `secret get` is the deliberately private exception to stdout
-secret avoidance: its output must be captured by Go, never copied to a log.
+Commands print one JSON object on stdout: `{"ok":true,...}`, or
+`{"ok":false,"error":{"code":"...","message":"..."}}` with exit status 1.
+Progress is timestamped JSONL on stderr. No password appears in arguments,
+progress or files the runner writes. The CLI refuses a runner whose `probe`
+reports another protocol version.
 
-| Command | Result / behavior |
+| Command | Result |
 |---|---|
-| `probe` | Host support, protocol, CPU and physical memory. Does not start a VM. |
-| `metadata --ipsw PATH` | Apple validates the local image; requires supported macOS 27. Returns `version`, `build`, `hardware_model_sha256`, `minimum_cpu`, `minimum_memory`. |
-| `discover` | Apple latest-supported metadata plus `url`. Fails if latest is not macOS 27; never silently selects another major version. |
-| `hardware --path PATH` | Validate a saved hardware model and return its SHA-256 plus current host support, without starting a VM. |
-| `restore --ipsw PATH --base DIR` | Creates ASIF disk, auxiliary storage and installer identity; restores using Apple installer, then freezes the stopped, unbooted base. |
-| `clone --base DIR --slot DIR` | Creates overlay, an auxiliary-storage copy, and fresh machine ID. Existing image files are never overwritten. |
-| `run --base DIR --slot DIR --socket PATH --instance UUID --mac MAC --network-socket PATH --network-slot 1\|2` | Stays alive as VM owner; emits startup status after VZ successfully starts. |
-| `rpc --socket PATH --instance UUID --method status\|open\|stop [--force]` | Checks instance identity; returns status or sends stop/open. |
-| `secret set\|get\|delete --service farrow.mac.ROOT_HASH --account UUID` | Keychain generic password scoped to the root and instance. `set` reads `{"password":"..."}` from stdin. |
+| `probe` | Protocol version, host macOS version, virtualization support, CPU and memory. Starts nothing. |
+| `metadata --ipsw PATH` | Apple validates a local restore image; returns `version`, `build`, `hardware_model_sha256`, minimum CPU and memory. Only macOS 27 is accepted. |
+| `discover` | Apple's newest supported restore image with its `url`; refuses another major version. |
+| `hardware --path PATH` | Validate a saved hardware model and report whether this host supports it. |
+| `restore --ipsw PATH --base DIR` | Create the ASIF disk, auxiliary storage and identity, install macOS with Apple's installer, then freeze the stopped, unbooted base. |
+| `clone --base DIR --slot DIR` | Create a machine's overlay, auxiliary-storage copy and fresh machine identifier. Never overwrites existing files. |
+| `run --base DIR --slot DIR --socket PATH --instance UUID --mac MAC --gateway IP --address IP` | Own one running VM. Accepts `--cpu`, `--memory` (bytes) and `--recovery`. Prints its status once the VM runs, then stays alive. |
+| `rpc --socket PATH --instance UUID --method status\|open\|stop [--force]` | Diagnostic client for the RPC below. |
 
-`restore` accepts `--cpu` (default 4), `--memory` in bytes (default 8589934592), and
-`--disk-size` in bytes (default 107374182400). `run` accepts the same CPU/memory
-options. Diagnostic `run --nat` replaces the network helper attachment; its output
-must never be counted as fixed-address network acceptance.
+`restore` accepts `--cpu` (default 4), `--memory` (default 8589934592) and
+`--disk-size` (default 107374182400).
 
-For first boot, pass exactly one line to `run` stdin then close it:
+### run
+
+`run` creates the machine's private network before the VM: a shared-mode
+vmnet network whose host gateway is `--gateway` (the subnet's `.1`), with one
+DHCP reservation giving `--mac` the address `--address` (`.10`). The network
+belongs to this process and disappears when it exits. Machines on different
+networks cannot reach each other.
+
+stdin carries exactly one JSON line, then closes:
 
 ```json
-{"provision":true,"username":"example","password":"INSTANCE_SECRET","full_name":"Example"}
+{"name":"mac1","subtitle":"macOS 27.0 · me@10.10.20.10",
+ "provision":{"username":"me","password":"INSTANCE_SECRET","full_name":"me"},
+ "shares":[{"name":"src","path":"/Users/me/src","readonly":false}],
+ "guest":{"ssh":["/usr/bin/ssh","-F","/dev/null","…","me@10.10.20.10"],"known_hosts":"/…/known_hosts"},
+ "clipboard":true,"window":false}
 ```
 
-Normal restart passes empty stdin or `{}`. The official provisioning options enable
-Remote Login and automatic desktop login. They only act on the first boot following
-restore. Go must persist bootstrap phase and reuse the stored secret when recovering
-a partial initial setup; resending options does not reconfigure an initialized OS.
+- `provision` appears only on the first boot. Apple's provisioning creates the
+  account, enables Remote Login and automatic desktop login; it acts only on the
+  first boot after restore.
+- `shares` become one VirtioFS device with the macOS automount tag; the guest
+  mounts them under `/Volumes/My Shared Files/<name>`.
+- `guest` is how the runner reaches the guest for clipboard sharing and the
+  desktop Restart command: the OpenSSH argv up to and including `user@host`,
+  pinned to the instance host key. The runner appends only fixed commands
+  (`pbcopy`, `pbpaste`, `shutdown -r now`) and waits until `known_hosts` exists.
+- `window` shows the desktop as soon as the VM runs; `--recovery` always does.
 
-## State and process boundaries
+### RPC
 
-A base contains `disk.asif`, `hardware-model.bin`, `auxiliary-storage.bin`,
-`machine-id.bin` (installer identity), and `base.json`. The last file is published
-only after restore completes with VM state stopped. `first_boot:false`, `ready:true`
-are required to clone/run; image files are mode 0400. Existing `metadata.json`, `manifest.json`,
-`restore.log`, and `restore.lock` are permitted before restore. Other existing files
-cause refusal. Failed restore files are retained for diagnosis; Go cleans only its
-known incomplete artifacts under its preparation lock before retrying.
-
-A slot contains `disk.asif`, `auxiliary-storage.bin`, `machine-id.bin`, and
-`runner.lock`. Go may create its state/SSH files first. Clone and run hold the same
-nonblocking flock, so they cannot modify an active disk. Parent and overlay UUIDs
-are validated when DiskImageKit reconstructs the stack. Changing the base file
-behind a live slot is unsupported.
-
-The runner socket is mode 0600, accepts only its own UID, and every request must
-match `instance`. RPC is a newline-terminated JSON object:
+The runner listens on `--socket`, mode 0600, and accepts only its own user,
+checked with `getpeereid`; the CLI checks the runner's user the same way.
+Requests are one JSON line and must name the instance:
 
 ```json
 {"instance":"UUID","method":"status","force":false}
 ```
 
-Status is `{"ok":true,"instance":"UUID","pid":123,"state":"running","window_visible":false}`.
-`running` is VZ execution state, never an SSH readiness assertion. Graceful stop
-acknowledges the request and Go polls process/socket state until stopped. A timeout
-must not implicitly trigger force. `stop --force` uses VZ stop explicitly.
+`status` returns `{"ok":true,"instance":"UUID","pid":123,"state":"running","window_visible":false}`.
+`open` shows the desktop. `stop` requests a normal stop; with `force` it powers
+the VM off and the runner exits.
 
-Go must start `run` detached from its terminal, close stdin after one request, and
-redirect stdout/stderr to private runtime logs. The runner also ignores SIGHUP.
-`open` creates/reuses a native VZVirtualMachineView window in the owning process.
-Closing the window hides it; the VM continues. The guarantee assumes an active
-host login session. Host reboot and locked login Keychain are separate conditions.
+## Files and process boundaries
 
-## Network descriptor contract
+A base holds `disk.asif`, `hardware-model.bin`, `auxiliary-storage.bin`,
+`machine-id.bin` (installer identity) and `base.json`. `base.json` is written
+only after installation completes with the VM stopped; `clone` and `run`
+require `ready:true` and `first_boot:false`. Base files are mode 0400.
 
-The runner connects to the helper using Unix SOCK_STREAM, sends eight bytes
-(`FMN1`, slot byte 1 or 2, then three zeros), and reads an eight-byte response
-(`FMN1`, big-endian uint32 status). Success is status zero plus exactly one
-SCM_RIGHTS descriptor whose SO_TYPE is SOCK_DGRAM. The runner keeps the control
-connection open throughout VM life. Helper EOF releases the vmnet interface. It
-does not feed QEMU's stream protocol into VZ.
+A machine directory holds `disk.asif`, `auxiliary-storage.bin`,
+`machine-id.bin` and `runner.lock`; Go keeps its record, keys and password
+beside them. `clone` and `run` hold the same non-blocking lock, so neither can
+touch a running disk, and the CLI proves a machine stopped by taking that lock.
+DiskImageKit validates the base and overlay UUIDs when it assembles the stack.
 
-## Validation boundary
-
-`test.sh` exercises empty ASIF parent/overlay assembly, independent machine IDs,
-auxiliary copy, preservation of Go state, overwrite refusal, and rejection of a
-booted base without starting a VM. It does not prove a macOS restore/clone can
-boot. Full acceptance separately requires restore, two fresh-user boots, DHCP,
-SSH and sudo, disk isolation, GUI, stop/start, reset and cache reuse.
-
-API references: [Apple guest provisioning](https://developer.apple.com/documentation/virtualization/vzmacguestprovisioningoptions),
-[DiskImageKit](https://developer.apple.com/documentation/diskimagekit), and
-[VZ file-handle network attachment](https://developer.apple.com/documentation/virtualization/vzfilehandlenetworkdeviceattachment).
+The desktop window uses a display sized to the screen at its pixel density and
+reconfigures the guest resolution when resized. Closing it hides it; the VM
+keeps running. Quitting asks whether to keep the VM running in the background
+or shut it down through `farrow mac stop`, which applies the CLI's normal and
+forced shutdown policy.

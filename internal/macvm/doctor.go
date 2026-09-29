@@ -9,99 +9,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/sys/unix"
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 type DoctorCheck struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail"`
+	Next   string `json:"next,omitempty"`
 }
+
 type DoctorReport struct {
 	OK     bool          `json:"ok"`
 	Checks []DoctorCheck `json:"checks"`
-}
-
-func (m *Manager) Doctor(ctx context.Context) DoctorReport {
-	report := DoctorReport{OK: true, Checks: []DoctorCheck{}}
-	if err := m.requireRunner(); err != nil {
-		report.add("host_and_runner", err, "")
-		return report
-	}
-	signature, err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--strict", m.Runner.Binary).CombinedOutput()
-	if err != nil {
-		err = fmt.Errorf("runner signature verification failed: %w: %s", err, strings.TrimSpace(string(signature)))
-	}
-	report.add("runner_signature", err, "code signature verified (development signing is supported)")
-	var probe map[string]any
-	err = m.Runner.Call(ctx, nil, &probe, "probe")
-	if err == nil && probe["virtualization_supported"] != true {
-		err = fmt.Errorf("virtualization framework reports this host is unsupported")
-	}
-	hostDetail := "hardware virtualization is supported"
-	if hostVersion, ok := probe["host_version"].(string); ok {
-		hostDetail = "macOS " + hostVersion + " on Apple Silicon; " + hostDetail
-	}
-	report.add("virtualization", err, hostDetail)
-	path := m.Store.Root
-	for {
-		if _, err := os.Stat(path); err == nil {
-			break
-		}
-		parent := filepath.Dir(path)
-		if parent == path {
-			break
-		}
-		path = parent
-	}
-	var disk unix.Statfs_t
-	err = unix.Statfs(path, &disk)
-	report.add("disk", err, fmt.Sprintf("%.1f GiB available", float64(disk.Bavail)*float64(disk.Bsize)/(1<<30)))
-	config, err := m.Store.LoadConfig()
-	if errors.Is(err, os.ErrNotExist) {
-		err = errors.New("mac environment is not prepared; run farrow mac up")
-	}
-	report.add("configuration", err, "independent Mac state is valid")
-	if err != nil {
-		return report
-	}
-	network, err := m.networkStatus(ctx, config)
-	report.add("network_helper", err, fmt.Sprintf("root helper pid %d; subnet %s", network.PID, network.Subnet))
-	var verifiedNetwork *NetworkStatus
-	if err == nil {
-		verifiedNetwork = &network
-	}
-	report.add("network_routes", m.checkNetworkRoutes(ctx, config, verifiedNetwork), "saved subnet has no conflicting LAN, VPN or VM routes")
-	slots, err := m.Store.ListSlots()
-	report.add("slots", err, "mac1 and mac2 state is valid")
-	if err != nil {
-		return report
-	}
-	for _, slot := range slots {
-		if slot.InstanceID == "" {
-			continue
-		}
-		base, err := m.Store.LoadBase(slot.BaseID)
-		report.add(slot.Name+"_base", err, slot.BaseID)
-		if err != nil {
-			continue
-		}
-		basePath, _ := m.Store.BasePath(base.ID)
-		for _, name := range []string{"disk.asif", "hardware-model.bin", "auxiliary-storage.bin"} {
-			_, err := os.Stat(filepath.Join(basePath, name))
-			report.add(slot.Name+"_base_"+name, err, "present")
-		}
-		if slot.Initialized {
-			report.add(slot.Name+"_ssh_material", m.checkSSHMaterial(&slot), "saved private key and host pin are valid")
-		} else {
-			report.add(slot.Name+"_initialization", fmt.Errorf("initialization incomplete; run farrow mac up %s", slot.Name), "")
-		}
-		pref, _ := config.Preference(slot.Name)
-		view := SlotView{Slot: slot}
-		m.inspectRuntime(ctx, &view, pref)
-		report.addRuntime(view)
-	}
-	return report
 }
 
 func (report *DoctorReport) add(name string, err error, detail string) {
@@ -109,23 +29,114 @@ func (report *DoctorReport) add(name string, err error, detail string) {
 	if err != nil {
 		report.OK = false
 		check.Detail = err.Error()
+		_, _, check.Next = failure.Classify(err)
 	}
 	report.Checks = append(report.Checks, check)
 }
 
-func (report *DoctorReport) addRuntime(view SlotView) {
-	var runtimeErr error
-	if view.RuntimeError != "" {
-		runtimeErr = errors.New(view.RuntimeError)
-	} else if view.State != "ready" && view.State != "running" && view.State != "stopped" && view.State != "created" {
-		runtimeErr = fmt.Errorf("%s runtime is %s; inspect farrow mac logs %s", view.Name, view.State, view.Name)
+// Doctor checks the host, the Mac component, the data and every machine. It
+// changes nothing and starts nothing.
+func (m *Manager) Doctor(ctx context.Context) DoctorReport {
+	report := DoctorReport{OK: true, Checks: []DoctorCheck{}}
+	if err := m.requireRunner(ctx); err != nil {
+		report.add("host", err, "")
+		return report
 	}
-	report.add(view.Name+"_runtime", runtimeErr, view.State)
-	if runtimeErr == nil && (view.State == "running" || view.State == "ready") && view.Initialized {
-		var sshErr error
-		if view.SSH != "ready" {
-			sshErr = fmt.Errorf("%s SSH is %s: %s", view.Name, view.SSH, view.SSHError)
+	signature, err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--strict", m.Runner.Binary).CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("the Mac component signature did not verify: %w: %s", err, strings.TrimSpace(string(signature)))
+	}
+	report.add("component", err, m.Runner.Binary)
+	var probe map[string]any
+	err = m.Runner.Call(ctx, nil, &probe, "probe")
+	if err == nil && probe["virtualization_supported"] != true {
+		err = errors.New("this Mac cannot run virtual machines: Virtualization.framework reports it unsupported")
+	}
+	detail := "virtualization supported"
+	if version, ok := probe["host_version"].(string); ok {
+		detail = "macOS " + version + " on Apple Silicon; " + detail
+	}
+	report.add("virtualization", err, detail)
+	free, err := availableBytes(m.Store.Root)
+	if err == nil && free < 40<<30 {
+		err = fmt.Errorf("%.1f GiB free; preparing macOS needs about 40 GiB", float64(free)/(1<<30))
+	}
+	report.add("disk", err, fmt.Sprintf("%.1f GiB free", float64(free)/(1<<30)))
+	if legacy, err := m.legacyHelperInstalled(ctx); err != nil || legacy {
+		if err == nil {
+			err = fmt.Errorf("the root network helper of the earlier Mac layout is still installed")
 		}
-		report.add(view.Name+"_ssh", sshErr, "pinned key authentication and passwordless sudo verified")
+		report.add("legacy_helper", failure.WithNext(err, "farrow mac migrate"), "")
 	}
+	config, err := m.Store.LoadConfig()
+	if errors.Is(err, os.ErrNotExist) {
+		report.add("data", nil, "no Mac machines yet; farrow mac up creates the first")
+		return report
+	}
+	report.add("data", err, m.Store.Root)
+	if err != nil {
+		return report
+	}
+	if config.DefaultBaseID != "" {
+		base, err := m.Store.LoadBase(config.DefaultBaseID)
+		if err == nil {
+			err = m.validateBase(base)
+		}
+		report.add("base", err, config.DefaultBaseID)
+	}
+	status, err := m.List(ctx, true)
+	if err != nil {
+		report.add("machines", err, "")
+		return report
+	}
+	routes, routeErr := m.routes(ctx)
+	for _, view := range status.Machines {
+		machine := view.machine
+		base, err := m.Store.LoadBase(machine.BaseID)
+		if err == nil {
+			err = m.validateBase(base)
+		}
+		report.add(machine.Name+"_base", err, machine.BaseID)
+		if machine.Initialized {
+			report.add(machine.Name+"_ssh_keys", m.checkSSHMaterial(machine), "private key and pinned host key present")
+		}
+		for _, share := range machine.Shares {
+			report.add(machine.Name+"_share_"+share.Name, checkShareSource(share), share.Path)
+		}
+		switch view.State {
+		case "running":
+			var sshErr error
+			if machine.Initialized && view.SSH != "ready" {
+				sshErr = fmt.Errorf("%s is running but SSH is %s", machine.Name, view.SSH)
+				for _, warning := range view.Warnings {
+					sshErr = fmt.Errorf("%w: %s", sshErr, warning)
+				}
+			}
+			report.add(machine.Name, sshErr, "running · SSH "+view.SSH+" · "+machine.Network.Address)
+		case "stopped", "prepared":
+			var networkErr error
+			if routeErr != nil {
+				networkErr = routeErr
+			} else {
+				networkErr = m.checkRoutesFree(machine, routes)
+			}
+			report.add(machine.Name, networkErr, view.State+" · network "+machine.Network.Subnet+" is free")
+		default:
+			err := fmt.Errorf("%s is %s", machine.Name, view.State)
+			if view.Error != "" {
+				err = fmt.Errorf("%w: %s", err, view.Error)
+			}
+			report.add(machine.Name, failure.WithNext(err, "farrow mac logs "+machine.Name), "")
+		}
+	}
+	return report
+}
+
+// runnerLogPath names a machine's runtime log for diagnostics.
+func (m *Manager) runnerLogPath(name string) (string, error) {
+	dir, err := m.Store.MachinePath(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "runner.log"), nil
 }

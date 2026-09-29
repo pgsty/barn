@@ -44,7 +44,7 @@ struct ImagesTest {
         for error in [limit, wrappedLimit] {
             guard let mapped = actionableVirtualizationError(error) as? RunnerError else { fatalError("VM quota error was not mapped") }
             precondition(mapped.code == "virtual_machine_limit")
-            precondition(mapped.message.contains("other tools") && mapped.message.contains("restore"))
+            precondition(mapped.message.contains("other tools") && mapped.message.contains("restore") && mapped.message.contains("two"))
         }
         let unrelated = NSError(domain: "installer", code: 2)
         precondition((actionableVirtualizationError(unrelated) as NSError) == unrelated)

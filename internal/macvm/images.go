@@ -89,7 +89,7 @@ func (s *Store) LoadBase(id string) (*BaseImage, error) {
 }
 
 func (b *BaseImage) Validate() error {
-	if b.SchemaVersion != SchemaVersion || !safeID(b.ID) || !safeID(b.Build) || b.Version == "" {
+	if b.SchemaVersion != imageSchemaVersion || !safeID(b.ID) || !safeID(b.Build) || b.Version == "" {
 		return errors.New("invalid mac base metadata")
 	}
 	if b.DiskBytes < 32<<30 || b.RecipeVersion < 1 {
@@ -143,8 +143,8 @@ func (s *Store) imageLockPath(kind, id string) (string, error) {
 	return s.Path("runtime", kind+"-"+id+".lock")
 }
 
-// LockBase pins an image while restoring/using it independently of slot
-// references. Lock order is global state first, then base/installer locks.
+// LockBase pins an image while restoring or using it, independently of
+// machine references. Lock order is global state first, then base/installer locks.
 func (s *Store) LockBase(ctx context.Context, id string) (*lock.File, error) {
 	if _, err := s.mkdir("runtime"); err != nil {
 		return nil, err
@@ -156,19 +156,17 @@ func (s *Store) LockBase(ctx context.Context, id string) (*lock.File, error) {
 	return lock.Acquire(ctx, path, false)
 }
 
-// ImageList includes only installers and bases, never slot overlays. File
+// ImageList includes only installers and bases, never machine overlays. File
 // length, allocated filesystem blocks and guest-visible capacity are separate.
 func (s *Store) ImageList() ([]ImageEntry, error) {
 	result := []ImageEntry{}
 	refs := map[string][]string{}
-	slots, err := s.ListSlots()
+	machines, err := s.ListMachines()
 	if err != nil {
 		return nil, err
 	}
-	for _, slot := range slots {
-		if slot.BaseID != "" {
-			refs[slot.BaseID] = append(refs[slot.BaseID], slot.Name)
-		}
+	for _, machine := range machines {
+		refs[machine.BaseID] = append(refs[machine.BaseID], machine.Name)
 	}
 	defaultID := ""
 	if cfg, err := s.LoadConfig(); err == nil {
@@ -185,10 +183,25 @@ func (s *Store) ImageList() ([]ImageEntry, error) {
 		return nil, err
 	}
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue // Finder metadata such as .DS_Store
+		}
 		if !entry.IsDir() {
 			return nil, fmt.Errorf("unexpected entry in base directory: %s", entry.Name())
 		}
 		base, err := s.LoadBase(entry.Name())
+		if errors.Is(err, os.ErrNotExist) && safeID(entry.Name()) {
+			// Interrupted before its metadata was written: list it so that
+			// prune can remove it, instead of failing every image command.
+			path, _ := s.BasePath(entry.Name())
+			size, allocated, err := directoryFileUsage(path)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, ImageEntry{Kind: "base", ID: entry.Name(), Path: path, State: "incomplete", SizeBytes: size, AllocatedBytes: allocated,
+				References: append([]string{}, refs[entry.Name()]...), Default: entry.Name() == defaultID})
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -234,7 +247,7 @@ func (s *Store) ImageList() ([]ImageEntry, error) {
 			var installer Installer
 			if err := readJSON(path+".json", &installer); err != nil {
 				state, detail = "damaged", fmt.Sprintf("installer metadata unavailable: %v", err)
-			} else if installer.SchemaVersion != SchemaVersion || installer.Build != build || installer.Version == "" || installer.SizeBytes != size || !validSHA256(installer.SHA256) {
+			} else if installer.SchemaVersion != imageSchemaVersion || installer.Build != build || installer.Version == "" || installer.SizeBytes != size || !validSHA256(installer.SHA256) {
 				state, detail = "damaged", "installer metadata does not match its cache file"
 			} else if installer.VerificationError != "" {
 				state, version, detail = "damaged", installer.Version, installer.VerificationError
@@ -298,27 +311,36 @@ func regularFileUsage(path string) (size, allocated int64, err error) {
 	return info.Size(), stat.Blocks * 512, nil
 }
 
-// PruneImages reports the current lock owner while waiting and lets cancellation
-// leave the cache untouched before the state lock is acquired.
-func (m *Manager) PruneImages(ctx context.Context, installers bool) (removed []string, retErr error) {
+// PruneReport lists unused images. Removed is empty for a dry run.
+type PruneReport struct {
+	Candidates     []ImageEntry `json:"candidates"`
+	Removed        []string     `json:"removed"`
+	ReclaimedBytes int64        `json:"reclaimed_bytes"`
+	Applied        bool         `json:"applied"`
+}
+
+// PruneImages lists, and with apply removes, bases no machine references and
+// that are not the default. installers adds idle IPSW caches and partial
+// downloads. A dry run changes nothing.
+func (m *Manager) PruneImages(ctx context.Context, installers, apply bool) (report PruneReport, retErr error) {
 	held, err := m.acquireState(ctx, "mac image prune")
 	if err != nil {
-		return nil, err
+		return report, err
 	}
 	defer func() { retErr = lock.JoinRelease(retErr, held, "mac image prune") }()
-	return m.Store.PruneImages(held, installers)
+	return m.Store.PruneImages(held, installers, apply)
 }
 
 // PruneImages requires the global state lock across listing and removal. It
-// preserves referenced/default bases and skips any busy build/download lock.
-// With installers=true it also removes idle IPSW caches and partial downloads.
-func (s *Store) PruneImages(held *lock.File, installers bool) (removed []string, retErr error) {
+// preserves referenced and default bases and skips any busy image lock.
+func (s *Store) PruneImages(held *lock.File, installers, apply bool) (PruneReport, error) {
+	report := PruneReport{Candidates: []ImageEntry{}, Removed: []string{}, Applied: apply}
 	if err := s.checkLock(held); err != nil {
-		return nil, err
+		return report, err
 	}
 	entries, err := s.ImageList()
 	if err != nil {
-		return nil, err
+		return report, err
 	}
 	for _, entry := range entries {
 		if entry.Kind == "base" && (entry.Default || len(entry.References) > 0) {
@@ -327,16 +349,21 @@ func (s *Store) PruneImages(held *lock.File, installers bool) (removed []string,
 		if entry.Kind == "installer" && !installers {
 			continue
 		}
+		report.Candidates = append(report.Candidates, entry)
+		report.ReclaimedBytes += entry.AllocatedBytes
+		if !apply {
+			continue
+		}
 		lockPath, err := s.imageLockPath(entry.Kind, entry.ID)
 		if err != nil {
-			return removed, err
+			return report, err
 		}
 		imageLock, err := lock.TryAcquire(lockPath, false)
 		if errors.Is(err, lock.ErrBusy) {
 			continue
 		}
 		if err != nil {
-			return removed, err
+			return report, err
 		}
 		err = func() (retErr error) {
 			defer func() { retErr = lock.JoinRelease(retErr, imageLock, "mac image prune") }()
@@ -361,9 +388,9 @@ func (s *Store) PruneImages(held *lock.File, installers bool) (removed []string,
 			return fsutil.SyncDir(filepath.Dir(path))
 		}()
 		if err != nil {
-			return removed, err
+			return report, err
 		}
-		removed = append(removed, entry.Path)
+		report.Removed = append(report.Removed, entry.Path)
 	}
-	return removed, nil
+	return report, nil
 }

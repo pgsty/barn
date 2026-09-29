@@ -1,6 +1,7 @@
 package macvm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,17 +22,22 @@ import (
 	"github.com/pgsty/farrow/internal/failure"
 )
 
-// Runner is the public Apple API companion. No secret is passed in argv.
+// RunnerProtocol is the runner command and RPC contract this CLI speaks. The
+// CLI and runner may come from different builds as long as it matches.
+const RunnerProtocol = 2
+
+// Runner is the Apple API companion. No secret is passed in argv.
 type Runner struct {
 	Binary   string
 	Progress io.Writer
 }
 
 type RuntimeStatus struct {
-	OK       bool   `json:"ok"`
-	Instance string `json:"instance"`
-	State    string `json:"state"`
-	PID      int    `json:"pid"`
+	OK            bool   `json:"ok"`
+	Instance      string `json:"instance"`
+	State         string `json:"state"`
+	PID           int    `json:"pid"`
+	WindowVisible bool   `json:"window_visible,omitempty"`
 }
 
 type RestoreMetadata struct {
@@ -75,19 +82,29 @@ func FindRunner() (string, error) {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	for _, path := range []string{
-		filepath.Join(filepath.Dir(exe), "Farrow Mac.app", "Contents", "MacOS", "farrow-mac-runner"),
-		filepath.Join(filepath.Dir(exe), "libexec", "Farrow Mac.app", "Contents", "MacOS", "farrow-mac-runner"),
-		filepath.Join(filepath.Dir(exe), "..", "libexec", "Farrow Mac.app", "Contents", "MacOS", "farrow-mac-runner"),
-		filepath.Join(filepath.Dir(exe), "farrow-mac-runner"),
-		filepath.Join(filepath.Dir(exe), "libexec", "farrow-mac-runner"),
-		filepath.Join(filepath.Dir(exe), "..", "libexec", "farrow-mac-runner"),
-	} {
+	for _, path := range runnerCandidates(filepath.Dir(exe)) {
 		if found, err := executableFile(path); err == nil {
 			return found, nil
 		}
 	}
-	return "", failure.New(failure.Capability, errors.New("farrow-mac-runner is missing; install the macOS arm64 bundle or run make mac-build in the source checkout")).Because("mac_runner_missing")
+	return "", failure.New(failure.Capability, errors.New("the Farrow Mac component is not installed next to this farrow")).
+		Because("mac_runner_missing").
+		Then("make mac-build in a Farrow source checkout, then use bin/mac/farrow (https://farrow.pgsty.com/docs/start/macos/)")
+}
+
+// runnerCandidates covers the source bundle, the installer's version-independent
+// component directory, and Homebrew's libexec.
+func runnerCandidates(dir string) []string {
+	app := filepath.Join("Farrow Mac.app", "Contents", "MacOS", "farrow-mac-runner")
+	return []string{
+		filepath.Join(dir, app),
+		filepath.Join(dir, "libexec", app),
+		filepath.Join(dir, "..", "libexec", app),
+		filepath.Join(dir, "..", "libexec", "farrow-mac", app),
+		filepath.Join(dir, "farrow-mac-runner"),
+		filepath.Join(dir, "libexec", "farrow-mac-runner"),
+		filepath.Join(dir, "..", "libexec", "farrow-mac-runner"),
+	}
 }
 
 func executableFile(path string) (string, error) {
@@ -99,6 +116,23 @@ func executableFile(path string) (string, error) {
 		return "", fmt.Errorf("not an executable file: %s", path)
 	}
 	return filepath.Clean(path), nil
+}
+
+// CheckProtocol refuses a runner from an incompatible build before any VM work.
+func (r Runner) CheckProtocol(ctx context.Context) error {
+	var probe struct {
+		OK       bool   `json:"ok"`
+		Protocol int    `json:"protocol_version"`
+		Version  string `json:"version"`
+	}
+	if err := r.Call(ctx, nil, &probe, "probe"); err != nil {
+		return err
+	}
+	if probe.Protocol != RunnerProtocol {
+		return failure.New(failure.Capability, fmt.Errorf("the installed Farrow Mac component (%s) speaks protocol %d, but this farrow needs protocol %d", probe.Version, probe.Protocol, RunnerProtocol)).
+			Because("mac_runner_protocol").Then("reinstall Farrow so the CLI and its Mac component match")
+	}
+	return nil
 }
 
 func (r Runner) Call(ctx context.Context, input any, result any, args ...string) error {
@@ -125,20 +159,20 @@ func (r Runner) Call(ctx context.Context, input any, result any, args ...string)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// Companion error responses contain public diagnostics only. Never echo stdin.
+		// Runner error responses contain public diagnostics only. Never echo stdin.
 		var response struct {
 			Error   json.RawMessage `json:"error"`
 			Message string          `json:"message"`
 		}
 		_ = json.Unmarshal(stdout.Bytes(), &response)
 		if secret {
-			// A companion may echo its stdin while failing. Secret commands never
+			// A runner may echo its stdin while failing. Secret commands never
 			// forward its stderr or arbitrary error strings to logs or callers.
 			var nested struct {
 				Code string `json:"code"`
 			}
 			_ = json.Unmarshal(response.Error, &nested)
-			return secretCommandError(args, nested.Code)
+			return fmt.Errorf("legacy Keychain %s failed (%s)", strings.Join(args[1:2], ""), nested.Code)
 		}
 		detail := response.Message
 		if detail == "" {
@@ -162,26 +196,87 @@ func (r Runner) Call(ctx context.Context, input any, result any, args ...string)
 	}
 	if result != nil {
 		if err := json.Unmarshal(stdout.Bytes(), result); err != nil {
-			if secret {
-				return secretCommandError(args, "invalid_response")
-			}
 			return fmt.Errorf("invalid mac runner %s response: %w", args[0], err)
 		}
 	}
 	return nil
 }
 
+// RPC talks to a running machine's runner over its private Unix socket. The
+// socket lives in a 0700 directory and both ends check the peer's UID.
 func (r Runner) RPC(ctx context.Context, socket, instance, method string, force bool) (RuntimeStatus, error) {
-	args := []string{"rpc", "--socket", socket, "--instance", instance, "--method", method}
-	if force {
-		args = append(args, "--force")
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
 	}
-	var result RuntimeStatus
-	err := r.Call(ctx, nil, &result, args...)
-	if err == nil && (!result.OK || result.Instance != instance) {
-		err = errors.New("mac runner instance identity mismatch")
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	if err != nil {
+		return RuntimeStatus{}, err
 	}
-	return result, err
+	defer func() { _ = conn.Close() }()
+	if err := checkPeerUID(conn); err != nil {
+		return RuntimeStatus{}, err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	request, err := json.Marshal(map[string]any{"instance": instance, "method": method, "force": force})
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	if _, err := conn.Write(append(request, '\n')); err != nil {
+		return RuntimeStatus{}, err
+	}
+	line, err := bufio.NewReader(io.LimitReader(conn, 64<<10)).ReadBytes('\n')
+	if err != nil && !(errors.Is(err, io.EOF) && len(line) > 0) {
+		if ctx.Err() != nil {
+			return RuntimeStatus{}, ctx.Err()
+		}
+		return RuntimeStatus{}, fmt.Errorf("mac runner did not answer %s: %w", method, err)
+	}
+	var reply struct {
+		RuntimeStatus
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &reply); err != nil {
+		return RuntimeStatus{}, fmt.Errorf("invalid mac runner %s reply: %w", method, err)
+	}
+	if reply.Error != nil {
+		return RuntimeStatus{}, fmt.Errorf("mac runner %s: %s: %s", method, reply.Error.Code, reply.Error.Message)
+	}
+	if !reply.OK || reply.Instance != instance {
+		return RuntimeStatus{}, errors.New("mac runner instance identity mismatch")
+	}
+	return reply.RuntimeStatus, nil
+}
+
+func checkPeerUID(conn net.Conn) error {
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return errors.New("mac runner connection is not a Unix socket")
+	}
+	raw, err := unixConn.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var uid uint32
+	var credErr error
+	if err := raw.Control(func(fd uintptr) { uid, credErr = peerUID(fd) }); err != nil {
+		return err
+	}
+	if credErr != nil {
+		return credErr
+	}
+	if int(uid) != os.Getuid() {
+		return errors.New("mac runner socket belongs to another user")
+	}
+	return nil
 }
 
 // A short, private runtime directory avoids Unix socket path limits even when
@@ -208,6 +303,8 @@ func RuntimeDir(root string, create bool) (string, error) {
 	return path, nil
 }
 
+// Launch starts a detached runner and returns once its VM reports running.
+// The runner owns its own session so it outlives this command and terminal.
 func (r Runner) Launch(ctx context.Context, args []string, input any, logPath, socket, instance string) (RuntimeStatus, error) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -231,14 +328,14 @@ func (r Runner) Launch(ctx context.Context, args []string, input any, logPath, s
 		err = json.NewEncoder(writer).Encode(input)
 	}
 	_ = writer.Close()
-	// Reap while the CLI lives. The runner belongs to its own session and is
-	// deliberately independent of command cancellation or terminal closure.
+	// Reap while the CLI lives. The runner is deliberately independent of
+	// command cancellation or terminal closure.
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	timeout := time.NewTimer(90 * time.Second)
 	defer timeout.Stop()
@@ -250,93 +347,39 @@ func (r Runner) Launch(ctx context.Context, args []string, input any, logPath, s
 			return status, nil
 		}
 		if rpcErr == nil && (status.State == "error" || status.State == "stopped") {
-			return status, fmt.Errorf("VM startup ended in %s; inspect %s", status.State, logPath)
+			return status, fmt.Errorf("the VM stopped during startup; inspect %s", logPath)
 		}
 		select {
 		case <-ctx.Done():
-			return RuntimeStatus{}, fmt.Errorf("runner may continue in background; inspect mac ls: %w", ctx.Err())
+			return RuntimeStatus{}, fmt.Errorf("the VM may still be starting in the background; check farrow mac ls: %w", ctx.Err())
 		case err := <-exited:
-			return RuntimeStatus{}, fmt.Errorf("mac runner exited before its control socket was ready (%v); inspect %s", err, logPath)
+			return RuntimeStatus{}, launchFailure(logPath, err)
 		case <-timeout.C:
-			return RuntimeStatus{}, fmt.Errorf("mac runner startup timed out; inspect %s", logPath)
+			return RuntimeStatus{}, fmt.Errorf("the VM did not start within 90 seconds; inspect %s", logPath)
 		case <-ticker.C:
 		}
 	}
 }
 
-func secretService(root string) string {
-	sum := sha256.Sum256([]byte(root))
-	return fmt.Sprintf("farrow.mac.%x", sum[:12])
-}
-
-func (r Runner) SetPassword(ctx context.Context, root, instance, password string) error {
-	owner, err := r.credentialRunner(ctx, root, instance)
-	if err != nil {
-		return err
-	}
-	if owner.Binary == r.Binary {
-		owner, err = r.preserveCredentialRunner(ctx, root, instance)
-		if err != nil {
-			return err
+// launchFailure surfaces the runner's own error object from its log when it
+// exits before the VM runs, such as the host-wide macOS VM limit.
+func launchFailure(logPath string, exitErr error) error {
+	data, _ := os.ReadFile(logPath)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-20; i-- {
+		var reply struct {
+			OK    *bool `json:"ok"`
+			Error *struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &reply) == nil && reply.Error != nil {
+			if reply.Error.Code == "virtual_machine_limit" {
+				return failure.New(failure.Resource, errors.New(reply.Error.Message)).Because("mac_vm_limit").Then("farrow mac stop <another machine>, or quit other macOS VMs")
+			}
+			return fmt.Errorf("%s: %s", reply.Error.Code, reply.Error.Message)
 		}
 	}
-	return owner.setPasswordAtService(ctx, secretService(root), instance, password)
-}
-
-func (r Runner) setPasswordAtService(ctx context.Context, service, instance, password string) error {
-	return r.Call(ctx, map[string]string{"password": password}, nil, "secret", "set", "--service", service, "--account", instance)
-}
-
-func (r Runner) Password(ctx context.Context, root, instance string) (string, error) {
-	owner, err := r.credentialRunner(ctx, root, instance)
-	if err != nil {
-		return "", err
-	}
-	return owner.passwordAtService(ctx, secretService(root), instance)
-}
-
-func (r Runner) passwordAtService(ctx context.Context, service, instance string) (string, error) {
-	var result struct {
-		Password string `json:"password"`
-	}
-	// Secrets must not be echoed through a progress writer.
-	r.Progress = nil
-	err := r.Call(ctx, nil, &result, "secret", "get", "--service", service, "--account", instance)
-	if err == nil && result.Password == "" {
-		err = secretCommandError([]string{"secret", "get"}, "invalid_response")
-	}
-	if err != nil {
-		return "", err
-	}
-	return result.Password, err
-}
-
-func (r Runner) DeletePassword(ctx context.Context, root, instance string) error {
-	owner, err := r.credentialRunner(ctx, root, instance)
-	if err != nil {
-		return err
-	}
-	record, err := readCredentialRunnerRecord(root, instance)
-	if err != nil {
-		return err
-	}
-	if record != nil && record.MigrationFrom != "" {
-		original, err := retainedCredentialRunner(ctx, root, record.MigrationFrom)
-		if err != nil {
-			return err
-		}
-		// Destroy/reset after an interrupted publication must also remove the
-		// encrypted recovery item before dropping the only source reference.
-		if err := original.deletePasswordAtService(ctx, secretService(root)+".migration", instance); err != nil {
-			return err
-		}
-	}
-	if err := owner.deletePasswordAtService(ctx, secretService(root), instance); err != nil {
-		return err
-	}
-	return saveCredentialRunnerRecord(root, instance, credentialRunnerRecord{})
-}
-
-func (r Runner) deletePasswordAtService(ctx context.Context, service, instance string) error {
-	return r.Call(ctx, nil, nil, "secret", "delete", "--service", service, "--account", instance)
+	return fmt.Errorf("the Mac runner exited before the VM started (%v); inspect %s", exitErr, logPath)
 }

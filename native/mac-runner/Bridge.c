@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <net/ethernet.h>
+#include <CoreFoundation/CoreFoundation.h>
 
 static int fail(char *buf, size_t len, const char *message) {
     snprintf(buf, len, "%s: %s", message, strerror(errno));
@@ -78,4 +80,36 @@ int fm_lock(const char *path) {
     if (fd < 0) return -1;
     if (flock(fd, LOCK_EX | LOCK_NB) < 0) { close(fd); return -1; }
     return fd;
+}
+
+vmnet_network_ref fm_vmnet_network_create(const char *gateway, const char *address,
+                                          const char *mac, uint32_t *status_out) {
+    vmnet_return_t status = VMNET_INVALID_ARGUMENT;
+    struct in_addr host, mask, reserved;
+    struct ether_addr *client = ether_aton(mac);
+    if (inet_pton(AF_INET, gateway, &host) != 1 || inet_pton(AF_INET, address, &reserved) != 1 ||
+        inet_pton(AF_INET, "255.255.255.0", &mask) != 1 || client == NULL) {
+        *status_out = (uint32_t)status;
+        return NULL;
+    }
+    ether_addr_t guest;
+    memcpy(&guest, client, sizeof(guest));
+    vmnet_network_configuration_ref config = vmnet_network_configuration_create(VMNET_SHARED_MODE, &status);
+    if (config == NULL) {
+        *status_out = (uint32_t)status;
+        return NULL;
+    }
+    /* vmnet validates the canonical .0 address at configuration time but its
+       DHCP service rejects it at start; the host gateway address is required. */
+    status = vmnet_network_configuration_set_ipv4_subnet(config, &host, &mask);
+    if (status == VMNET_SUCCESS) {
+        status = vmnet_network_configuration_add_dhcp_reservation(config, &guest, &reserved);
+    }
+    vmnet_network_ref network = NULL;
+    if (status == VMNET_SUCCESS) {
+        network = vmnet_network_create(config, &status);
+    }
+    CFRelease(config);
+    *status_out = (uint32_t)status;
+    return network;
 }

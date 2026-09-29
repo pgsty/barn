@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 func fixtureSpec(url, body string) IPSWSpec {
@@ -34,7 +36,7 @@ func seedPartial(t *testing.T, s *Store, spec IPSWSpec, body, etag string) strin
 	if err := os.WriteFile(partial, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeJSON(partial+".json", &partialDownload{SchemaVersion: SchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes, ETag: etag}); err != nil {
+	if err := writeJSON(partial+".json", &partialDownload{SchemaVersion: imageSchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes, ETag: etag}); err != nil {
 		t.Fatal(err)
 	}
 	return partial
@@ -226,7 +228,8 @@ func TestDownloaderCacheIntegrityAndConcurrentReuse(t *testing.T) {
 	if err := os.WriteFile(final, []byte(strings.Repeat("x", len(body))), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DownloadIPSW(context.Background(), spec, DownloadOptions{AllowHTTP: true}); err == nil || !strings.Contains(err.Error(), "SHA256") {
+	_, err := s.DownloadIPSW(context.Background(), spec, DownloadOptions{AllowHTTP: true})
+	if class, _, next := failure.Classify(err); class != failure.Integrity || !strings.Contains(next, "prune --installers") {
 		t.Fatalf("cache corruption=%v", err)
 	}
 	if calls.Load() != 1 {

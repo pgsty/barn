@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/lock"
 )
@@ -159,9 +160,9 @@ func (s *Store) DownloadIPSW(ctx context.Context, spec IPSWSpec, options Downloa
 	if err != nil {
 		return nil, err
 	}
-	if err := readJSON(partial+".json", &meta); err != nil || meta.SchemaVersion != SchemaVersion || meta.URL != spec.URL || meta.SizeBytes != spec.SizeBytes || (meta.ETag == "" && meta.LastModified == "") || offset > spec.SizeBytes {
+	if err := readJSON(partial+".json", &meta); err != nil || meta.SchemaVersion != imageSchemaVersion || meta.URL != spec.URL || meta.SizeBytes != spec.SizeBytes || (meta.ETag == "" && meta.LastModified == "") || offset > spec.SizeBytes {
 		offset = 0
-		meta = partialDownload{SchemaVersion: SchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes}
+		meta = partialDownload{SchemaVersion: imageSchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes}
 	}
 	if offset == spec.SizeBytes {
 		return finishInstaller(ctx, final, partial, spec, meta)
@@ -238,7 +239,7 @@ func (s *Store) DownloadIPSW(ctx context.Context, spec IPSWSpec, options Downloa
 			_ = response.Body.Close()
 			return nil, fmt.Errorf("IPSW response length %d differs from expected %d", response.ContentLength, spec.SizeBytes-offset)
 		}
-		meta = partialDownload{SchemaVersion: SchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes, ETag: strongETag(response.Header.Get("ETag")), LastModified: response.Header.Get("Last-Modified")}
+		meta = partialDownload{SchemaVersion: imageSchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes, ETag: strongETag(response.Header.Get("ETag")), LastModified: response.Header.Get("Last-Modified")}
 		if _, err := http.ParseTime(meta.LastModified); err != nil {
 			meta.LastModified = ""
 		}
@@ -386,13 +387,13 @@ func cachedInstaller(ctx context.Context, path string, spec IPSWSpec) (*Installe
 	err := readJSON(path+".json", &cached)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) || spec.SHA256 == "" {
-			return nil, fmt.Errorf("cached IPSW metadata unavailable; inspect with mac image ls, then remove damaged installers with mac image prune --installers: %v", err)
+			return nil, fmt.Errorf("cached IPSW metadata unavailable; inspect with farrow mac image ls, then remove damaged installers with farrow mac image prune --installers --yes: %v", err)
 		}
 		// Recover a crash between publishing the complete file and metadata only
 		// when there is an independently expected digest, never merely a length.
-		cached = Installer{SchemaVersion: SchemaVersion, Version: spec.Version, Build: spec.Build, URL: spec.URL, SizeBytes: spec.SizeBytes, SHA256: strings.ToLower(spec.SHA256), Path: path, CreatedAt: time.Now().UTC()}
-	} else if cached.SchemaVersion != SchemaVersion || cached.Build != spec.Build || cached.Version != spec.Version || cached.SizeBytes != spec.SizeBytes || !validSHA256(cached.SHA256) {
-		return nil, errors.New("cached IPSW metadata differs from requested image; inspect with mac image ls, then use mac image prune --installers before retrying")
+		cached = Installer{SchemaVersion: imageSchemaVersion, Version: spec.Version, Build: spec.Build, URL: spec.URL, SizeBytes: spec.SizeBytes, SHA256: strings.ToLower(spec.SHA256), Path: path, CreatedAt: time.Now().UTC()}
+	} else if cached.SchemaVersion != imageSchemaVersion || cached.Build != spec.Build || cached.Version != spec.Version || cached.SizeBytes != spec.SizeBytes || !validSHA256(cached.SHA256) {
+		return nil, errors.New("cached IPSW metadata differs from the requested image; inspect with farrow mac image ls, then run farrow mac image prune --installers --yes before retrying")
 	}
 	digest, err := hashFile(ctx, path, spec.SizeBytes)
 	if err != nil {
@@ -405,7 +406,7 @@ func cachedInstaller(ctx context.Context, path string, spec IPSWSpec) (*Installe
 	if digest != strings.ToLower(cached.SHA256) || spec.SHA256 != "" && digest != strings.ToLower(spec.SHA256) {
 		cached.VerificationError = "cached IPSW SHA256 mismatch"
 		_ = writeJSON(path+".json", &cached)
-		return nil, errors.New("cached IPSW SHA256 mismatch; inspect with mac image ls, then use mac image prune --installers before retrying")
+		return nil, failure.New(failure.Integrity, errors.New("the cached macOS restore image does not match its recorded SHA-256")).Then("farrow mac image prune --installers --yes, then retry")
 	}
 	cached.VerificationError = ""
 	cached.Path = path
@@ -421,9 +422,9 @@ func finishInstaller(ctx context.Context, final, partial string, spec IPSWSpec, 
 		return nil, err
 	}
 	if spec.SHA256 != "" && digest != strings.ToLower(spec.SHA256) {
-		return nil, errors.New("downloaded IPSW SHA256 does not match the pinned Apple image; partial retained for diagnosis")
+		return nil, failure.New(failure.Integrity, errors.New("the macOS restore image does not match Apple's published SHA-256; the file was kept for inspection")).Then("farrow mac image prune --installers --yes, then retry")
 	}
-	installer := &Installer{SchemaVersion: SchemaVersion, Version: spec.Version, Build: spec.Build, URL: spec.URL, SizeBytes: spec.SizeBytes, SHA256: digest, ETag: meta.ETag, LastModified: meta.LastModified, Path: final, CreatedAt: time.Now().UTC()}
+	installer := &Installer{SchemaVersion: imageSchemaVersion, Version: spec.Version, Build: spec.Build, URL: spec.URL, SizeBytes: spec.SizeBytes, SHA256: digest, ETag: meta.ETag, LastModified: meta.LastModified, Path: final, CreatedAt: time.Now().UTC()}
 	if err := os.Rename(partial, final); err != nil {
 		return nil, err
 	}
@@ -439,9 +440,48 @@ func finishInstaller(ctx context.Context, final, partial string, spec IPSWSpec, 
 	return installer, nil
 }
 
-// ImportIPSW copies a caller-owned IPSW into the isolated cache without
-// modifying the source. The manager must first obtain the source build/size
-// from Apple's restore-image API; this function enforces the supplied spec.
+// CachedInstaller returns the verified cached installer of spec, or
+// os.ErrNotExist when none is cached. It never downloads.
+func (s *Store) CachedInstaller(ctx context.Context, spec IPSWSpec) (installer *Installer, retErr error) {
+	if err := spec.validateIdentity(); err != nil {
+		return nil, err
+	}
+	final, _, err := s.installerPaths(spec.Build)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(final); err != nil {
+		return nil, err
+	}
+	held, err := s.lockInstaller(ctx, spec.Build)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { retErr = lock.JoinRelease(retErr, held, "mac installer") }()
+	return cachedInstaller(ctx, final, spec)
+}
+
+// PartialBytes reports how much of spec an interrupted download already holds.
+func (s *Store) PartialBytes(spec IPSWSpec) (int64, error) {
+	_, partial, err := s.installerPaths(spec.Build)
+	if err != nil {
+		return 0, err
+	}
+	size, err := partialSize(partial)
+	if err != nil || size > spec.SizeBytes {
+		return 0, err
+	}
+	var meta partialDownload
+	if readJSON(partial+".json", &meta) != nil || meta.URL != spec.URL || meta.SizeBytes != spec.SizeBytes {
+		return 0, nil
+	}
+	return size, nil
+}
+
+// ImportIPSW brings a caller-owned IPSW in without modifying it. On the same
+// APFS volume the cache gets a clone that shares its blocks; elsewhere the
+// file is verified and used in place, never copied. The caller must first
+// read the build and size through Apple's restore-image API.
 func (s *Store) ImportIPSW(ctx context.Context, source string, spec IPSWSpec, options DownloadOptions) (installer *Installer, retErr error) {
 	if err := spec.validateIdentity(); err != nil {
 		return nil, err
@@ -470,37 +510,36 @@ func (s *Store) ImportIPSW(ctx context.Context, source string, spec IPSWSpec, op
 	if absSource == partial || absSource == final {
 		return nil, errors.New("import source must be outside the managed installer paths")
 	}
-	info, err := os.Lstat(source)
+	info, err := os.Lstat(absSource)
 	if err != nil {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() || info.Size() != spec.SizeBytes {
 		return nil, errors.New("imported IPSW must be a regular file matching the expected size")
 	}
-	in, err := os.Open(source)
-	if err != nil {
-		return nil, err
+	temp := filepath.Join(filepath.Dir(final), fmt.Sprintf(".import-%d.partial", os.Getpid()))
+	_ = os.Remove(temp)
+	if err := cloneFile(absSource, temp); err != nil {
+		// Another volume: verify and use the file where it is.
+		if options.Progress != nil {
+			options.Progress(spec.SizeBytes, spec.SizeBytes)
+		}
+		digest, err := hashFile(ctx, absSource, spec.SizeBytes)
+		if err != nil {
+			return nil, err
+		}
+		if spec.SHA256 != "" && digest != strings.ToLower(spec.SHA256) {
+			return nil, failure.New(failure.Integrity, errors.New("the local IPSW does not match Apple's published SHA-256")).Then("download the restore image from Apple again, or omit --ipsw")
+		}
+		return &Installer{SchemaVersion: imageSchemaVersion, Version: spec.Version, Build: spec.Build, SizeBytes: spec.SizeBytes, SHA256: digest, Path: absSource, CreatedAt: time.Now().UTC()}, nil
 	}
-	defer func() { _ = in.Close() }()
-	out, err := os.CreateTemp(filepath.Dir(final), ".import-*.partial")
-	if err != nil {
-		return nil, err
-	}
-	temp := out.Name()
 	defer func() { _ = os.Remove(temp) }()
-	if err := out.Chmod(0o600); err != nil {
-		_ = out.Close()
+	if err := os.Chmod(temp, 0o600); err != nil {
 		return nil, err
 	}
-	n, copyErr := io.Copy(out, io.LimitReader(&progressReader{reader: in, ctx: ctx, total: spec.SizeBytes, callback: options.Progress}, spec.SizeBytes+1))
-	syncErr := out.Sync()
-	closeErr := out.Close()
-	if copyErr != nil || syncErr != nil || closeErr != nil {
-		return nil, errors.Join(copyErr, syncErr, closeErr)
+	if options.Progress != nil {
+		options.Progress(spec.SizeBytes, spec.SizeBytes)
 	}
-	if n != spec.SizeBytes {
-		return nil, errors.New("imported IPSW changed size while copying")
-	}
-	// Reuse final verification while preserving any interrupted network download.
-	return finishInstaller(ctx, final, temp, spec, partialDownload{SchemaVersion: SchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes})
+	// Reuse final verification while preserving any interrupted download.
+	return finishInstaller(ctx, final, temp, spec, partialDownload{SchemaVersion: imageSchemaVersion, URL: spec.URL, SizeBytes: spec.SizeBytes})
 }

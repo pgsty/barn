@@ -2,20 +2,32 @@ package macvm
 
 import (
 	"bufio"
+	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
-const DefaultSubnet = "10.10.20.0/24"
+// Each machine gets its own private /24. The runner creates it with vmnet when
+// the machine starts and it disappears when the machine stops; the host is .1
+// and the guest's MAC has a DHCP reservation for .10. No root is involved.
+const (
+	gatewayHost = 1
+	guestHost   = 10
+)
 
-// ValidateSubnet limits the first product to private /24 IPv4 networks.
+// ValidateSubnet limits machine networks to private IPv4 /24 networks.
 func ValidateSubnet(value string) (netip.Prefix, error) {
 	p, err := netip.ParsePrefix(value)
 	if err != nil || !p.Addr().Is4() || p.Bits() != 24 || !p.Addr().IsPrivate() || p != p.Masked() {
-		return netip.Prefix{}, fmt.Errorf("mac subnet %q must be a canonical private IPv4 /24 network", value)
+		return netip.Prefix{}, failure.New(failure.Usage, fmt.Errorf("subnet %q must be a canonical private IPv4 /24 network such as 10.10.20.0/24", value))
 	}
 	return p, nil
 }
@@ -26,8 +38,49 @@ func subnetAddress(p netip.Prefix, host byte) netip.Addr {
 	return netip.AddrFrom4(b)
 }
 
-// SelectSubnet never changes existing configuration: callers use this only
-// before first setup and check the saved subnet with CheckSubnet thereafter.
+// NetworkFor derives a machine's gateway and reserved guest address.
+func NetworkFor(p netip.Prefix) MachineNetwork {
+	return MachineNetwork{Subnet: p.String(), Gateway: subnetAddress(p, gatewayHost).String(), Address: subnetAddress(p, guestHost).String()}
+}
+
+func (n MachineNetwork) Validate() error {
+	p, err := ValidateSubnet(n.Subnet)
+	if err != nil {
+		return err
+	}
+	if n != NetworkFor(p) {
+		return errors.New("machine network must use its subnet's .1 gateway and .10 guest address")
+	}
+	return nil
+}
+
+func validMAC(value string) bool {
+	mac, err := net.ParseMAC(value)
+	return err == nil && len(mac) == 6 && mac[0]&3 == 2 && mac.String() == value
+}
+
+// newMAC returns a random locally administered unicast address.
+func newMAC() (string, error) {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[0] = b[0]&0xfc | 0x02
+	return net.HardwareAddr(b).String(), nil
+}
+
+// candidateSubnets starts at the historical mac1 network and stays inside
+// 10.10.0.0/16 next to the Linux lab default, which uses 10.10.10.0/24.
+func candidateSubnets() []string {
+	candidates := make([]string, 0, 40)
+	for third := 20; third < 60; third++ {
+		candidates = append(candidates, fmt.Sprintf("10.10.%d.0/24", third))
+	}
+	return candidates
+}
+
+// SelectSubnet picks the first candidate that overlaps neither a host route
+// nor another machine's network. An explicit subnet is checked, never replaced.
 func SelectSubnet(explicit string, occupied []netip.Prefix) (string, error) {
 	if explicit != "" {
 		if err := CheckSubnet(explicit, occupied); err != nil {
@@ -35,12 +88,12 @@ func SelectSubnet(explicit string, occupied []netip.Prefix) (string, error) {
 		}
 		return explicit, nil
 	}
-	for _, candidate := range []string{DefaultSubnet, "10.10.21.0/24", "10.88.20.0/24", "172.29.20.0/24", "192.168.242.0/24"} {
+	for _, candidate := range candidateSubnets() {
 		if CheckSubnet(candidate, occupied) == nil {
 			return candidate, nil
 		}
 	}
-	return "", errors.New("no conflict-free mac subnet is available; choose a private /24 with --subnet after checking LAN, VPN and Linux VM routes")
+	return "", failure.New(failure.Resource, errors.New("no free private /24 is available for a new machine network; choose one with --subnet after checking LAN, VPN and VM routes"))
 }
 
 func CheckSubnet(value string, occupied []netip.Prefix) error {
@@ -53,7 +106,7 @@ func CheckSubnet(value string, occupied []netip.Prefix) error {
 			continue
 		}
 		if p.Overlaps(other) {
-			return fmt.Errorf("mac subnet %s conflicts with route %s; do not change a saved subnet while instances exist", p, other)
+			return failure.New(failure.Resource, fmt.Errorf("subnet %s overlaps %s already in use on this host", p, other))
 		}
 	}
 	return nil
@@ -78,8 +131,7 @@ func ParseDarwinRoutes(output string) ([]netip.Prefix, error) {
 	return routes, nil
 }
 
-// DarwinRoute keeps interface identity: equal routes on a VM bridge and a VPN
-// must remain distinct when checking an already active Farrow network.
+// DarwinRoute keeps the interface so diagnostics can name who owns a subnet.
 type DarwinRoute struct {
 	Prefix    netip.Prefix
 	Interface string
@@ -131,80 +183,6 @@ func ParseDarwinRouteTable(output string) ([]DarwinRoute, error) {
 	return routes, scanner.Err()
 }
 
-// CheckLiveSubnet recognizes only an active, identity-checked helper's bridge.
-// Its own /24, neighbor /32 and the gateway's lo0 /32 routes are expected.
-// Broader routes and routes on every other interface still conflict, including
-// duplicates installed by a VPN after the original setup selected the subnet.
-func CheckLiveSubnet(network NetworkConfig, routes []DarwinRoute, ifconfig string, helperConnected bool) error {
-	subnet, err := ValidateSubnet(network.Subnet)
-	if err != nil {
-		return err
-	}
-	if network.Gateway != subnetAddress(subnet, 1).String() {
-		return errors.New("saved mac gateway does not match subnet")
-	}
-	bridge := ""
-	if helperConnected {
-		bridge, err = macBridgeInterface(ifconfig, network.Gateway)
-		if err != nil {
-			return err
-		}
-	}
-	for _, route := range routes {
-		p := route.Prefix
-		if !p.IsValid() || !p.Addr().Is4() || p.Bits() == 0 || !p.Overlaps(subnet) {
-			continue
-		}
-		if bridge != "" {
-			if route.Interface == bridge && (p == subnet || p.Bits() == 32 && subnet.Contains(p.Addr())) {
-				continue
-			}
-			if route.Interface == "lo0" && p.Bits() == 32 && p.Addr().String() == network.Gateway {
-				continue
-			}
-		}
-		return fmt.Errorf("saved mac subnet %s conflicts with route %s on %s; resolve the LAN/VPN/VM route conflict without changing the saved slot addresses", subnet, p, route.Interface)
-	}
-	return nil
-}
-
-func macBridgeInterface(output, gateway string) (string, error) {
-	current, matched := "", ""
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		if line[0] != ' ' && line[0] != '\t' && strings.HasSuffix(fields[0], ":") {
-			current = strings.TrimSuffix(fields[0], ":")
-			continue
-		}
-		if len(fields) < 4 || fields[0] != "inet" || fields[1] != gateway || fields[2] != "netmask" || fields[3] != "0xffffff00" {
-			continue
-		}
-		if !strings.HasPrefix(current, "bridge") {
-			continue
-		}
-		index, err := strconv.Atoi(strings.TrimPrefix(current, "bridge"))
-		if err != nil || index < 0 {
-			continue
-		}
-		if matched != "" && matched != current {
-			return "", fmt.Errorf("multiple bridges have saved mac gateway %s; cannot identify the active Mac network", gateway)
-		}
-		matched = current
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-	if matched == "" {
-		return "", fmt.Errorf("active Mac network has no identifiable bridge for %s/24; retry after checking helper and interface state", gateway)
-	}
-	return matched, nil
-}
-
 func parseRouteDestination(value string) (netip.Prefix, error) {
 	address, mask, hasMask := strings.Cut(value, "/")
 	parts := strings.Split(address, ".")
@@ -228,4 +206,82 @@ func parseRouteDestination(value string) (netip.Prefix, error) {
 		}
 	}
 	return netip.PrefixFrom(netip.AddrFrom4(octets), bits).Masked(), nil
+}
+
+// hostRoutes reads the live IPv4 routing table.
+func hostRoutes(ctx context.Context) ([]DarwinRoute, error) {
+	output, err := exec.CommandContext(ctx, "/usr/sbin/netstat", "-rn", "-f", "inet").Output()
+	if err != nil {
+		return nil, fmt.Errorf("read host IPv4 routes: %w", err)
+	}
+	return ParseDarwinRouteTable(string(output))
+}
+
+// allocateNetwork chooses a subnet that no route and no other machine uses.
+func (m *Manager) allocateNetwork(ctx context.Context, requested, self string) (MachineNetwork, error) {
+	routes, err := m.routes(ctx)
+	if err != nil {
+		return MachineNetwork{}, err
+	}
+	occupied := make([]netip.Prefix, 0, len(routes))
+	for _, route := range routes {
+		occupied = append(occupied, route.Prefix)
+	}
+	machines, err := m.Store.ListMachines()
+	if err != nil {
+		return MachineNetwork{}, err
+	}
+	for _, other := range machines {
+		if other.Name == self {
+			continue
+		}
+		if p, err := netip.ParsePrefix(other.Network.Subnet); err == nil {
+			occupied = append(occupied, p)
+		}
+	}
+	selected, err := SelectSubnet(requested, occupied)
+	if err != nil {
+		return MachineNetwork{}, err
+	}
+	p, err := ValidateSubnet(selected)
+	if err != nil {
+		return MachineNetwork{}, err
+	}
+	return NetworkFor(p), nil
+}
+
+// checkNetworkFree runs before a machine starts: its private network does not
+// exist yet, so any overlapping route belongs to something else (a VPN, a LAN,
+// another VM tool) and would make the guest unreachable.
+func (m *Manager) checkNetworkFree(ctx context.Context, machine *Machine) error {
+	routes, err := m.routes(ctx)
+	if err != nil {
+		return err
+	}
+	return m.checkRoutesFree(machine, routes)
+}
+
+func (m *Manager) checkRoutesFree(machine *Machine, routes []DarwinRoute) error {
+	subnet, err := ValidateSubnet(machine.Network.Subnet)
+	if err != nil {
+		return err
+	}
+	for _, route := range routes {
+		if route.Prefix.IsValid() && route.Prefix.Addr().Is4() && route.Prefix.Bits() != 0 && route.Prefix.Overlaps(subnet) {
+			next := fmt.Sprintf("farrow mac configure %s --subnet auto", machine.Name)
+			if legacyNetwork(route, subnet) {
+				next = "farrow mac migrate"
+			}
+			return failure.New(failure.Resource, fmt.Errorf("%s network %s overlaps route %s on %s", machine.Name, subnet, route.Prefix, route.Interface)).
+				Because("mac_subnet_in_use").Then(next)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) routes(ctx context.Context) ([]DarwinRoute, error) {
+	if m.hostRoutes != nil {
+		return m.hostRoutes(ctx)
+	}
+	return hostRoutes(ctx)
 }

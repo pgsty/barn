@@ -23,9 +23,9 @@ type operationOwner struct {
 	ReadyToken string `json:"ready_token,omitempty"`
 }
 
-// The slot operation lock continues to exclude conflicting writes during first
-// SSH provisioning. Stop can cancel just this bounded wait through a private,
-// nonce-bound endpoint instead of signalling a PID or racing slot files.
+// The machine operation lock continues to exclude conflicting writes during
+// first SSH provisioning. Stop can cancel just this bounded wait through a
+// private, nonce-bound endpoint instead of signalling a PID or racing files.
 func (m *Manager) interruptibleReadiness(ctx context.Context, held *lock.File, name string) (context.Context, func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -41,7 +41,7 @@ func (m *Manager) interruptibleReadiness(ctx context.Context, held *lock.File, n
 	if err != nil {
 		return nil, nil, err
 	}
-	socket := filepath.Join(directory, name+"-ready.sock")
+	socket := readinessSocket(directory, name)
 	if info, err := os.Lstat(socket); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
 			return nil, nil, errors.New("readiness endpoint is not a socket; it was preserved")
@@ -95,23 +95,24 @@ func (m *Manager) interruptibleReadiness(ctx context.Context, held *lock.File, n
 	return wait, finish, nil
 }
 
-func (m *Manager) waitForSSH(ctx context.Context, held *lock.File, slot *Slot, pref SlotPreference, password string) (SSHObservation, error) {
-	wait, finish, err := m.interruptibleReadiness(ctx, held, slot.Name)
+func (m *Manager) waitForSSH(ctx context.Context, held *lock.File, machine *Machine, password string) (SSHObservation, error) {
+	wait, finish, err := m.interruptibleReadiness(ctx, held, machine.Name)
 	if err != nil {
 		return SSHObservation{}, err
 	}
 	defer finish()
-	result, err := m.readySSH(wait, slot, pref, password)
+	result, err := m.readySSH(wait, machine, password)
 	if errors.Is(context.Cause(wait), errReadinessStopped) {
-		return SSHObservation{}, failure.New(failure.Cancelled, fmt.Errorf("%s: %w", slot.Name, errReadinessStopped)).Because("mac_readiness_interrupted")
+		return SSHObservation{}, failure.New(failure.Cancelled, fmt.Errorf("%s: %w", machine.Name, errReadinessStopped)).Because("mac_readiness_interrupted")
 	}
 	return result, err
 }
 
-func (m *Manager) acquireStopOperation(ctx context.Context, name string) (*lock.File, error) {
-	name, err := NormalizeSlot(name)
-	if err != nil {
-		return nil, err
+// acquireStopOperation waits for the machine's operation lock, cancelling an
+// in-progress SSH readiness wait so a stop never queues behind a first boot.
+func (m *Manager) acquireStopOperation(ctx context.Context, name, action string) (*lock.File, error) {
+	if !ValidName(name) {
+		return nil, invalidName(name)
 	}
 	acknowledged := ""
 	interrupt := func(path string) {
@@ -125,7 +126,7 @@ func (m *Manager) acquireStopOperation(ctx context.Context, name string) (*lock.
 		}
 		probe, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
-		conn, err := (&net.Dialer{}).DialContext(probe, "unix", filepath.Join(directory, name+"-ready.sock"))
+		conn, err := (&net.Dialer{}).DialContext(probe, "unix", readinessSocket(directory, name))
 		if err != nil {
 			return
 		}
@@ -140,8 +141,14 @@ func (m *Manager) acquireStopOperation(ctx context.Context, name string) (*lock.
 		}
 		if json.NewDecoder(io.LimitReader(conn, 1024)).Decode(&response) == nil && response.Cancelled {
 			acknowledged = owner.ReadyToken
-			m.progress("Cancelled %s SSH readiness wait; continuing shutdown", name)
+			m.report("lock", "Cancelled the %s SSH readiness wait", name)
 		}
 	}
-	return m.acquireMacLock(ctx, name+".operation.lock", "mac stop "+name, interrupt)
+	return m.acquireMacLock(ctx, name+".operation.lock", action, interrupt)
+}
+
+// readinessSocket uses a dot, which machine names cannot contain, so it never
+// collides with another machine's runner socket (NAME.sock).
+func readinessSocket(directory, name string) string {
+	return filepath.Join(directory, name+".ready.sock")
 }

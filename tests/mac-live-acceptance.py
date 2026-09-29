@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Destructive two-slot acceptance, restricted to an explicitly marked test root.
+"""Destructive named-machine acceptance, restricted to an explicitly marked test root.
 
 Never calls mac password or reads SSH private keys. Failures preserve all guest
 state. --plan prints the sequence without executing Farrow or creating files.
@@ -25,11 +25,14 @@ import uuid
 
 
 PHASES = [
-    "preflight-and-two-slot-list", "up-mac1-and-base-fingerprint", "up-mac2-and-readiness",
-    "guest-accounts-and-independent-identities", "disk-write-isolation", "host-guest-and-peer-network",
-    "dns-and-public-https", "remote-exit-and-argument-boundaries", "stop-start-preserves-both-slots",
-    "reset-mac1-rotates-identities", "repeated-up-reuses-base", "destroy-mac1-preserves-mac2",
+    "preflight-and-empty-list", "up-mac1-and-base-fingerprint", "up-named-machine-with-share",
+    "guest-accounts-and-independent-identities", "disk-write-isolation", "private-networks-and-isolation",
+    "dns-and-public-https", "remote-exit-and-argument-boundaries", "shared-folders",
+    "stop-start-preserves-both", "configure-while-stopped", "host-vm-limit",
+    "recreate-mac1-rotates-identities", "repeated-up-reuses-base", "destroy-mac1-preserves-dev",
 ]
+GUI_PHASE = "desktop-and-clipboard"
+SECOND = "dev"
 MARKER = ".farrow-live-acceptance.json"
 BASE_FILES = ["disk.asif", "hardware-model.bin", "auxiliary-storage.bin", "machine-id.bin", "base.json", "metadata.json"]
 
@@ -121,16 +124,15 @@ class Harness:
         self.mac = self.home / "mac"
         self.env = os.environ.copy()
         self.env["FARROW_HOME"] = str(self.home)
-        # Test the selected bundle's companions, not ambient developer overrides.
-        for name in ("FARROW_MAC_RUNNER", "FARROW_MAC_NETWORK", "FARROW_MAC_NETWORK_INSTALLER"):
-            self.env.pop(name, None)
+        # Test the selected bundle's runner, not an ambient developer override.
+        self.env.pop("FARROW_MAC_RUNNER", None)
         self.run_id = uuid.uuid4().hex
         self.steps = []
         self.current = None
         self.command_number = 0
         self.started = time.monotonic()
-        self.summary = {"schema_version": 1, "run_id": self.run_id, "home": str(self.home), "farrow": str(self.farrow), "started_at": now(), "status": "running", "steps": self.steps,
-                        "gui": {"status": "pending", "required": ["open a native VM desktop and visually verify login", "close the window and verify the VM/SSH remain running"]}}
+        self.summary = {"schema_version": 2, "run_id": self.run_id, "home": str(self.home), "farrow": str(self.farrow), "started_at": now(), "status": "running", "steps": self.steps,
+                        "gui": {"status": "pending" if not args.gui else "automated", "required": ["open a native VM desktop and visually verify login", "close the window and verify the VM/SSH remain running"]}}
         private_json(self.output / "summary.json", self.summary)
 
     def event(self, value):
@@ -143,7 +145,7 @@ class Harness:
     def storage(self):
         usage = os.statvfs(self.mac)
         disks = {}
-        for name in ("mac1", "mac2"):
+        for name in ("mac1", SECOND, "build"):
             disk = self.mac / "slots" / name / "disk.asif"
             if disk.is_file():
                 info = disk.stat()
@@ -224,9 +226,9 @@ class Harness:
         require(args and args[0] != "password", "Acceptance must never request GUI passwords")
         return self.command([str(self.farrow), "mac", *args, "--json"], expected, timeout, True)
 
-    def remote(self, slot, argv, expected=0, timeout=90):
-        result = self.command([str(self.farrow), "--json", "mac", "exec", slot, "--", *argv], expected, timeout, True)
-        require(isinstance(result, dict) and result.get("slot") == slot and result.get("exit_code") == expected, "Remote JSON must preserve slot and exact exit code")
+    def remote(self, name, argv, expected=0, timeout=90):
+        result = self.command([str(self.farrow), "--json", "mac", "exec", name, "--", *argv], expected, timeout, True)
+        require(isinstance(result, dict) and result.get("node") == name and result.get("exit_code") == expected, "Remote JSON must preserve the machine and exact exit code")
         return result
 
     def remote_shell(self, slot, script, *args, expected=0):
@@ -234,17 +236,19 @@ class Harness:
 
     def listing(self, states=None):
         result = self.cli("ls")
-        require(result.get("root") == str(self.mac), "CLI used a different data root")
-        slots = result.get("slots", [])
-        require([s.get("name") for s in slots] == ["mac1", "mac2"], "ls must always contain exactly mac1 and mac2")
+        require(result.get("root") == str(self.mac) and result.get("schema_version") == 2, "CLI used a different data root or schema")
+        machines = {machine["name"]: machine for machine in result.get("machines", [])}
         if states:
-            for slot in slots:
-                require(slot["state"] == states[slot["name"]], f"Unexpected state for {slot['name']}: {slot['state']}")
-        return result, {slot["name"]: slot for slot in slots}
+            require(set(machines) == set(states), f"Unexpected machines: {sorted(machines)}")
+            for name, state in states.items():
+                require(machines[name]["state"] == state, f"Unexpected state for {name}: {machines[name]['state']}")
+                if state == "running":
+                    require(machines[name]["ready"] and machines[name]["ssh"] == "ready", f"{name} runs without verified SSH")
+        return result, machines
 
     def fingerprint(self, path):
         path = canonical_path(str(path), "fingerprinted file")
-        require(self.mac in path.parents and path.name not in {"id_ed25519", "id_rsa"}, "Fingerprint is outside Mac data or names a private key")
+        require(self.mac in path.parents and path.name not in {"id_ed25519", "id_rsa", "password"}, "Fingerprint is outside Mac data or names a secret")
         before = path.stat()
         require(stat.S_ISREG(before.st_mode), "Fingerprint target is not a regular file")
         digest = hashlib.sha256()
@@ -262,30 +266,32 @@ class Harness:
         private_json(self.current / filename, result)
         return result
 
-    def identity(self, name, slot):
-        script = r'''set -eu
+    def identity(self, name, machine):
+        script = r"""set -eu
 printf 'user='; /usr/bin/id -un
 printf 'uid='; /usr/bin/id -u
 printf 'groups='; /usr/bin/id -Gn
 printf 'sudo_uid='; /usr/bin/sudo -n /usr/bin/id -u
 printf 'version='; /usr/bin/sw_vers -productVersion
 printf 'build='; /usr/bin/sw_vers -buildVersion
+printf 'computer_name='; /usr/sbin/scutil --get ComputerName
 printf 'platform_uuid='; /usr/sbin/ioreg -rd1 -c IOPlatformExpertDevice | /usr/bin/awk -F '"' '/"IOPlatformUUID"/ {print $(NF-1)}'
 printf 'ssh_host_fingerprint='; /usr/bin/ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256 | /usr/bin/awk '{print $2}'
 printf 'ipv4='; /usr/sbin/ipconfig getifaddr en0
-'''
+"""
         result = self.remote_shell(name, script)
         values = dict(line.split("=", 1) for line in result["stdout"].splitlines() if "=" in line)
-        require(values.get("user") == slot["user"] and values.get("uid") != "0", f"{name} did not log in as its ordinary user")
+        require(values.get("user") == machine["user"] and values.get("uid") != "0", f"{name} did not log in as its ordinary user")
         require("admin" in values.get("groups", "").split() and values.get("sudo_uid") == "0", f"{name} admin/passwordless sudo failed")
         require(values.get("version", "").startswith("27.") and values.get("build") == self.args.expected_build, f"{name} guest OS build differs from the acceptance target")
-        require(values.get("ipv4") == slot["ip"], f"{name} DHCP address does not match its reserved IP")
+        require(values.get("ipv4") == machine["address"], f"{name} DHCP address does not match its reserved address")
+        require(values.get("computer_name") == name, f"{name} guest is named {values.get('computer_name')}")
         try:
             uuid.UUID(values.get("platform_uuid", ""))
         except ValueError as error:
             raise AcceptanceFailure(f"{name} has no valid IOPlatformUUID") from error
         require(values.get("ssh_host_fingerprint", "").startswith("SHA256:"), "Missing public SSH host fingerprint")
-        identity = {"instance_id": slot["instance_id"], "platform_uuid": values["platform_uuid"], "ssh_host_fingerprint": values["ssh_host_fingerprint"],
+        identity = {"instance_id": machine["instance_id"], "platform_uuid": values["platform_uuid"], "ssh_host_fingerprint": values["ssh_host_fingerprint"],
                     "machine_id_sha256": self.fingerprint(self.mac / "slots" / name / "machine-id.bin")["sha256"],
                     "client_public_key_sha256": self.fingerprint(self.mac / "slots" / name / "id_ed25519.pub")["sha256"]}
         private_json(self.current / f"{name}-identity.json", {"identity": identity, "guest": values})
@@ -293,10 +299,10 @@ printf 'ipv4='; /usr/sbin/ipconfig getifaddr en0
 
     def sentinel(self, name, token):
         result = self.remote_shell(name, 'set -eu; test -f "$1"; /bin/cat "$1"', self.sentinel_path)
-        require(result["stdout"] == token, f"{name} disk content changed or crossed into another slot")
+        require(result["stdout"] == token, f"{name} disk content changed or crossed into another machine")
 
-    def account_policy(self, name, slot):
-        script = r'''set -eu
+    def account_policy(self, name, machine):
+        script = r"""set -eu
 printf 'auto_login='; /usr/bin/sudo -n /usr/bin/defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser
 printf 'console_user='; /usr/bin/stat -f '%Su' /dev/console
 /usr/bin/sudo -n /usr/sbin/sshd -T | /usr/bin/awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" || $1 == "permitrootlogin" {print $1 "=" $2}'
@@ -306,137 +312,190 @@ if test -f "$plist" && /usr/libexec/PlistBuddy -c 'Print :Accounts:0' "$plist" >
 else
   printf 'apple_account_preferences=empty\n'
 fi
-'''
+"""
         result = self.remote_shell(name, script)
         values = dict(line.split("=", 1) for line in result["stdout"].splitlines() if "=" in line)
-        require(values.get("auto_login") == slot["user"] and values.get("console_user") == slot["user"], f"{name} automatic desktop login is not established")
+        require(values.get("auto_login") == machine["user"] and values.get("console_user") == machine["user"], f"{name} automatic desktop login is not established")
         for setting in ("passwordauthentication", "kbdinteractiveauthentication", "permitrootlogin"):
             require(values.get(setting) == "no", f"{name} effective sshd policy still permits {setting}")
         require(values.get("apple_account_preferences") == "empty", f"{name} has Apple Account preferences")
         return values
 
+    def up(self, *args):
+        extra = ["--yes"] if self.args.allow_download else []
+        return self.cli("up", *args, *extra, timeout=self.args.operation_timeout)
+
     def run(self):
+        both = ("mac1", SECOND)
         with self.step(PHASES[0]) as record:
             result, _ = self.listing()
             record["initial"] = result
             self.command([str(self.farrow), "version"], timeout=30)
         with self.step(PHASES[1]) as record:
-            self.cli("up", "mac1", timeout=self.args.operation_timeout)
-            _, slots = self.listing()
-            require(slots["mac1"]["state"] == "ready", "mac1 up did not reach ready")
-            base_id = slots["mac1"]["base_id"]
-            original_base = self.base_snapshot(base_id, "base-before-mac2.json")
+            outcome = self.up("mac1")
+            require(outcome["action"] in {"created", "started", "running"} and outcome["ready"], "mac1 up did not reach ready")
+            _, machines = self.listing()
+            base_id = machines["mac1"]["image"]["base_id"]
+            original_base = self.base_snapshot(base_id, "base-before-second.json")
             record["base_id"] = base_id
+        share = self.output / "share"
+        share.mkdir(mode=0o700)
+        (share / "host.txt").write_text(f"{self.run_id}:host\n")
         with self.step(PHASES[2]) as record:
-            self.cli("up", "mac2", timeout=self.args.operation_timeout)
-            status, slots = self.listing({"mac1": "ready", "mac2": "ready"})
-            subnet = ipaddress.ip_network(status["network"]["subnet"])
-            require(subnet.prefixlen == 24 and subnet.is_private, "Expected a dedicated private /24")
-            require(slots["mac1"]["ip"] == str(subnet.network_address + 10) and slots["mac2"]["ip"] == str(subnet.network_address + 11), "Stable .10/.11 reservations are not reflected in JSON")
-            require(slots["mac1"]["base_id"] == slots["mac2"]["base_id"] == base_id, "Both fresh slots must reuse one base")
-            require(self.base_snapshot(base_id, "base-after-mac2.json") == original_base, "Creating mac2 changed/replaced the read-only base")
-            record.update(subnet=str(subnet), gateway=status["network"]["gateway"], slots=slots)
+            self.up(SECOND, "--cpu", "2", "--memory", "4G", "--share", f"work={share}")
+            status, machines = self.listing({"mac1": "running", SECOND: "running"})
+            networks = {name: ipaddress.ip_network(machines[name]["network"]["subnet"]) for name in both}
+            for name in both:
+                subnet = networks[name]
+                require(subnet.prefixlen == 24 and subnet.is_private, f"{name} needs a private /24")
+                require(machines[name]["address"] == str(subnet.network_address + 10) and machines[name]["network"]["gateway"] == str(subnet.network_address + 1), f"{name} address layout is wrong")
+            require(networks["mac1"] != networks[SECOND], "Machines must have separate networks")
+            require(machines["mac1"]["image"]["base_id"] == machines[SECOND]["image"]["base_id"] == base_id, "Both machines must reuse one base")
+            require(self.base_snapshot(base_id, "base-after-second.json") == original_base, "Creating a machine changed the read-only base")
+            record.update(networks={name: str(networks[name]) for name in both}, machines=machines)
         with self.step(PHASES[3]) as record:
-            identities = {name: self.identity(name, slots[name]) for name in ("mac1", "mac2")}
+            identities = {name: self.identity(name, machines[name]) for name in both}
             for key in identities["mac1"]:
-                require(identities["mac1"][key] != identities["mac2"][key], f"The two slots share {key}")
+                require(identities["mac1"][key] != identities[SECOND][key], f"The two machines share {key}")
             record["identities"] = identities
-            record["account_policy"] = {name: self.account_policy(name, slots[name]) for name in ("mac1", "mac2")}
-            auxiliary = {name: self.fingerprint(self.mac / "slots" / name / "auxiliary-storage.bin") for name in ("mac1", "mac2")}
-            require(auxiliary["mac1"]["inode"] != auxiliary["mac2"]["inode"], "Both VMs share one writable auxiliary-storage file")
-            record["independent_auxiliary_storage"] = auxiliary
+            record["account_policy"] = {name: self.account_policy(name, machines[name]) for name in both}
+            auxiliary = {name: self.fingerprint(self.mac / "slots" / name / "auxiliary-storage.bin") for name in both}
+            require(auxiliary["mac1"]["inode"] != auxiliary[SECOND]["inode"], "Both VMs share one writable auxiliary-storage file")
         self.sentinel_path = f"/private/var/tmp/farrow-acceptance-{self.run_id}"
-        tokens = {name: f"{self.run_id}:{name}:independent-disk" for name in ("mac1", "mac2")}
+        tokens = {name: f"{self.run_id}:{name}:independent-disk" for name in both}
         with self.step(PHASES[4]):
-            for name in ("mac1", "mac2"):
+            for name in both:
                 self.remote_shell(name, 'set -eu; umask 077; test ! -e "$1"; /usr/bin/printf "%s" "$2" > "$1"', self.sentinel_path, tokens[name])
-            for name in ("mac1", "mac2"):
+            for name in both:
                 self.sentinel(name, tokens[name])
         with self.step(PHASES[5]):
-            gateway = status["network"]["gateway"]
-            ipaddress.ip_address(gateway)
-            for name, other in (("mac1", "mac2"), ("mac2", "mac1")):
-                self.command(["/sbin/ping", "-n", "-c", "2", "-W", "2000", slots[name]["ip"]], timeout=15)
-                self.remote(name, ["/sbin/ping", "-n", "-c", "2", "-W", "2000", gateway])
-                self.remote(name, ["/sbin/ping", "-n", "-c", "2", "-W", "2000", slots[other]["ip"]])
+            for name, other in (("mac1", SECOND), (SECOND, "mac1")):
+                self.command(["/sbin/ping", "-n", "-c", "2", "-W", "2000", machines[name]["address"]], timeout=15)
+                self.remote(name, ["/sbin/ping", "-n", "-c", "2", "-W", "2000", machines[name]["network"]["gateway"]])
+                # Each machine's network belongs to its own runner: peers are unreachable.
+                self.remote_shell(name, 'if /sbin/ping -n -c 1 -t 2 "$1" >/dev/null 2>&1; then exit 1; fi', machines[other]["address"])
         with self.step(PHASES[6]):
-            for name in ("mac1", "mac2"):
+            for name in both:
                 dns = self.remote(name, ["/usr/bin/dscacheutil", "-q", "host", "-a", "name", "www.apple.com"])
                 require("ip_address:" in dns["stdout"] or "ipv6_address:" in dns["stdout"], f"{name} DNS produced no addresses")
                 https = self.remote(name, ["/usr/bin/curl", "--noproxy", "*", "--fail", "--silent", "--show-error", "--location", "--connect-timeout", "10", "--max-time", "30", "--output", "/dev/null", "--write-out", "%{http_code}\\n", "https://www.apple.com/"])
                 require(https["stdout"].strip() == "200", f"{name} public HTTPS did not return 200")
         with self.step(PHASES[7]):
-            for name in ("mac1", "mac2"):
+            for name in both:
                 remote = self.remote_shell(name, 'printf "remote-stdout"; printf "remote-stderr" >&2; exit 37', expected=37)
                 require(remote["stdout"] == "remote-stdout" and remote["stderr"] == "remote-stderr", "Remote exit output streams changed")
                 arguments = ["", "two words", "single'quote", 'double"quote', "$HOME", "$(printf SUBSTITUTED)", "line1\nline2", "--leading-dash", "中文参数"]
                 boundaries = self.remote(name, ["/usr/bin/printf", "%s\\0", *arguments])
                 require(boundaries["stdout"] == "\0".join(arguments) + "\0", "Remote argument boundaries were not preserved")
         with self.step(PHASES[8]):
-            for name, other in (("mac1", "mac2"), ("mac2", "mac1")):
-                self.cli("stop", name)
-                self.listing({name: "stopped", other: "ready"})
+            mounted = "/Volumes/My Shared Files/work"
+            read = self.remote_shell(SECOND, 'set -eu; /bin/cat "$1/host.txt"; printf "%s" "$2" > "$1/guest.txt"', mounted, f"{self.run_id}:guest")
+            require(read["stdout"] == f"{self.run_id}:host\n", "The guest did not see the host file")
+            require((share / "guest.txt").read_text() == f"{self.run_id}:guest", "The host did not see the guest's write")
+        with self.step(PHASES[9]):
+            for name, other in (("mac1", SECOND), (SECOND, "mac1")):
+                stopped = self.cli("stop", name)
+                require(stopped["machines"][0]["action"] == "stopped" and not stopped["machines"][0].get("forced"), f"{name} did not shut down normally")
+                self.listing({name: "stopped", other: "running"})
                 self.cli("start", name, timeout=self.args.operation_timeout)
-                _, slots = self.listing({"mac1": "ready", "mac2": "ready"})
-                for guest in ("mac1", "mac2"):
-                    require(self.identity(guest, slots[guest]) == identities[guest], f"Stopping/restarting {name} changed {guest} identity")
+                _, machines = self.listing({"mac1": "running", SECOND: "running"})
+                for guest in both:
+                    require(self.identity(guest, machines[guest]) == identities[guest], f"Stopping and starting {name} changed {guest} identity")
                     self.sentinel(guest, tokens[guest])
-        with self.step(PHASES[9]) as record:
-            original_ip, original_mac = slots["mac1"]["ip"], slots["mac1"]["mac"]
-            self.cli("reset", "mac1", "--force", timeout=self.args.operation_timeout)
-            _, reset_slots = self.listing({"mac1": "created", "mac2": "ready"})
-            require(reset_slots["mac1"]["instance_id"] != identities["mac1"]["instance_id"], "Reset reused instance UUID")
-            require(reset_slots["mac1"]["base_id"] == base_id, "Ordinary reset changed base version")
-            self.cli("up", "mac1", timeout=self.args.operation_timeout)
-            _, slots = self.listing({"mac1": "ready", "mac2": "ready"})
-            require(slots["mac1"]["ip"] == original_ip and slots["mac1"]["mac"] == original_mac, "Reset changed stable slot IP/MAC")
-            renewed = self.identity("mac1", slots["mac1"])
+        with self.step(PHASES[10]):
+            self.cli("stop", SECOND)
+            configured = self.cli("configure", SECOND, "--cpu", "3", "--memory", "5G")
+            require(configured["action"] == "configured", "configure did not report its change")
+            self.cli("start", SECOND, timeout=self.args.operation_timeout)
+            resources = self.remote(SECOND, ["/usr/sbin/sysctl", "-n", "hw.ncpu", "hw.memsize"])
+            require(resources["stdout"].split() == ["3", str(5 << 30)], f"Resources did not apply: {resources['stdout']!r}")
+        with self.step(PHASES[11]):
+            refused = self.command([str(self.farrow), "--json", "mac", "up", "build"], expected=6, timeout=self.args.operation_timeout, parse_json=True)
+            require(refused.get("reason") == "mac_vm_limit", "A third running macOS VM was not refused with mac_vm_limit")
+            self.cli("destroy", "build", "--force")
+        with self.step(PHASES[12]) as record:
+            _, machines = self.listing()
+            original_address, original_mac = machines["mac1"]["address"], machines["mac1"]["network"]
+            self.cli("recreate", "mac1", "--force", timeout=self.args.operation_timeout)
+            _, machines = self.listing({"mac1": "running", SECOND: "running"})
+            require(machines["mac1"]["instance_id"] != identities["mac1"]["instance_id"], "Recreate reused the instance UUID")
+            require(machines["mac1"]["image"]["base_id"] == base_id, "Ordinary recreate changed the base")
+            require(machines["mac1"]["address"] == original_address and machines["mac1"]["network"] == original_mac, "Recreate changed the network")
+            renewed = self.identity("mac1", machines["mac1"])
             for key, value in renewed.items():
-                require(value != identities["mac1"][key], f"Reset did not rotate {key}")
+                require(value != identities["mac1"][key], f"Recreate did not rotate {key}")
             self.remote_shell("mac1", 'test ! -e "$1"', self.sentinel_path)
-            require(self.identity("mac2", slots["mac2"]) == identities["mac2"], "Resetting mac1 changed mac2 identity")
-            self.sentinel("mac2", tokens["mac2"])
+            require(self.identity(SECOND, machines[SECOND]) == identities[SECOND], "Recreating mac1 changed the other machine")
+            self.sentinel(SECOND, tokens[SECOND])
             identities["mac1"] = renewed
             record["new_identity"] = renewed
-        with self.step(PHASES[10]) as record:
-            for name in ("mac1", "mac2"):
-                self.cli("up", name, timeout=self.args.operation_timeout)
-            _, slots = self.listing({"mac1": "ready", "mac2": "ready"})
-            for name in ("mac1", "mac2"):
-                require(self.identity(name, slots[name]) == identities[name], f"Repeated up recreated {name}")
-            self.sentinel("mac2", tokens["mac2"])
-            require(self.base_snapshot(base_id, "base-after-reset-and-repeated-up.json") == original_base, "Reset/up modified or rebuilt the shared base")
+        if self.args.gui:
+            with self.step(GUI_PHASE):
+                self.desktop_and_clipboard("mac1")
+        with self.step(PHASES[13]) as record:
+            for name in both:
+                outcome = self.up(name)
+                require(outcome["action"] == "running" and outcome["ready"], f"Repeated up changed {name}")
+            _, machines = self.listing({"mac1": "running", SECOND: "running"})
+            for name in both:
+                require(self.identity(name, machines[name]) == identities[name], f"Repeated up recreated {name}")
+            require(self.base_snapshot(base_id, "base-after-recreate-and-repeated-up.json") == original_base, "Lifecycle operations modified the shared base")
             record["images"] = self.cli("image", "ls")
-        with self.step(PHASES[11]) as record:
+        with self.step(PHASES[14]) as record:
             self.cli("destroy", "mac1", "--force")
-            final, slots = self.listing({"mac1": "empty", "mac2": "ready"})
-            require(self.identity("mac2", slots["mac2"]) == identities["mac2"], "Destroying mac1 changed mac2 identity")
-            self.sentinel("mac2", tokens["mac2"])
+            final, machines = self.listing({SECOND: "running"})
+            require(self.identity(SECOND, machines[SECOND]) == identities[SECOND], "Destroying mac1 changed the other machine")
+            self.sentinel(SECOND, tokens[SECOND])
             require((self.mac / "images" / "base" / base_id / "disk.asif").is_file(), "Destroy removed the referenced base")
-            require(not (self.mac / "slots" / "mac1").exists(), "Destroy left mac1 instance data")
+            require(not (self.mac / "slots" / "mac1").exists(), "Destroy left mac1 data")
             if self.args.stop_survivor:
-                self.cli("stop", "mac2")
-                final, _ = self.listing({"mac1": "empty", "mac2": "stopped"})
+                self.cli("stop", SECOND)
+                final, _ = self.listing({SECOND: "stopped"})
             record["final"] = final
             private_json(self.output / "final-state.json", final)
-        self.summary.update(status="automated_passed_gui_pending", completed_at=now(), elapsed_seconds=round(time.monotonic() - self.started, 3), surviving_slot="mac2", surviving_state="stopped" if self.args.stop_survivor else "ready")
+        status = "automated_passed" if self.args.gui else "automated_passed_gui_pending"
+        self.summary.update(status=status, completed_at=now(), elapsed_seconds=round(time.monotonic() - self.started, 3), surviving_machine=SECOND, surviving_state="stopped" if self.args.stop_survivor else "running")
         private_json(self.output / "summary.json", self.summary)
         self.event({"status": self.summary["status"], "summary": str(self.output / "summary.json")})
+
+    def desktop_and_clipboard(self, name):
+        """Opens a real window and moves focus; the host clipboard text is restored."""
+        saved = subprocess.run(["/usr/bin/pbpaste"], capture_output=True).stdout
+        try:
+            host_token, guest_token = f"host-{self.run_id}", f"guest-{self.run_id} ✓"
+            subprocess.run(["/usr/bin/pbcopy"], input=host_token.encode(), check=True)
+            opened = self.cli("open", name)
+            require(opened["action"] == "opened" and opened["window"], "open did not show the desktop")
+            time.sleep(2)
+            pasted = self.remote_shell(name, "LANG=en_US.UTF-8 /usr/bin/pbpaste")
+            require(pasted["stdout"] == host_token, "The host clipboard did not reach the focused guest")
+            self.remote_shell(name, 'printf "%s" "$1" | LANG=en_US.UTF-8 /usr/bin/pbcopy', guest_token)
+            subprocess.run(["/usr/bin/osascript", "-e", 'tell application "Finder" to activate'], check=True)
+            time.sleep(2)
+            back = subprocess.run(["/usr/bin/pbpaste"], capture_output=True).stdout.decode()
+            require(back == guest_token, "The guest clipboard did not return when the window lost focus")
+            _, machines = self.listing()
+            require(machines[name]["window_visible"], "The desktop window is not visible")
+        finally:
+            subprocess.run(["/usr/bin/pbcopy"], input=saved)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--farrow", required=True, help="absolute path to the macOS bundle's farrow executable")
-    parser.add_argument("--home", required=True, help="absolute disposable FARROW_HOME; mac1 is reset and destroyed")
+    parser.add_argument("--home", required=True, help="absolute disposable FARROW_HOME; mac1 is recreated and destroyed")
     parser.add_argument("--output", required=True, help="absolute new/empty directory for structured evidence")
     parser.add_argument("--allow-test-root", action="store_true", help="explicitly mark this dedicated root for destructive acceptance; never use normal ~/.farrow")
     parser.add_argument("--expected-build", default="26A428", help="expected installed macOS 27 build (default: 26A428)")
-    parser.add_argument("--operation-timeout", type=int, default=5400, help="up/start/reset timeout in seconds, including preparation")
-    parser.add_argument("--stop-survivor", action="store_true", help="leave mac2 stopped after success; default keeps it ready for manual GUI acceptance")
+    parser.add_argument("--operation-timeout", type=int, default=5400, help="up/start/recreate timeout in seconds, including preparation")
+    parser.add_argument("--allow-download", action="store_true", help="let up download macOS from Apple when no base is prepared (about 27 GB)")
+    parser.add_argument("--gui", action="store_true", help="also open a desktop window and test clipboard sharing; moves focus and restores the host clipboard text")
+    parser.add_argument("--stop-survivor", action="store_true", help="leave the surviving machine stopped after success")
     parser.add_argument("--plan", action="store_true", help="print the sequence without executing Farrow or touching files")
     args = parser.parse_args()
     if args.plan:
-        print(json.dumps({"phases": PHASES, "destructive_scope": "mac1 reset and destroy within the explicitly marked test root", "gui": "separate manual acceptance", "vm_operations_executed": False}, indent=2))
+        phases = PHASES[:13] + ([GUI_PHASE] if args.gui else []) + PHASES[13:]
+        print(json.dumps({"phases": phases, "destructive_scope": "mac1 recreate and destroy, and a refused third machine, within the explicitly marked test root", "gui": "automated with --gui, otherwise manual", "vm_operations_executed": False}, indent=2))
         return 0
     harness = None
     try:

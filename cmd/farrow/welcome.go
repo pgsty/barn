@@ -16,6 +16,9 @@ func welcomeActions() []welcomeAction {
 	} else {
 		actions = []welcomeAction{{"start", "farrow up"}, {"customize", "farrow init"}, {"preview", "farrow plan"}}
 	}
+	if macSupported() {
+		actions = append(actions, welcomeAction{"macOS", "farrow mac"})
+	}
 	return append(actions, welcomeAction{"help", "farrow --help"})
 }
 

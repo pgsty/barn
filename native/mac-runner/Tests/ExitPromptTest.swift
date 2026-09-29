@@ -1,9 +1,13 @@
 import AppKit
 
 @MainActor
-final class BackgroundMenuTarget: NSObject {
-    var requested = false
-    @objc func background(_ sender: Any?) { requested = true }
+final class RuntimeStub: NSObject {
+    var background = false
+    var clipboard = false
+    @objc func keepRunningInBackground(_ sender: Any?) { background = true }
+    @objc func toggleClipboard(_ sender: Any?) { clipboard.toggle() }
+    @objc func restartGuest(_ sender: Any?) {}
+    @objc func shutDownGuest(_ sender: Any?) {}
 }
 
 @main
@@ -22,23 +26,25 @@ struct ExitPromptTest {
         precondition(prompt.informativeText.contains("window stays open until shutdown completes"))
 
         let application = NSApplication.shared
-        let target = BackgroundMenuTarget()
-        installRuntimeMenu(application: application, backgroundTarget: target,
-                           backgroundAction: #selector(BackgroundMenuTarget.background(_:)))
+        let stub = RuntimeStub()
+        installRuntimeMenu(application: application, runtime: stub)
         let main = application.mainMenu!
-        precondition(main.items.count == 2)
-        let appMenu = main.items[0].submenu!
-        let quit = appMenu.items.first { $0.title == "Quit Farrow Mac…" }!
-        precondition(quit.target === application)
-        precondition(quit.action == #selector(NSApplication.terminate(_:)))
-        precondition(quit.keyEquivalent.isEmpty)
-        let windowMenu = main.items[1].submenu!
+        precondition(main.items.map(\.title) == ["Farrow Mac", "Machine", "View", "Window"])
+        let quit = main.items[0].submenu!.items.first { $0.title == "Quit Farrow Mac…" }!
+        precondition(quit.target === application && quit.action == #selector(NSApplication.terminate(_:)))
+        let machine = main.items[1].submenu!
+        for item in machine.items where !item.isSeparatorItem {
+            precondition(item.target === stub && item.keyEquivalent.isEmpty && stub.responds(to: item.action!))
+        }
+        precondition(machine.items.filter { !$0.isSeparatorItem }.map(\.title) == ["Share Clipboard", "Restart…", "Shut Down…"])
+        machine.performActionForItem(at: 0)
+        precondition(stub.clipboard)
+        let windowMenu = main.items[3].submenu!
         precondition(application.windowsMenu === windowMenu)
         let background = windowMenu.items.first { $0.title == "Keep Running in Background" }!
-        precondition(background.target === target)
-        precondition(background.keyEquivalent.isEmpty)
+        precondition(background.target === stub && background.keyEquivalent.isEmpty)
         windowMenu.performActionForItem(at: windowMenu.index(of: background))
-        precondition(target.requested)
+        precondition(stub.background)
         print("Exit prompt and host menu tests passed (no VM or visible window)")
     }
 }

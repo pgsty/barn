@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
 func appleRestoreURL(raw string) bool {
@@ -56,5 +58,11 @@ func (discovered restoreDiscovery) installerSpec(ctx context.Context) (IPSWSpec,
 		return IPSWSpec{}, fmt.Errorf("restore image metadata request failed: HTTP %d, length %d", response.StatusCode, response.ContentLength)
 	}
 	spec := IPSWSpec{Version: discovered.Version, Build: discovered.Build, URL: discovered.URL, SizeBytes: response.ContentLength, SHA256: response.Header.Get("x-amz-meta-digest-sha256")}
+	// Every download is verified against Apple's digest; without one, nothing
+	// is downloaded.
+	if !validSHA256(spec.SHA256) {
+		return IPSWSpec{}, failure.WithNext(fmt.Errorf("macOS %s (%s) has no SHA-256 digest from Apple, so it cannot be verified; nothing was downloaded", spec.Version, spec.Build),
+			"retry later, or pass --ipsw with a restore image you already have")
+	}
 	return spec, spec.validate(false)
 }

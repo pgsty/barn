@@ -1,85 +1,119 @@
-// Package macvm manages Farrow's independent two-slot macOS environment.
-// It intentionally does not use Linux inventory or Linux VM state.
+// Package macvm manages Farrow's macOS guest machines on Apple Silicon.
+// It never reads the Linux inventory or Linux VM state.
 package macvm
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/fsutil"
 	"github.com/pgsty/farrow/internal/identity"
 	"github.com/pgsty/farrow/internal/lock"
 )
 
 const (
-	SchemaVersion            = 1
+	// SchemaVersion describes config.json and each machine's state.json.
+	SchemaVersion = 2
+	// legacySchemaVersion is the two-slot layout written before named machines.
+	legacySchemaVersion = 1
+	// imageSchemaVersion describes installer and base metadata, unchanged
+	// since the first layout so prepared bases remain reusable.
+	imageSchemaVersion = 1
+
 	DefaultCPU               = 4
 	DefaultMemoryBytes int64 = 8 << 30
 	DefaultDiskBytes   int64 = 100 << 30
+	DefaultMachine           = "mac1"
+
+	minimumCPU               = 2
+	minimumMemoryBytes int64 = 4 << 30
+	minimumDiskBytes   int64 = 32 << 30
 )
 
-type NetworkConfig struct {
-	Subnet    string `json:"subnet"`
-	Gateway   string `json:"gateway"`
-	NetworkID string `json:"network_id"`
-}
-
-type SlotPreference struct {
-	Name        string `json:"name"`
-	IP          string `json:"ip"`
-	MAC         string `json:"mac"`
-	CPU         int    `json:"cpu"`
-	MemoryBytes int64  `json:"memory_bytes"`
-	DiskBytes   int64  `json:"disk_bytes"`
-	// Set after creating an instance so later setup does not replace its saved
-	// resource preferences, including an explicitly chosen default capacity.
-	ResourcesConfigured bool `json:"resources_configured,omitempty"`
-}
-
+// Config holds installation-wide state. Each machine owns everything else.
 type Config struct {
-	SchemaVersion  int              `json:"schema_version"`
-	InstallationID string           `json:"installation_id"`
-	Network        NetworkConfig    `json:"network"`
-	Slots          []SlotPreference `json:"slots"`
-	DefaultBaseID  string           `json:"default_base_id,omitempty"`
-	CreatedAt      time.Time        `json:"created_at"`
+	SchemaVersion  int    `json:"schema_version"`
+	InstallationID string `json:"installation_id"`
+	DefaultBaseID  string `json:"default_base_id,omitempty"`
+	// SSHConfigOff records ssh-config --remove: lifecycle commands leave
+	// ~/.ssh alone until ssh-config --install.
+	SSHConfigOff bool      `json:"ssh_config_off,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Slot describes an instance. IP and MAC belong to Config's stable slot.
-// State records the latest completed or pending lifecycle stage; Initialized
-// only becomes true after the SSH and sudo readiness checks have succeeded.
-type Slot struct {
-	SchemaVersion   int       `json:"schema_version"`
-	Name            string    `json:"name"`
-	InstanceID      string    `json:"instance_id,omitempty"`
-	BaseID          string    `json:"base_id,omitempty"`
-	State           string    `json:"state"`
-	User            string    `json:"user,omitempty"`
-	Initialized     bool      `json:"initialized"`
-	CPU             int       `json:"cpu,omitempty"`
-	MemoryBytes     int64     `json:"memory_bytes,omitempty"`
-	DiskBytes       int64     `json:"disk_bytes,omitempty"`
-	Version         string    `json:"version,omitempty"`
-	Build           string    `json:"build,omitempty"`
-	ObservedVersion string    `json:"observed_version,omitempty"`
-	ObservedBuild   string    `json:"observed_build,omitempty"`
-	PasswordRef     string    `json:"password_ref,omitempty"`
-	CreatedAt       time.Time `json:"created_at,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at,omitempty"`
-	LastError       string    `json:"last_error,omitempty"`
+// MachineNetwork is the private network the runner creates for one machine:
+// the host takes the gateway and the guest MAC receives the reserved address.
+type MachineNetwork struct {
+	Subnet  string `json:"subnet"`
+	Gateway string `json:"gateway"`
+	Address string `json:"address"`
 }
+
+// Share is one host directory shown in the guest under
+// /Volumes/My Shared Files/<name>.
+type Share struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"readonly,omitempty"`
+}
+
+// Machine is the durable record of one macOS guest. State records the latest
+// completed or pending lifecycle stage; Initialized becomes true only after
+// SSH and sudo readiness succeeded once.
+type Machine struct {
+	SchemaVersion   int            `json:"schema_version"`
+	Name            string         `json:"name"`
+	InstanceID      string         `json:"instance_id"`
+	BaseID          string         `json:"base_id"`
+	State           string         `json:"state"`
+	User            string         `json:"user"`
+	Initialized     bool           `json:"initialized"`
+	CPU             int            `json:"cpu"`
+	MemoryBytes     int64          `json:"memory_bytes"`
+	DiskBytes       int64          `json:"disk_bytes"`
+	MAC             string         `json:"mac"`
+	Network         MachineNetwork `json:"network"`
+	Shares          []Share        `json:"shares,omitempty"`
+	Clipboard       bool           `json:"clipboard"`
+	Version         string         `json:"version,omitempty"`
+	Build           string         `json:"build,omitempty"`
+	ObservedVersion string         `json:"observed_version,omitempty"`
+	ObservedBuild   string         `json:"observed_build,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at,omitempty"`
+	LastError       string         `json:"last_error,omitempty"`
+}
+
+// HostKeyAlias pins the guest SSH host key to the instance, not its address.
+func (m *Machine) HostKeyAlias() string { return "farrow-mac-" + strings.ToLower(m.InstanceID) }
+
+var namePattern = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// ValidName accepts short lowercase names usable as directory, host and SSH
+// alias components: a letter first, then letters, digits or inner hyphens.
+func ValidName(name string) bool { return namePattern.MatchString(name) }
+
+func invalidName(name string) error {
+	return failure.New(failure.Usage, fmt.Errorf("invalid machine name %q: use lowercase letters, digits and inner hyphens, starting with a letter (at most 32 characters)", name))
+}
+
+// ErrLegacyState marks data written by the two-slot layout. Every command
+// except migrate refuses it so nothing is reinterpreted by accident.
+var ErrLegacyState = failure.New(failure.Conflict, errors.New("this Mac data uses the earlier two-slot layout")).
+	Because("mac_legacy_state").Then("farrow mac migrate")
 
 // Store construction and reads never create directories. Root always names
-// the isolated mac directory, not FARROW_HOME itself.
+// the mac directory, not FARROW_HOME itself.
 type Store struct{ Root string }
 
 func NewStore(farrowHome string) (*Store, error) {
@@ -106,102 +140,7 @@ func NewStore(farrowHome string) (*Store, error) {
 	return s, nil
 }
 
-func NormalizeSlot(name string) (string, error) {
-	switch name {
-	case "", "1", "mac1":
-		return "mac1", nil
-	case "2", "mac2":
-		return "mac2", nil
-	default:
-		return "", fmt.Errorf("invalid macOS slot %q: use mac1 or mac2", name)
-	}
-}
-
 func NewInstanceID() (string, error) { return identity.NewUUID() }
-
-func NewConfig(subnet string) (*Config, error) {
-	p, err := ValidateSubnet(subnet)
-	if err != nil {
-		return nil, err
-	}
-	id, err := NewInstanceID()
-	if err != nil {
-		return nil, err
-	}
-	networkID, err := NewInstanceID()
-	if err != nil {
-		return nil, err
-	}
-	c := &Config{SchemaVersion: SchemaVersion, InstallationID: id, Network: NetworkConfig{Subnet: p.String(), Gateway: subnetAddress(p, 1).String(), NetworkID: networkID}, CreatedAt: time.Now().UTC()}
-	for i, name := range []string{"mac1", "mac2"} {
-		b := make([]byte, 6)
-		if _, err := rand.Read(b); err != nil {
-			return nil, err
-		}
-		b[0] = b[0]&0xfc | 0x02 // locally administered, unicast
-		// Keep the two reservations distinct even if the random bytes coincide.
-		b[5] = b[5]&0xfe | byte(i)
-		c.Slots = append(c.Slots, SlotPreference{Name: name, IP: subnetAddress(p, byte(10+i)).String(), MAC: net.HardwareAddr(b).String(), CPU: DefaultCPU, MemoryBytes: DefaultMemoryBytes, DiskBytes: DefaultDiskBytes})
-	}
-	return c, nil
-}
-
-func (c *Config) Preference(name string) (SlotPreference, error) {
-	n, err := NormalizeSlot(name)
-	if err != nil {
-		return SlotPreference{}, err
-	}
-	for _, p := range c.Slots {
-		if p.Name == n {
-			return p, nil
-		}
-	}
-	return SlotPreference{}, fmt.Errorf("missing preference for %s", n)
-}
-
-func (c *Config) Validate() error {
-	if c.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("unsupported mac config schema %d", c.SchemaVersion)
-	}
-	if !validUUID(c.InstallationID) || !validUUID(c.Network.NetworkID) {
-		return errors.New("invalid mac installation or network UUID")
-	}
-	p, err := ValidateSubnet(c.Network.Subnet)
-	if err != nil {
-		return err
-	}
-	if c.Network.Gateway != subnetAddress(p, 1).String() {
-		return errors.New("mac gateway must be the .1 address of its subnet")
-	}
-	if len(c.Slots) != 2 {
-		return errors.New("mac config must contain exactly mac1 and mac2")
-	}
-	seen := map[string]bool{}
-	for i, name := range []string{"mac1", "mac2"} {
-		pref, err := c.Preference(name)
-		if err != nil {
-			return err
-		}
-		if pref.IP != subnetAddress(p, byte(i+10)).String() {
-			return fmt.Errorf("%s IP must be its reserved .%d address", name, i+10)
-		}
-		mac, err := net.ParseMAC(pref.MAC)
-		if err != nil || len(mac) != 6 || mac[0]&3 != 2 {
-			return fmt.Errorf("%s MAC must be a locally administered unicast address", name)
-		}
-		if seen[mac.String()] {
-			return errors.New("mac slot MAC addresses must be distinct")
-		}
-		seen[mac.String()] = true
-		if pref.CPU < 2 || pref.MemoryBytes < 4<<30 || pref.DiskBytes < 32<<30 {
-			return fmt.Errorf("%s resources are below the supported macOS minimum", name)
-		}
-	}
-	if c.DefaultBaseID != "" && !safeID(c.DefaultBaseID) {
-		return errors.New("invalid default base ID")
-	}
-	return nil
-}
 
 func validUUID(value string) bool {
 	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
@@ -323,28 +262,66 @@ func writeJSON(path string, value any) error {
 	return fsutil.AtomicWrite(path, append(data, '\n'), 0o600)
 }
 
+// schemaOf reads only the schema number, so a legacy document is recognized
+// before a strict decode rejects its different fields.
+func schemaOf(path string) (int, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return 0, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		return 0, fmt.Errorf("mac metadata must be a regular file of at most 1 MiB: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return 0, fmt.Errorf("read %s: %w", path, err)
+	}
+	return header.SchemaVersion, nil
+}
+
+func (c *Config) Validate() error {
+	if c.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported mac config schema %d", c.SchemaVersion)
+	}
+	if !validUUID(c.InstallationID) {
+		return errors.New("invalid mac installation UUID")
+	}
+	if c.DefaultBaseID != "" && !safeID(c.DefaultBaseID) {
+		return errors.New("invalid default base ID")
+	}
+	return nil
+}
+
+func NewConfig() (*Config, error) {
+	id, err := NewInstanceID()
+	if err != nil {
+		return nil, err
+	}
+	return &Config{SchemaVersion: SchemaVersion, InstallationID: id, CreatedAt: time.Now().UTC()}, nil
+}
+
+// LoadConfig returns os.ErrNotExist before the first setup and ErrLegacyState
+// for the earlier two-slot layout.
 func (s *Store) LoadConfig() (*Config, error) {
 	path, err := s.Path("config.json")
 	if err != nil {
 		return nil, err
 	}
+	schema, err := schemaOf(path)
+	if err != nil {
+		return nil, err
+	}
+	if schema == legacySchemaVersion {
+		return nil, ErrLegacyState
+	}
 	var c Config
 	if err := readJSON(path, &c); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			for _, name := range []string{"mac1", "mac2"} {
-				dir, pathErr := s.SlotPath(name)
-				if pathErr != nil {
-					return nil, pathErr
-				}
-				entries, dirErr := os.ReadDir(dir)
-				if dirErr != nil && !errors.Is(dirErr, os.ErrNotExist) {
-					return nil, dirErr
-				}
-				if len(entries) > 0 {
-					return nil, errors.New("mac config is missing while slot artifacts remain; recover the saved network and installation identity before setup")
-				}
-			}
-		}
 		return nil, err
 	}
 	if err := c.Validate(); err != nil {
@@ -364,14 +341,8 @@ func (s *Store) SaveConfig(held *lock.File, c *Config) error {
 		return err
 	}
 	if old, err := s.LoadConfig(); err == nil {
-		if c.InstallationID != old.InstallationID || c.Network != old.Network {
-			return errors.New("mac installation and network identity cannot be changed in place")
-		}
-		for _, p := range old.Slots {
-			next, _ := c.Preference(p.Name)
-			if next.IP != p.IP || next.MAC != p.MAC {
-				return errors.New("mac slot IP and MAC cannot be changed in place")
-			}
+		if c.InstallationID != old.InstallationID {
+			return errors.New("mac installation identity cannot be changed in place")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -385,6 +356,9 @@ func (s *Store) SaveConfig(held *lock.File, c *Config) error {
 			return errors.New("only a ready base can become the default")
 		}
 	}
+	if _, err := s.mkdir(); err != nil {
+		return err
+	}
 	path, err := s.Path("config.json")
 	if err != nil {
 		return err
@@ -392,87 +366,109 @@ func (s *Store) SaveConfig(held *lock.File, c *Config) error {
 	return writeJSON(path, c)
 }
 
-func (s *Store) SlotPath(name string) (string, error) {
-	n, err := NormalizeSlot(name)
-	if err != nil {
-		return "", err
+// MachinePath names a machine's private directory. The historical "slots"
+// directory keeps existing instances in place.
+func (s *Store) MachinePath(name string) (string, error) {
+	if !ValidName(name) {
+		return "", invalidName(name)
 	}
-	return s.Path("slots", n)
+	return s.Path("slots", name)
 }
 
-func (s *Store) LoadSlot(name string) (*Slot, error) {
-	n, err := NormalizeSlot(name)
+func (s *Store) machineFile(name, file string) (string, error) {
+	if !ValidName(name) {
+		return "", invalidName(name)
+	}
+	return s.Path("slots", name, file)
+}
+
+// LoadMachine returns os.ErrNotExist for an unknown machine. A directory that
+// holds files but no state is refused, never treated as a fresh machine.
+func (s *Store) LoadMachine(name string) (*Machine, error) {
+	path, err := s.machineFile(name, "state.json")
 	if err != nil {
 		return nil, err
 	}
-	path, err := s.Path("slots", n, "state.json")
-	if err != nil {
-		return nil, err
-	}
-	var slot Slot
-	if err := readJSON(path, &slot); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			entries, dirErr := os.ReadDir(filepath.Dir(path))
-			if dirErr != nil && !errors.Is(dirErr, os.ErrNotExist) {
-				return nil, dirErr
-			}
-			if len(entries) > 0 {
-				return nil, fmt.Errorf("%s state is missing but slot artifacts remain; preserve the directory and recover its state before init or image pruning", n)
+	schema, err := schemaOf(path)
+	if errors.Is(err, os.ErrNotExist) {
+		entries, dirErr := os.ReadDir(filepath.Dir(path))
+		if dirErr != nil && !errors.Is(dirErr, os.ErrNotExist) {
+			return nil, dirErr
+		}
+		// Creation writes the password first, through a dot-named temporary
+		// file; that alone is not a machine.
+		for _, entry := range entries {
+			if entry.Name() != "password" && !strings.HasPrefix(entry.Name(), ".") {
+				return nil, failure.New(failure.Conflict, fmt.Errorf("%s has files but no state; its directory was preserved for recovery: %s: %w", name, filepath.Dir(path), errStateless)).
+					Then("farrow mac destroy " + name)
 			}
 		}
 		return nil, err
 	}
-	if err := validateSlot(&slot); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	if slot.Name != n {
-		return nil, errors.New("mac slot name does not match its directory")
+	if schema == legacySchemaVersion {
+		return nil, ErrLegacyState
 	}
-	return &slot, nil
+	var machine Machine
+	if err := readJSON(path, &machine); err != nil {
+		return nil, err
+	}
+	if err := validateMachine(&machine); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if machine.Name != name {
+		return nil, errors.New("machine name does not match its directory")
+	}
+	return &machine, nil
 }
 
-func validateSlot(slot *Slot) error {
-	if slot.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("unsupported mac slot schema %d", slot.SchemaVersion)
+func validateMachine(m *Machine) error {
+	if m.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported machine schema %d", m.SchemaVersion)
 	}
-	if slot.Name != "mac1" && slot.Name != "mac2" {
-		return errors.New("invalid mac slot name")
+	if !ValidName(m.Name) {
+		return invalidName(m.Name)
 	}
-	if !validUUID(slot.InstanceID) || !safeID(slot.BaseID) {
-		return errors.New("invalid mac instance UUID or base ID")
+	if !validUUID(m.InstanceID) || !safeID(m.BaseID) {
+		return errors.New("invalid instance UUID or base ID")
 	}
-	if !ValidUsername(slot.User) {
-		return errors.New("mac slot user must be an ordinary valid administrator username")
+	if !ValidUsername(m.User) {
+		return errors.New("guest user must be an ordinary valid administrator username")
 	}
-	if slot.PasswordRef != "" && slot.PasswordRef != slot.InstanceID {
-		return errors.New("mac password reference must match its instance UUID")
-	}
-	switch slot.State {
-	case "created", "starting", "running", "provisioning", "ready", "stopping", "stopped", "failed":
+	switch m.State {
+	case "prepared", "starting", "running", "ready", "stopping", "stopped", "failed":
 	default:
-		return fmt.Errorf("invalid mac slot state %q", slot.State)
+		return fmt.Errorf("invalid machine state %q", m.State)
 	}
-	if slot.State == "ready" && !slot.Initialized {
-		return errors.New("ready mac slot must have completed initialization")
+	if m.State == "ready" && !m.Initialized {
+		return errors.New("a ready machine must have completed initialization")
 	}
-	if slot.CPU < 2 || slot.MemoryBytes < 4<<30 || slot.DiskBytes < 32<<30 {
-		return errors.New("mac slot resources are below the supported minimum")
+	if m.CPU < minimumCPU || m.MemoryBytes < minimumMemoryBytes || m.DiskBytes < minimumDiskBytes {
+		return errors.New("resources are below the supported macOS minimum")
 	}
-	return nil
-}
-
-func (s *Store) SaveSlot(held *lock.File, slot *Slot) error {
-	if slot == nil {
-		return errors.New("mac slot is nil")
+	if !validMAC(m.MAC) {
+		return errors.New("network MAC must be a locally administered unicast address")
 	}
-	if err := validateSlot(slot); err != nil {
+	if err := m.Network.Validate(); err != nil {
 		return err
 	}
-	// Only the shared lock may create a base reference. A slot operation may
-	// update the existing instance without blocking unrelated image preparation.
+	return validateShares(m.Shares)
+}
+
+func (s *Store) SaveMachine(held *lock.File, m *Machine) error {
+	if m == nil {
+		return errors.New("machine is nil")
+	}
+	if err := validateMachine(m); err != nil {
+		return err
+	}
+	// Only the shared lock may create an instance reference. A machine
+	// operation may update its own record without blocking image preparation.
 	shared := s.checkLock(held) == nil
 	if !shared {
-		path, err := s.Path("runtime", slot.Name+".operation.lock")
+		path, err := s.Path("runtime", m.Name+".operation.lock")
 		if err != nil {
 			return err
 		}
@@ -480,56 +476,82 @@ func (s *Store) SaveSlot(held *lock.File, slot *Slot) error {
 			return err
 		}
 	}
-	if old, err := s.LoadSlot(slot.Name); err == nil {
-		if old.InstanceID != slot.InstanceID || old.BaseID != slot.BaseID {
-			return errors.New("mac instance identity and base are immutable; destroy the old instance before replacement")
+	if old, err := s.LoadMachine(m.Name); err == nil {
+		if old.InstanceID != m.InstanceID || old.BaseID != m.BaseID {
+			return errors.New("instance identity and base are immutable; recreate the machine to replace them")
 		}
 	} else if !shared {
-		return fmt.Errorf("slot operation cannot create an instance reference: %w", err)
+		return fmt.Errorf("a machine operation cannot create an instance reference: %w", err)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	base, err := s.LoadBase(slot.BaseID)
+	base, err := s.LoadBase(m.BaseID)
 	if err != nil {
 		return err
 	}
 	if base.State != "ready" {
-		return errors.New("mac slot must reference a ready base")
+		return errors.New("a machine must reference a ready base")
 	}
-	if _, err := s.mkdir("slots", slot.Name); err != nil {
+	if _, err := s.mkdir("slots", m.Name); err != nil {
 		return err
 	}
-	path, err := s.Path("slots", slot.Name, "state.json")
+	path, err := s.machineFile(m.Name, "state.json")
 	if err != nil {
 		return err
 	}
-	slot.UpdatedAt = time.Now().UTC()
-	return writeJSON(path, slot)
+	m.UpdatedAt = time.Now().UTC()
+	return writeJSON(path, m)
 }
 
-func (s *Store) ListSlots() ([]Slot, error) {
-	slots := make([]Slot, 0, 2)
-	for _, name := range []string{"mac1", "mac2"} {
-		slot, err := s.LoadSlot(name)
-		if errors.Is(err, os.ErrNotExist) {
-			slots = append(slots, Slot{SchemaVersion: SchemaVersion, Name: name, State: "empty"})
+// errStateless marks a machine directory that lost its state record, such as
+// one left by an interrupted deletion. Only destroy acts on it.
+var errStateless = errors.New("no machine record")
+
+// ListMachines returns every machine sorted by name. Unknown directory names
+// are ignored; an unreadable machine is an error so status never hides it.
+func (s *Store) ListMachines() ([]Machine, error) { return s.listMachines(false) }
+
+// usableMachines skips directories without a state record, which cannot run
+// and must not block commands for the other machines.
+func (s *Store) usableMachines() ([]Machine, error) { return s.listMachines(true) }
+
+func (s *Store) listMachines(skipStateless bool) ([]Machine, error) {
+	root, err := s.Path("slots")
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return []Machine{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	machines := make([]Machine, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || !ValidName(entry.Name()) {
+			continue
+		}
+		machine, err := s.LoadMachine(entry.Name())
+		if errors.Is(err, os.ErrNotExist) || skipStateless && errors.Is(err, errStateless) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		slots = append(slots, *slot)
+		machines = append(machines, *machine)
 	}
-	return slots, nil
+	sort.Slice(machines, func(i, j int) bool { return machines[i].Name < machines[j].Name })
+	return machines, nil
 }
 
-// DeleteSlot removes only this slot's directory. The caller must first stop
-// and verify the runner. Stable reservations and shared images are preserved.
-func (s *Store) DeleteSlot(held *lock.File, name string) error {
+// DeleteMachine removes one machine's directory. Callers first prove the
+// runner stopped. Shared images stay in place.
+func (s *Store) DeleteMachine(held *lock.File, name string) error {
 	if err := s.checkLock(held); err != nil {
 		return err
 	}
-	path, err := s.SlotPath(name)
+	path, err := s.MachinePath(name)
 	if err != nil {
 		return err
 	}
@@ -540,4 +562,27 @@ func (s *Store) DeleteSlot(held *lock.File, name string) error {
 		return nil
 	}
 	return fsutil.SyncDir(filepath.Dir(path))
+}
+
+// DefaultMachine picks the machine a command without a name acts on: the only
+// machine, or mac1. With several machines and no mac1, the caller must choose.
+func (s *Store) DefaultMachine() (string, error) {
+	machines, err := s.usableMachines()
+	if err != nil {
+		return "", err
+	}
+	switch len(machines) {
+	case 0:
+		return DefaultMachine, nil
+	case 1:
+		return machines[0].Name, nil
+	}
+	names := make([]string, 0, len(machines))
+	for _, machine := range machines {
+		if machine.Name == DefaultMachine {
+			return DefaultMachine, nil
+		}
+		names = append(names, machine.Name)
+	}
+	return "", failure.New(failure.Usage, fmt.Errorf("choose a machine: %s", strings.Join(names, ", ")))
 }

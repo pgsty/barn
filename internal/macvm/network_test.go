@@ -1,62 +1,27 @@
 package macvm
 
 import (
-	"encoding/json"
+	"context"
 	"net/netip"
-	"strings"
 	"testing"
+
+	"github.com/pgsty/farrow/internal/failure"
 )
 
-func TestNetworkStatusRecognizesAnchorWithoutAttachedGuests(t *testing.T) {
-	for _, test := range []struct {
-		name, wire string
-		active     bool
-	}{
-		{"anchor-only", `{"network_active":true,"connected":[false,false]}`, true},
-		{"old-helper-active", `{"connected":[false,true]}`, true},
-		{"anchor-and-guest", `{"network_active":true,"connected":[true,false]}`, true},
-		{"inactive", `{"network_active":false,"connected":[false,false]}`, false},
-		{"old-helper-inactive", `{"connected":[false,false]}`, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var status NetworkStatus
-			if err := json.Unmarshal([]byte(test.wire), &status); err != nil {
-				t.Fatal(err)
-			}
-			if status.hasActiveNetwork() != test.active {
-				t.Fatalf("active=%t expected=%t", status.hasActiveNetwork(), test.active)
-			}
-			routes, err := ParseDarwinRouteTable(macLiveRoutesFixture)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = CheckLiveSubnet(NetworkConfig{Subnet: DefaultSubnet, Gateway: "10.10.20.1"}, routes, macBridgeFixture, status.hasActiveNetwork())
-			if (err == nil) != test.active {
-				t.Fatalf("own bridge exemption differs from anchor/interface state: %v", err)
-			}
-		})
-	}
-	var absent *NetworkStatus
-	if absent.hasActiveNetwork() {
-		t.Fatal("unverified/missing status claimed an active network")
-	}
-	var status NetworkStatus
-	if err := json.Unmarshal([]byte(`{"network_active":1,"connected":[false,false]}`), &status); err == nil {
-		t.Fatal("accepted numeric substitute for protocol boolean")
-	}
-}
-
-func TestRouteSelectionCoversLANVPNAndLinux(t *testing.T) {
-	routes, err := ParseDarwinRoutes(`Routing tables
+const liveRoutesFixture = `Routing tables
 Internet:
 Destination Gateway Flags Netif Expire
-default 192.168.1.1 UGScg en0
-10.10.10 link#20 UCS bridge100
+default 192.168.0.1 UGScg en15
+10.10.10/24 link#19 UC bridge100 !
 10.10.20/24 10.5.0.1 UGSc utun3
-192.168.1  link#4 UCS en0
+100.64/10 link#27 UCS utun6
+192.168.0 link#32 UCS en15 !
 127 127.0.0.1 UCS lo0
 10.10.10.10 aa:bb:cc:dd:ee:ff UHLWI bridge100
-`)
+`
+
+func TestSubnetSelectionAvoidsLANVPNAndLinux(t *testing.T) {
+	routes, err := ParseDarwinRoutes(liveRoutesFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +29,8 @@ default 192.168.1.1 UGScg en0
 	if err != nil || selected != "10.10.21.0/24" {
 		t.Fatalf("selected=%s err=%v", selected, err)
 	}
-	if err := CheckSubnet(DefaultSubnet, routes); err == nil {
-		t.Fatal("saved subnet conflict was ignored")
-	}
-	if _, err := SelectSubnet(DefaultSubnet, routes); err == nil {
-		t.Fatal("explicit conflict was ignored")
+	if _, err := SelectSubnet("10.10.20.0/24", routes); err == nil {
+		t.Fatal("an explicit conflicting subnet was accepted")
 	}
 	for _, s := range []string{"10.10.20.1/24", "8.8.8.0/24", "10.10.0.0/16", "fd00::/64", "bad"} {
 		if _, err := ValidateSubnet(s); err == nil {
@@ -77,77 +39,54 @@ default 192.168.1.1 UGScg en0
 	}
 }
 
-const macBridgeFixture = `lo0: flags=8049<UP,LOOPBACK,RUNNING> mtu 16384
-    inet 127.0.0.1 netmask 0xff000000
-bridge100: flags=8a63<UP,BROADCAST,RUNNING> mtu 1500
-    inet 10.10.10.1 netmask 0xffffff00 broadcast 10.10.10.255
-bridge101: flags=8a63<UP,BROADCAST,RUNNING> mtu 1500
-    inet 10.10.20.1 netmask 0xffffff00 broadcast 10.10.20.255
-    inet6 fe80::1%bridge101 prefixlen 64
-utun6: flags=8051<UP,POINTOPOINT,RUNNING> mtu 1380
-    inet 100.99.0.15 --> 100.99.0.15 netmask 0xffffffff
-`
-
-const macLiveRoutesFixture = `Routing tables
-Internet:
-Destination Gateway Flags Netif Expire
-default 192.168.0.1 UGScg en15
-10.10.10/24 link#19 UC bridge100 !
-10.10.20/24 link#33 UC bridge101 !
-10.10.20.1 10.10.20.1 UH lo0
-10.10.20.10 02:cc:bb:aa:00:00 UHLWI bridge101 1200
-10.10.20.11 02:cc:bb:aa:00:01 UHLWI bridge101 1200
-10.10.20.255 ff:ff:ff:ff:ff:ff UHLWbI bridge101 !
-100.64/10 link#27 UCS utun6
-192.168.0 link#32 UCS en15 !
-`
-
-func TestLiveNetworkExemptsOnlyItsProvenBridgeAndGateway(t *testing.T) {
-	network := NetworkConfig{Subnet: DefaultSubnet, Gateway: "10.10.20.1"}
-	routes, err := ParseDarwinRouteTable(macLiveRoutesFixture)
-	if err != nil {
-		t.Fatal(err)
+func TestMachineNetworkShape(t *testing.T) {
+	network := NetworkFor(netip.MustParsePrefix("10.10.42.0/24"))
+	if network.Gateway != "10.10.42.1" || network.Address != "10.10.42.10" || network.Validate() != nil {
+		t.Fatalf("network %+v", network)
 	}
-	if err := CheckLiveSubnet(network, routes, macBridgeFixture, true); err != nil {
-		t.Fatal(err)
+	network.Address = "10.10.42.11"
+	if network.Validate() == nil {
+		t.Fatal("a non-.10 guest address was accepted")
 	}
-	if err := CheckLiveSubnet(network, routes, macBridgeFixture, false); err == nil {
-		t.Fatal("exempted a bridge without active helper association")
+	for i := 0; i < 100; i++ {
+		mac, err := newMAC()
+		if err != nil || !validMAC(mac) {
+			t.Fatalf("generated %q %v", mac, err)
+		}
 	}
-	for _, extra := range []string{
-		"10.10.20/24 link#28 UCS utun7\n",
-		"10.10.20.10/32 link#28 UCS utun7\n",
-		"10.10/16 link#28 UCS utun7\n",
-		"0/1 link#28 UCS utun7\n",
-		"10/8 link#33 UCS bridge101\n",
-		"10.10.20.10 10.10.20.10 UH lo0\n",
-		"10.10.20/24 link#34 UCS bridge102\n",
-		"10.10.20.1/32 link#4 UCS en0\n",
-	} {
-		t.Run(strings.Fields(extra)[0]+"-"+strings.Fields(extra)[3], func(t *testing.T) {
-			changed, err := ParseDarwinRouteTable(macLiveRoutesFixture + extra)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := CheckLiveSubnet(network, changed, macBridgeFixture, true); err == nil {
-				t.Fatalf("ignored post-setup conflict: %s", extra)
-			}
-		})
+	for _, mac := range []string{"01:00:00:00:00:01", "00:11:22:33:44:55", "5E:40:07:08:6C:4E", "bad"} {
+		if validMAC(mac) {
+			t.Errorf("accepted %q", mac)
+		}
 	}
 }
 
-func TestLiveBridgeIdentityFailsClosed(t *testing.T) {
-	network := NetworkConfig{Subnet: DefaultSubnet, Gateway: "10.10.20.1"}
-	routes, _ := ParseDarwinRouteTable(macLiveRoutesFixture)
-	for _, interfaces := range []string{
-		"",
-		strings.ReplaceAll(macBridgeFixture, "10.10.20.1 netmask 0xffffff00", "10.10.20.1 netmask 0xffff0000"),
-		strings.ReplaceAll(macBridgeFixture, "bridge101:", "en0:"),
-		macBridgeFixture + "bridge102: flags=8a63<UP,BROADCAST,RUNNING> mtu 1500\n    inet 10.10.20.1 netmask 0xffffff00\n",
-	} {
-		if err := CheckLiveSubnet(network, routes, interfaces, true); err == nil {
-			t.Fatal("accepted missing or ambiguous bridge identity")
-		}
+func TestAllocationSkipsOtherMachinesAndKeepsItsOwn(t *testing.T) {
+	m, _ := testManager(t)
+	testMachine(t, m, "mac1", "10.10.20.0/24", false)
+	testMachine(t, m, "mac2", "10.10.21.0/24", false)
+	network, err := m.allocateNetwork(context.Background(), "", "dev")
+	if err != nil || network.Subnet != "10.10.22.0/24" {
+		t.Fatalf("allocated %+v %v", network, err)
+	}
+	if _, err := m.allocateNetwork(context.Background(), "10.10.21.0/24", "dev"); err == nil {
+		t.Fatal("another machine's subnet was assigned")
+	}
+	if network, err := m.allocateNetwork(context.Background(), "10.10.21.0/24", "mac2"); err != nil || network.Address != "10.10.21.10" {
+		t.Fatalf("a machine could not keep its own subnet: %+v %v", network, err)
+	}
+}
+
+func TestStartRefusesAnOccupiedSubnetWithTheRightNext(t *testing.T) {
+	m, _ := testManager(t)
+	machine := testMachine(t, m, "dev", "10.10.20.0/24", false)
+	m.hostRoutes = func(context.Context) ([]DarwinRoute, error) {
+		return ParseDarwinRouteTable(liveRoutesFixture)
+	}
+	err := m.checkNetworkFree(context.Background(), machine)
+	class, reason, next := failure.Classify(err)
+	if class != failure.Resource || reason != "mac_subnet_in_use" || next != "farrow mac configure dev --subnet auto" {
+		t.Fatalf("err=%v class=%s reason=%s next=%s", err, class, reason, next)
 	}
 }
 
@@ -160,7 +99,7 @@ func TestDarwinRouteParserRetainsDuplicateDestinationsAndHeaderLayout(t *testing
 		t.Fatalf("routes=%+v err=%v", routes, err)
 	}
 	if _, err := ParseDarwinRouteTable("Destination Gateway Flags\n10.10.20 link#4 UCS\n"); err == nil {
-		t.Fatal("accepted table without interface column")
+		t.Fatal("accepted a table without an interface column")
 	}
 }
 
@@ -170,16 +109,16 @@ func TestSplitDefaultVPNRoutesAreConflicts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := SelectSubnet("", routes); err == nil {
-		t.Fatal("ignored split default VPN")
+		t.Fatal("ignored a split default VPN")
 	}
-	if selected, err := SelectSubnet("", []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}); err != nil || selected != DefaultSubnet {
-		t.Fatalf("default route must not consume every subnet: %s %v", selected, err)
+	if selected, err := SelectSubnet("", []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}); err != nil || selected != "10.10.20.0/24" {
+		t.Fatalf("a default route must not consume every subnet: %s %v", selected, err)
 	}
 }
 
 func TestRouteParsingFailsClosedOnMalformedIPv4(t *testing.T) {
 	if _, err := ParseDarwinRoutes("10.10.300 link#3 UCS en0\n"); err == nil {
-		t.Fatal("silently ignored malformed route")
+		t.Fatal("silently ignored a malformed route")
 	}
 	p, err := parseRouteDestination("10.10")
 	if err != nil || p.String() != "10.10.0.0/16" {

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Virtualization
 import DiskImageKit
 import Darwin
@@ -9,7 +10,7 @@ func actionableVirtualizationError(_ error: Error) -> Error {
     // down. Keep all other Apple diagnostics intact.
     for _ in 0..<8 {
         if current.domain == VZErrorDomain, current.code == VZError.Code.virtualMachineLimitExceeded.rawValue {
-            return RunnerError("virtual_machine_limit", "Host macOS VM limit reached. The two macOS guest slots are shared across Farrow, other tools, and restore installation. Stop a macOS VM before retrying; Farrow has not stopped any other VM.")
+            return RunnerError("virtual_machine_limit", "macOS allows two macOS virtual machines at a time, shared with other tools and with macOS restore installation. Stop one before retrying; Farrow has not stopped any other VM.")
         }
         guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
         current = underlying
@@ -100,10 +101,19 @@ func restoreMetadata(_ image: VZMacOSRestoreImage) throws -> [String: Any] {
             "minimum_memory": requirements.minimumSupportedMemorySize, "supported": true]
 }
 
+// SharedFolder is one host directory the guest sees under
+// /Volumes/My Shared Files/<name>.
+struct SharedFolder {
+    let name: String
+    let path: String
+    let readOnly: Bool
+}
+
 @MainActor
 func configuration(hardware: VZMacHardwareModel, machine: VZMacMachineIdentifier,
                    auxiliary: VZMacAuxiliaryStorage, disk: VZDiskImageStorageDeviceAttachment,
-                   cpu: Int, memory: UInt64, network: VZNetworkDeviceAttachment?, mac: String?) throws -> VZVirtualMachineConfiguration {
+                   cpu: Int, memory: UInt64, network: VZNetworkDeviceAttachment?, mac: String?,
+                   shares: [SharedFolder] = [], display: NSSize? = nil) throws -> VZVirtualMachineConfiguration {
     let config = VZVirtualMachineConfiguration()
     config.bootLoader = VZMacOSBootLoader()
     config.cpuCount = cpu
@@ -115,8 +125,22 @@ func configuration(hardware: VZMacHardwareModel, machine: VZMacMachineIdentifier
     config.platform = platform
     config.storageDevices = [VZVirtioBlockDeviceConfiguration(attachment: disk)]
     let graphics = VZMacGraphicsDeviceConfiguration()
-    graphics.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: 1920, heightInPixels: 1200, pixelsPerInch: 144)]
+    if let display, let screen = NSScreen.main {
+        graphics.displays = [VZMacGraphicsDisplayConfiguration(for: screen, sizeInPoints: display)]
+    } else {
+        graphics.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: 1920, heightInPixels: 1200, pixelsPerInch: 144)]
+    }
     config.graphicsDevices = [graphics]
+    // A macOS guest mounts this one device under /Volumes/My Shared Files.
+    if !shares.isEmpty {
+        var directories: [String: VZSharedDirectory] = [:]
+        for share in shares {
+            directories[share.name] = VZSharedDirectory(url: URL(fileURLWithPath: share.path, isDirectory: true), readOnly: share.readOnly)
+        }
+        let device = VZVirtioFileSystemDeviceConfiguration(tag: VZVirtioFileSystemDeviceConfiguration.macOSGuestAutomountTag)
+        device.share = VZMultipleDirectoryShare(directories: directories)
+        config.directorySharingDevices = [device]
+    }
     config.keyboards = [VZMacKeyboardConfiguration()]
     config.pointingDevices = [VZMacTrackpadConfiguration()]
     config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]

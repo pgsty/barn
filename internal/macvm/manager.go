@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,58 +11,113 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pgsty/farrow/internal/activity"
+	"github.com/pgsty/farrow/internal/failure"
 	"github.com/pgsty/farrow/internal/lock"
 )
 
+// HostVMLimit is Apple's limit on concurrently running macOS guests per host,
+// shared with every other virtualization tool and with macOS installation.
+const HostVMLimit = 2
+
+// Manager runs Mac machine operations for one Store. The CLI supplies the
+// progress, confirmation and privilege hooks; nil hooks are silent defaults.
 type Manager struct {
-	Store    *Store
-	Runner   Runner
-	Progress io.Writer
+	Store  *Store
+	Runner Runner
+	// Report receives progress events. Nil discards them.
+	Report activity.Reporter
+	// SSHHome selects the home whose ~/.ssh holds the Mac SSH fragment. Empty
+	// uses the current user's home.
+	SSHHome string
+	// Sudo caches administrator credentials before a privileged step. Nil
+	// requires sudo to work without a prompt. Only migrate needs it.
+	Sudo func(ctx context.Context, reason string) error
+
+	hostRoutes func(context.Context) ([]DarwinRoute, error)
+	hostLimits func(context.Context) (int, int64, error)
+	protocolOK bool
 }
-type SetupOptions struct {
-	IPSW, Subnet string
-	Update       bool
-	DiskBytes    int64
+
+// Status is the whole Mac environment as ls reports it.
+type Status struct {
+	SchemaVersion int           `json:"schema_version"`
+	Root          string        `json:"root"`
+	Prepared      bool          `json:"prepared"`
+	Base          *ImageRef     `json:"base,omitempty"`
+	Machines      []MachineView `json:"machines"`
+	Running       int           `json:"running"`
+	Limit         int           `json:"limit"`
 }
-type InitOptions struct {
-	SetupOptions
+
+// Outcome is what a lifecycle command reports for one machine.
+type Outcome struct {
+	Name     string   `json:"name"`
+	Action   string   `json:"action"`
+	State    string   `json:"state"`
+	Ready    bool     `json:"ready"`
+	Address  string   `json:"address,omitempty"`
+	User     string   `json:"user,omitempty"`
+	Version  string   `json:"version,omitempty"`
+	Build    string   `json:"build,omitempty"`
+	Forced   bool     `json:"forced,omitempty"`
+	Window   bool     `json:"window,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// Outcomes wraps commands that accept several machines.
+type Outcomes struct {
+	Machines []Outcome `json:"machines"`
+}
+
+func outcomeOf(machine *Machine, action string) Outcome {
+	state := machine.State
+	if state == "ready" {
+		state = "running"
+	}
+	version, build := machine.Version, machine.Build
+	if machine.ObservedBuild != "" {
+		version, build = machine.ObservedVersion, machine.ObservedBuild
+	}
+	return Outcome{Name: machine.Name, Action: action, State: state, Ready: machine.State == "ready", Address: machine.Network.Address, User: machine.User, Version: version, Build: build}
+}
+
+// CreateOptions apply only when up creates a machine. Each is refused for an
+// existing machine whose configuration differs, so nothing is silently ignored.
+type CreateOptions struct {
 	User        string
 	CPU         int
 	MemoryBytes int64
-	NoWait      bool
-}
-type SlotView struct {
-	Slot
-	IP           string         `json:"ip,omitempty"`
-	MAC          string         `json:"mac,omitempty"`
-	Runtime      *RuntimeStatus `json:"runtime,omitempty"`
-	SSH          string         `json:"ssh,omitempty"`
-	SSHError     string         `json:"ssh_error,omitempty"`
-	RuntimeError string         `json:"runtime_error,omitempty"`
-	// These measure only disk.asif. DiskBytes remains guest-visible capacity;
-	// nil means no disk file is present, not a measured zero-byte allocation.
-	DiskFileBytes      *int64 `json:"disk_file_bytes,omitempty"`
-	DiskAllocatedBytes *int64 `json:"disk_allocated_bytes,omitempty"`
-}
-type Status struct {
-	SchemaVersion int            `json:"schema_version"`
-	Root          string         `json:"root"`
-	Prepared      bool           `json:"prepared"`
-	Network       *NetworkConfig `json:"network,omitempty"`
-	Slots         []SlotView     `json:"slots"`
+	DiskBytes   int64
+	Shares      []Share
+	Clipboard   *bool
+	Subnet      string
+	Setup       SetupOptions
 }
 
-func (m *Manager) progress(format string, args ...any) {
-	if m.Progress != nil {
-		_, _ = fmt.Fprintf(m.Progress, format+"\n", args...)
-	}
+// StartOptions control one boot.
+type StartOptions struct {
+	NoWait   bool
+	Recovery bool
+	// Window shows the desktop as soon as the VM runs.
+	Window bool
 }
-func (m *Manager) requireRunner() error {
+
+type UpOptions struct {
+	CreateOptions
+	StartOptions
+}
+
+func (m *Manager) report(phase, format string, args ...any) {
+	m.Report.Report(activity.Event{Phase: phase, Message: fmt.Sprintf(format, args...)})
+}
+
+func (m *Manager) requireRunner(ctx context.Context) error {
 	if err := HostSupported(); err != nil {
 		return err
 	}
 	if os.Geteuid() == 0 {
-		return errors.New("run farrow mac as your normal macOS login user; only its network helper runs as root")
+		return failure.New(failure.Usage, errors.New("run farrow mac as your normal macOS login user, not as root")).Because("mac_root")
 	}
 	if m.Runner.Binary == "" {
 		binary, err := FindRunner()
@@ -72,9 +126,18 @@ func (m *Manager) requireRunner() error {
 		}
 		m.Runner.Binary = binary
 	}
-	m.Runner.Progress = m.Progress
+	if m.Runner.Progress == nil {
+		m.Runner.Progress = NewProgressWriter(m.Report)
+	}
+	if !m.protocolOK {
+		if err := m.Runner.CheckProtocol(ctx); err != nil {
+			return err
+		}
+		m.protocolOK = true
+	}
 	return nil
 }
+
 func (m *Manager) socket(name string, create bool) (string, error) {
 	dir, err := RuntimeDir(m.Store.Root, create)
 	if err != nil {
@@ -82,198 +145,212 @@ func (m *Manager) socket(name string, create bool) (string, error) {
 	}
 	return filepath.Join(dir, name+".sock"), nil
 }
-func (m *Manager) status(ctx context.Context, slot *Slot) (RuntimeStatus, error) {
-	socket, err := m.socket(slot.Name, false)
-	if err != nil {
-		return RuntimeStatus{}, err
-	}
-	probe, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	return m.Runner.RPC(probe, socket, slot.InstanceID, "status", false)
-}
 
-func (m *Manager) List(ctx context.Context) (Status, error) {
-	result := Status{SchemaVersion: 1, Root: m.Store.Root, Slots: []SlotView{}}
+// List reports every machine without creating, downloading or starting
+// anything. Runtime and SSH checks run concurrently.
+func (m *Manager) List(ctx context.Context, probeSSH bool) (Status, error) {
+	result := Status{SchemaVersion: SchemaVersion, Root: m.Store.Root, Machines: []MachineView{}, Limit: HostVMLimit}
 	config, err := m.Store.LoadConfig()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return result, err
 	}
-	if config != nil {
-		result.Network = &config.Network
-		result.Prepared = config.DefaultBaseID != ""
+	if config != nil && config.DefaultBaseID != "" {
+		if base, err := m.Store.LoadBase(config.DefaultBaseID); err == nil && base.State == "ready" {
+			result.Prepared = true
+			result.Base = &ImageRef{Version: base.Version, Build: base.Build, BaseID: base.ID}
+		}
 	}
-	slots, err := m.Store.ListSlots()
+	machines, err := m.Store.ListMachines()
 	if err != nil {
 		return result, err
 	}
-	for _, slot := range slots {
-		view := SlotView{Slot: slot}
-		if config != nil {
-			pref, _ := config.Preference(slot.Name)
-			view.IP = pref.IP
-			view.MAC = pref.MAC
-		}
-		if slot.InstanceID != "" {
-			diskPath, err := m.Store.Path("slots", slot.Name, "disk.asif")
-			if err != nil {
-				return result, err
-			}
-			fileBytes, allocatedBytes, err := regularFileUsage(diskPath)
-			if err == nil {
-				view.DiskFileBytes = &fileBytes
-				view.DiskAllocatedBytes = &allocatedBytes
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return result, err
+	for i := range machines {
+		view := newMachineView(&machines[i])
+		if path, err := m.Store.machineFile(machines[i].Name, "disk.asif"); err == nil {
+			if _, allocated, err := regularFileUsage(path); err == nil {
+				view.Disk.AllocatedBytes = &allocated
 			}
 		}
-		result.Slots = append(result.Slots, view)
+		result.Machines = append(result.Machines, view)
 	}
-	// Each view owns its runtime result. Probe the fixed slots concurrently so
-	// an unavailable guest does not extend the other guest's status wait.
 	var pending sync.WaitGroup
-	for i := range result.Slots {
-		view := &result.Slots[i]
-		if view.InstanceID == "" {
-			continue
-		}
-		var pref SlotPreference
-		if config != nil {
-			pref, _ = config.Preference(view.Name)
-		}
+	for i := range result.Machines {
 		pending.Add(1)
-		go func() {
+		go func(view *MachineView) {
 			defer pending.Done()
-			m.inspectRuntime(ctx, view, pref)
-		}()
+			m.inspectRuntime(ctx, view, probeSSH)
+		}(&result.Machines[i])
 	}
 	pending.Wait()
+	for _, view := range result.Machines {
+		if view.State == "running" || view.State == "starting" || view.State == "stopping" {
+			result.Running++
+		}
+	}
 	return result, nil
 }
 
-func (m *Manager) Init(ctx context.Context, name string, options InitOptions) (slot *Slot, retErr error) {
-	if err := m.requireRunner(); err != nil {
-		return nil, err
+// Machine loads one machine, naming how to create it when absent.
+func (m *Manager) Machine(name string) (*Machine, error) {
+	machine, err := m.Store.LoadMachine(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, failure.New(failure.Conflict, fmt.Errorf("no Mac machine named %s", name)).Because("mac_machine_absent").Then("farrow mac up " + name)
 	}
-	operation, err := m.acquireOperation(ctx, name, "mac init "+name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac init") }()
-	held, err := m.acquireState(ctx, "mac init "+name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { retErr = lock.JoinRelease(retErr, held, "mac init") }()
-	return m.initLocked(ctx, held, name, options, nil)
+	return machine, err
 }
 
-func (m *Manager) initLocked(ctx context.Context, held *lock.File, name string, options InitOptions, base *BaseImage) (*Slot, error) {
-	name, err := NormalizeSlot(name)
+// Up creates the machine when needed, starts it and waits for SSH. It never
+// changes an existing machine: create-time options that differ are refused.
+func (m *Manager) Up(ctx context.Context, name string, options UpOptions) (outcome Outcome, retErr error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return outcome, err
+	}
+	operation, err := m.acquireOperation(ctx, name, "mac up "+name)
 	if err != nil {
-		return nil, err
+		return outcome, err
 	}
-	if existing, err := m.Store.LoadSlot(name); err == nil {
-		if err := m.checkExistingOptions(existing, options); err != nil {
-			return nil, err
+	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac up") }()
+	machine, err := m.Store.LoadMachine(name)
+	action := "started"
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// Refuse before creating anything when the new machine could not run.
+		if err := m.checkVMLimit(ctx, name); err != nil {
+			return outcome, err
 		}
-		return existing, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+		machine, err = m.create(ctx, operation, name, options.CreateOptions)
+		action = "created"
+	case err == nil:
+		err = checkExistingOptions(machine, options.CreateOptions)
 	}
+	if err != nil {
+		return outcome, err
+	}
+	return m.startLocked(ctx, operation, machine, options.StartOptions, action)
+}
+
+// create writes a new machine: base, network, identity, password and overlay.
+// A failed overlay clone leaves a prepared record that the next up resumes.
+func (m *Manager) create(ctx context.Context, operation *lock.File, name string, options CreateOptions) (*Machine, error) {
 	if options.User != "" && !ValidUsername(options.User) {
-		return nil, fmt.Errorf("invalid macOS administrator username %q", options.User)
+		return nil, failure.New(failure.Usage, fmt.Errorf("invalid macOS administrator username %q", options.User))
 	}
-	if options.CPU != 0 && options.CPU < 2 {
-		return nil, errors.New("macOS requires at least 2 CPUs")
+	if err := validateShares(options.Shares); err != nil {
+		return nil, failure.New(failure.Usage, err)
 	}
-	if options.MemoryBytes != 0 && options.MemoryBytes < 4<<30 {
-		return nil, errors.New("macOS requires at least 4 GiB memory")
-	}
-	if base == nil {
-		options.SetupOptions, err = m.setupOptionsForSlot(name, options.SetupOptions)
-		if err != nil {
-			return nil, err
-		}
-		base, err = m.setupLocked(ctx, held, options.SetupOptions, false)
-		if err != nil {
+	for _, share := range options.Shares {
+		if err := checkShareSource(share); err != nil {
 			return nil, err
 		}
 	}
-	config, err := m.Store.LoadConfig()
+	cpu, memory := DefaultCPU, DefaultMemoryBytes
+	if options.CPU != 0 {
+		cpu = options.CPU
+	}
+	if options.MemoryBytes != 0 {
+		memory = options.MemoryBytes
+	}
+	if err := m.checkHostResources(ctx, cpu, memory); err != nil {
+		return nil, err
+	}
+	// A bad or taken --subnet fails before a long macOS preparation; the
+	// network is allocated again under the state lock below.
+	requested := options.Subnet
+	if requested == "auto" {
+		requested = ""
+	}
+	if _, err := m.allocateNetwork(ctx, requested, name); err != nil {
+		return nil, err
+	}
+	held, err := m.acquireState(ctx, "mac up "+name)
 	if err != nil {
 		return nil, err
 	}
-	pref, err := config.Preference(name)
-	if err != nil {
-		return nil, err
-	}
-	username := options.User
-	if username == "" {
-		username = DefaultUsername()
-	}
-	if !ValidUsername(username) {
-		return nil, fmt.Errorf("invalid macOS administrator username %q", username)
-	}
-	if options.CPU > 0 {
-		pref.CPU = options.CPU
-	}
-	if options.MemoryBytes > 0 {
-		pref.MemoryBytes = options.MemoryBytes
-	}
-	if pref.CPU < 2 || pref.MemoryBytes < 4<<30 {
-		return nil, errors.New("macOS requires at least 2 CPUs and 4 GiB memory")
-	}
-	id, err := NewInstanceID()
-	if err != nil {
-		return nil, err
-	}
-	password, err := NewPassword()
-	if err != nil {
-		return nil, err
-	}
-	if err = m.Runner.SetPassword(ctx, m.Store.Root, id, password); err != nil {
-		return nil, err
-	}
-	slot := &Slot{SchemaVersion: 1, Name: name, InstanceID: id, BaseID: base.ID, State: "created", User: username, CPU: pref.CPU, MemoryBytes: pref.MemoryBytes, DiskBytes: base.DiskBytes, Version: base.Version, Build: base.Build, PasswordRef: id, CreatedAt: time.Now().UTC()}
-	if err = m.Store.SaveSlot(held, slot); err != nil {
-		_ = m.Runner.DeletePassword(ctx, m.Store.Root, id)
-		return nil, err
-	}
-	if err = m.cloneSlot(ctx, slot); err != nil {
-		slot.State = "failed"
-		slot.LastError = err.Error()
-		return nil, errors.Join(err, m.Store.SaveSlot(held, slot))
-	}
-	// Keep resource choices after destroy. Use the actual base capacity, since
-	// reset may supply a prepared base independently of setup options.
-	for i := range config.Slots {
-		if config.Slots[i].Name == name {
-			config.Slots[i].CPU = slot.CPU
-			config.Slots[i].MemoryBytes = slot.MemoryBytes
-			config.Slots[i].DiskBytes = slot.DiskBytes
-			config.Slots[i].ResourcesConfigured = true
-			break
+	machine, err := func() (*Machine, error) {
+		config, err := m.ensureConfig(held)
+		if err != nil {
+			return nil, err
 		}
+		setup := options.Setup
+		setup.DiskBytes = options.DiskBytes
+		base, err := m.setupLocked(ctx, held, config, setup)
+		if err != nil {
+			return nil, err
+		}
+		network, err := m.allocateNetwork(ctx, requested, name)
+		if err != nil {
+			return nil, err
+		}
+		mac, err := newMAC()
+		if err != nil {
+			return nil, err
+		}
+		id, err := NewInstanceID()
+		if err != nil {
+			return nil, err
+		}
+		user := options.User
+		if user == "" {
+			user = DefaultUsername()
+		}
+		clipboard := true
+		if options.Clipboard != nil {
+			clipboard = *options.Clipboard
+		}
+		machine := &Machine{SchemaVersion: SchemaVersion, Name: name, InstanceID: id, BaseID: base.ID, State: "prepared", User: user,
+			CPU: cpu, MemoryBytes: memory, DiskBytes: base.DiskBytes, MAC: mac, Network: network, Shares: options.Shares,
+			Clipboard: clipboard, Version: base.Version, Build: base.Build, CreatedAt: time.Now().UTC()}
+		// The password exists before the record, so a machine never lacks it.
+		password, err := NewPassword()
+		if err != nil {
+			return nil, err
+		}
+		if err := m.Store.SavePassword(name, password); err != nil {
+			return nil, err
+		}
+		if err := m.Store.SaveMachine(held, machine); err != nil {
+			return nil, err
+		}
+		return machine, nil
+	}()
+	if releaseErr := held.Release(); releaseErr != nil {
+		err = errors.Join(err, releaseErr)
 	}
-	if err = m.Store.SaveConfig(held, config); err != nil {
-		return slot, fmt.Errorf("slot created but could not save resource preferences: %w", err)
+	if err != nil {
+		return nil, err
 	}
-	return slot, nil
+	m.report("prepare", "Creating %s from macOS %s (%s)", name, machine.Version, machine.Build)
+	if err := m.cloneMachine(ctx, machine); err != nil {
+		machine.State, machine.LastError = "failed", err.Error()
+		return nil, errors.Join(err, m.Store.SaveMachine(operation, machine))
+	}
+	return machine, nil
 }
 
-func (m *Manager) cloneSlot(ctx context.Context, slot *Slot) error {
-	dir, err := m.Store.SlotPath(slot.Name)
+func (m *Manager) ensureConfig(held *lock.File) (*Config, error) {
+	config, err := m.Store.LoadConfig()
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return config, err
+	}
+	config, err = NewConfig()
+	if err != nil {
+		return nil, err
+	}
+	return config, m.Store.SaveConfig(held, config)
+}
+
+// cloneMachine creates the overlay disk, auxiliary storage and a fresh machine
+// identifier from the base. A partial clone of a never-booted machine is
+// discarded; a machine that ever booted is never re-cloned.
+func (m *Manager) cloneMachine(ctx context.Context, machine *Machine) error {
+	dir, err := m.Store.MachinePath(machine.Name)
 	if err != nil {
 		return err
 	}
 	files := []string{"disk.asif", "machine-id.bin", "auxiliary-storage.bin"}
 	count := 0
 	for _, name := range files {
-		path, pathErr := m.Store.Path("slots", slot.Name, name)
-		if pathErr != nil {
-			return pathErr
-		}
-		if _, err = os.Stat(path); err == nil {
+		if _, err = os.Stat(filepath.Join(dir, name)); err == nil {
 			count++
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -282,8 +359,8 @@ func (m *Manager) cloneSlot(ctx context.Context, slot *Slot) error {
 	if count == len(files) {
 		return nil
 	}
-	if _, err = os.Stat(filepath.Join(dir, "boot-requested")); err == nil || slot.Initialized {
-		return errors.New("previously booted slot is missing disk or identity files; preserve it for recovery or explicitly reset")
+	if _, err = os.Stat(filepath.Join(dir, "boot-requested")); err == nil || machine.Initialized {
+		return failure.New(failure.Integrity, fmt.Errorf("%s booted before but its disk or identity files are missing; its directory was preserved for recovery: %s", machine.Name, dir)).Because("mac_machine_damaged")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -294,349 +371,648 @@ func (m *Manager) cloneSlot(ctx context.Context, slot *Slot) error {
 		}
 		for _, name := range files {
 			if err = os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-				_ = held.Release()
-				return err
+				return errors.Join(err, held.Release())
 			}
 		}
 		if err = held.Release(); err != nil {
 			return err
 		}
 	}
-	base, err := m.Store.BasePath(slot.BaseID)
+	base, err := m.Store.BasePath(machine.BaseID)
 	if err != nil {
 		return err
 	}
 	return m.Runner.Call(ctx, nil, nil, "clone", "--base", base, "--slot", dir)
 }
 
-func (m *Manager) Up(ctx context.Context, name string, options InitOptions, startOnly bool) (slot *Slot, retErr error) {
-	if err := m.requireRunner(); err != nil {
-		return nil, err
-	}
-	if startOnly {
-		existing, err := m.Store.LoadSlot(name)
-		if err != nil || !existing.Initialized {
-			return nil, fmt.Errorf("%s is absent or not initialized; run farrow mac up %s", name, name)
-		}
-	}
-	operation, err := m.acquireOperation(ctx, name, "mac up "+name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac up") }()
-	held, err := m.acquireState(ctx, "mac up "+name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { retErr = lock.JoinRelease(retErr, held, "mac up") }()
-	slot, err = m.Store.LoadSlot(name)
-	wasExisting := err == nil
-	if startOnly {
-		if err != nil || !slot.Initialized {
-			return nil, fmt.Errorf("%s is absent or not initialized; run farrow mac up %s", name, name)
-		}
-	} else if errors.Is(err, os.ErrNotExist) {
-		slot, err = m.initLocked(ctx, held, name, options, nil)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !startOnly && wasExisting {
-		if err := m.checkExistingOptions(slot, options); err != nil {
-			return slot, err
-		}
-	}
+// runInput is the runner's one line of stdin. It carries the first-boot
+// password, so it never appears in arguments, logs or progress.
+type runInput struct {
+	Name      string        `json:"name"`
+	Subtitle  string        `json:"subtitle,omitempty"`
+	Provision *runProvision `json:"provision,omitempty"`
+	Shares    []Share       `json:"shares,omitempty"`
+	Guest     *runGuest     `json:"guest,omitempty"`
+	Clipboard bool          `json:"clipboard,omitempty"`
+	Window    bool          `json:"window,omitempty"`
+}
+
+type runProvision struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	FullName string `json:"full_name"`
+}
+
+// runGuest lets the runner reach the guest over pinned SSH for clipboard
+// sharing and the desktop Restart command. SSH is the argv up to and
+// including user@host; the runner appends only fixed guest commands.
+type runGuest struct {
+	SSH        []string `json:"ssh"`
+	KnownHosts string   `json:"known_hosts"`
+}
+
+func (m *Manager) startLocked(ctx context.Context, operation *lock.File, machine *Machine, options StartOptions, action string) (outcome Outcome, retErr error) {
 	defer func() {
-		if retErr != nil && slot != nil && !errors.Is(retErr, errReadinessStopped) {
-			slot.LastError = retErr.Error()
-			_ = m.Store.SaveSlot(operation, slot)
+		if retErr != nil && !errors.Is(retErr, errReadinessStopped) && ctx.Err() == nil {
+			machine.LastError = retErr.Error()
+			_ = m.Store.SaveMachine(operation, machine)
 		}
 	}()
-	config, err := m.Store.LoadConfig()
-	if err != nil {
-		return nil, err
-	}
-	pref, err := config.Preference(name)
-	if err != nil {
-		return nil, err
-	}
-	if err = m.ensureNetwork(ctx, config); err != nil {
-		return slot, err
-	}
 	password := ""
-	if !slot.Initialized {
-		password, err = m.Runner.Password(ctx, m.Store.Root, slot.InstanceID)
-		if err != nil {
-			return slot, CredentialErrorForSlot(name, err)
+	if !machine.Initialized {
+		if err := m.cloneMachine(ctx, machine); err != nil {
+			return outcome, err
 		}
-		if err = m.cloneSlot(ctx, slot); err != nil {
-			return slot, err
+		var err error
+		if password, err = m.Store.Password(machine.Name); err != nil {
+			return outcome, err
 		}
-	}
-	if err := held.Release(); err != nil {
-		return slot, err
-	}
-	if slot.Initialized && !options.NoWait {
-		if err := m.checkSSHMaterial(slot); err != nil {
-			return slot, err
+	} else if !options.NoWait && !options.Recovery {
+		if err := m.checkSSHMaterial(machine); err != nil {
+			return outcome, err
 		}
 	}
-	launch, err := m.shouldLaunch(ctx, slot)
+	launch, err := m.shouldLaunch(ctx, machine)
 	if err != nil {
-		return slot, err
+		return outcome, err
 	}
+	window := options.Window || options.Recovery
 	if launch {
-		basePath, err := m.Store.BasePath(slot.BaseID)
-		if err != nil {
-			return slot, err
+		if err := m.launch(ctx, operation, machine, password, options.Recovery, window); err != nil {
+			return outcome, err
 		}
-		slotPath, err := m.Store.SlotPath(name)
-		if err != nil {
-			return slot, err
-		}
-		socket, err := m.socket(name, true)
-		if err != nil {
-			return slot, err
-		}
-		networkSocket, err := m.networkSocket(config)
-		if err != nil {
-			return slot, err
-		}
-		args := []string{"run", "--base", basePath, "--slot", slotPath, "--socket", socket, "--instance", slot.InstanceID, "--mac", pref.MAC, "--network-socket", networkSocket, "--network-slot", strings.TrimPrefix(name, "mac"), "--cpu", strconv.Itoa(slot.CPU), "--memory", strconv.FormatInt(slot.MemoryBytes, 10)}
-		var input any
-		if !slot.Initialized {
-			input = map[string]any{"provision": true, "username": slot.User, "password": password}
-		}
-		slot.State = "starting"
-		if err = m.Store.SaveSlot(operation, slot); err != nil {
-			return slot, err
-		}
-		if err = os.WriteFile(filepath.Join(slotPath, "boot-requested"), []byte(slot.InstanceID+"\n"), 0600); err != nil {
-			return slot, err
-		}
-		if _, err = m.Runner.Launch(ctx, args, input, filepath.Join(slotPath, "runner.log"), socket, slot.InstanceID); err != nil {
-			return slot, err
-		}
-	}
-	if !slot.Initialized {
-		slot.State = "provisioning"
 	} else {
-		slot.State = "running"
+		if options.Recovery {
+			return outcome, failure.New(failure.Conflict, fmt.Errorf("%s is running; recoveryOS needs a fresh boot", machine.Name)).Then("farrow mac stop " + machine.Name)
+		}
+		if action == "started" {
+			action = "running"
+		}
+		if window {
+			if err := m.showWindow(ctx, machine); err != nil {
+				return outcome, err
+			}
+		}
 	}
-	if err = m.Store.SaveSlot(operation, slot); err != nil {
-		return slot, err
+	if machine.State != "ready" || launch {
+		machine.State = "running"
+		if err := m.Store.SaveMachine(operation, machine); err != nil {
+			return outcome, err
+		}
 	}
-	if options.NoWait {
-		return slot, nil
+	if options.NoWait || options.Recovery {
+		outcome = outcomeOf(machine, action)
+		outcome.Window = window
+		return outcome, nil
 	}
-	observation, err := m.waitForSSH(ctx, operation, slot, pref, password)
+	observation, err := m.waitForSSH(ctx, operation, machine, password)
 	if err != nil {
-		return slot, err
+		return outcome, err
 	}
-	slot.Initialized = true
-	slot.State = "ready"
-	slot.LastError = ""
-	slot.ObservedVersion = observation.Version
-	slot.ObservedBuild = observation.Build
-	if err = m.Store.SaveSlot(operation, slot); err != nil {
-		return slot, err
+	machine.Initialized, machine.State, machine.LastError = true, "ready", ""
+	machine.ObservedVersion, machine.ObservedBuild = observation.Version, observation.Build
+	if err := m.Store.SaveMachine(operation, machine); err != nil {
+		return outcome, err
 	}
-	return slot, nil
+	outcome = outcomeOf(machine, action)
+	outcome.Window = window
+	if warning := m.refreshSSHConfig(); warning != "" {
+		outcome.Warnings = append(outcome.Warnings, warning)
+	}
+	return outcome, nil
 }
 
-func (m *Manager) stopRuntime(ctx context.Context, slot *Slot, force bool) error {
-	return m.stopRuntimeWithShutdown(ctx, slot, force, m.shutdownGuestSSH)
-}
-
-func (m *Manager) stopRuntimeWithShutdown(ctx context.Context, slot *Slot, force bool, shutdown func(context.Context, *Slot) error) error {
-	if err := ctx.Err(); err != nil {
+// launch starts a detached runner for a machine proven stopped.
+func (m *Manager) launch(ctx context.Context, operation *lock.File, machine *Machine, password string, recovery, window bool) error {
+	if err := m.checkVMLimit(ctx, machine.Name); err != nil {
 		return err
 	}
-	if _, err := m.status(ctx, slot); err != nil {
-		// The runner owns an exclusive slot lock for its lifetime. Prove it is
-		// free before treating an unavailable socket as a stopped VM.
-		probe, err := m.stoppedRunnerLock(slot)
-		if err != nil {
-			return fmt.Errorf("runner is not responding; cannot establish a safe stopped state: %w", err)
+	if err := m.checkNetworkFree(ctx, machine); err != nil {
+		return err
+	}
+	for _, share := range machine.Shares {
+		if err := checkShareSource(share); err != nil {
+			return failure.WithNext(err, fmt.Sprintf("farrow mac configure %s --unshare %s", machine.Name, share.Name))
 		}
-		if err = probe.Release(); err != nil {
-			return err
+	}
+	basePath, err := m.Store.BasePath(machine.BaseID)
+	if err != nil {
+		return err
+	}
+	dir, err := m.Store.MachinePath(machine.Name)
+	if err != nil {
+		return err
+	}
+	socket, err := m.socket(machine.Name, true)
+	if err != nil {
+		return err
+	}
+	args := []string{"run", "--base", basePath, "--slot", dir, "--socket", socket, "--instance", machine.InstanceID,
+		"--mac", machine.MAC, "--gateway", machine.Network.Gateway, "--address", machine.Network.Address,
+		"--cpu", strconv.Itoa(machine.CPU), "--memory", strconv.FormatInt(machine.MemoryBytes, 10)}
+	if recovery {
+		args = append(args, "--recovery")
+	}
+	connection, err := m.connection(machine)
+	if err != nil {
+		return err
+	}
+	version := machine.Version
+	if machine.ObservedVersion != "" {
+		version = machine.ObservedVersion
+	}
+	input := runInput{Name: machine.Name, Subtitle: fmt.Sprintf("macOS %s · %s@%s", version, machine.User, machine.Network.Address),
+		Shares: machine.Shares, Clipboard: machine.Clipboard, Window: window,
+		Guest: &runGuest{SSH: append([]string{SSHPath}, connection.OpenSSHArgs(false)...), KnownHosts: connection.KnownHosts}}
+	if !machine.Initialized {
+		input.Provision = &runProvision{Username: machine.User, Password: password, FullName: machine.User}
+	}
+	machine.State = "starting"
+	if err := m.Store.SaveMachine(operation, machine); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "boot-requested"), []byte(machine.InstanceID+"\n"), 0o600); err != nil {
+		return err
+	}
+	m.report("guest-ready", "Starting %s", machine.Name)
+	_, err = m.Runner.Launch(ctx, args, input, filepath.Join(dir, "runner.log"), socket, machine.InstanceID)
+	return err
+}
+
+// checkVMLimit names this store's running machines when Apple's limit would
+// refuse another boot. Guests of other tools still count; the runner reports
+// that case itself.
+func (m *Manager) checkVMLimit(ctx context.Context, starting string) error {
+	machines, err := m.Store.usableMachines()
+	if err != nil {
+		return err
+	}
+	var running []string
+	for i := range machines {
+		if machines[i].Name == starting {
+			continue
 		}
-		if err := ctx.Err(); err != nil {
-			return err
+		if status, err := m.status(ctx, &machines[i]); err == nil && status.State != "stopped" {
+			running = append(running, machines[i].Name)
 		}
+	}
+	if len(running) < HostVMLimit {
 		return nil
 	}
-	socket, err := m.socket(slot.Name, false)
+	return failure.New(failure.Resource, fmt.Errorf("%s are running; macOS allows %d macOS virtual machines at a time", strings.Join(running, " and "), HostVMLimit)).
+		Because("mac_vm_limit").Then("farrow mac stop " + running[len(running)-1])
+}
+
+func (m *Manager) showWindow(ctx context.Context, machine *Machine) error {
+	socket, err := m.socket(machine.Name, false)
 	if err != nil {
 		return err
 	}
-	var shutdownErr error
-	if slot.Initialized && !force {
-		shutdownErr = shutdown(ctx, slot)
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if shutdownErr != nil {
-			m.progress("Guest SSH shutdown failed; requesting shutdown through the VM: %v", shutdownErr)
+	if _, err := m.Runner.RPC(ctx, socket, machine.InstanceID, "open", false); err != nil {
+		return fmt.Errorf("cannot show the %s desktop: %w", machine.Name, err)
+	}
+	return nil
+}
+
+// Start boots existing, initialized machines. Several machines start
+// concurrently; each result is reported in the order requested.
+func (m *Manager) Start(ctx context.Context, names []string, options StartOptions) (Outcomes, error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return Outcomes{}, err
+	}
+	return m.each(ctx, names, func(ctx context.Context, name string) (Outcome, error) {
+		return m.startOne(ctx, name, options)
+	})
+}
+
+func (m *Manager) startOne(ctx context.Context, name string, options StartOptions) (outcome Outcome, retErr error) {
+	operation, err := m.acquireOperation(ctx, name, "mac start "+name)
+	if err != nil {
+		return outcome, err
+	}
+	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac start") }()
+	machine, err := m.Machine(name)
+	if err != nil {
+		return outcome, err
+	}
+	if !machine.Initialized && !options.Recovery {
+		return outcome, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name)
+	}
+	return m.startLocked(ctx, operation, machine, options, "started")
+}
+
+// each runs one operation per machine concurrently and joins the failures.
+func (m *Manager) each(ctx context.Context, names []string, run func(context.Context, string) (Outcome, error)) (Outcomes, error) {
+	results := make([]Outcome, len(names))
+	errs := make([]error, len(names))
+	var pending sync.WaitGroup
+	for i, name := range names {
+		pending.Add(1)
+		go func(i int, name string) {
+			defer pending.Done()
+			results[i], errs[i] = run(ctx, name)
+			if errs[i] != nil && len(names) > 1 {
+				errs[i] = fmt.Errorf("%s: %w", name, errs[i])
+			}
+		}(i, name)
+	}
+	pending.Wait()
+	report := Outcomes{Machines: []Outcome{}}
+	for i := range names {
+		if errs[i] == nil {
+			report.Machines = append(report.Machines, results[i])
 		}
 	}
-	if force || !slot.Initialized || shutdownErr != nil {
-		if _, err = m.Runner.RPC(ctx, socket, slot.InstanceID, "stop", force); err != nil {
-			return errors.Join(shutdownErr, err)
-		}
+	err := errors.Join(errs...)
+	if err != nil && len(report.Machines) > 0 {
+		err = failure.New(failure.Partial, err)
 	}
-	timeout := time.NewTimer(2 * time.Minute)
-	defer timeout.Stop()
-	ticker := time.NewTicker(time.Second)
+	return report, err
+}
+
+// stopGrace bounds a normal shutdown before the VM is powered off.
+var stopGrace = 2 * time.Minute
+
+// Stop shuts machines down normally, powering off one that does not finish
+// within two minutes. force powers off at once.
+func (m *Manager) Stop(ctx context.Context, names []string, force bool) (Outcomes, error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return Outcomes{}, err
+	}
+	return m.each(ctx, names, func(ctx context.Context, name string) (Outcome, error) {
+		return m.stopOne(ctx, name, force)
+	})
+}
+
+func (m *Manager) stopOne(ctx context.Context, name string, force bool) (outcome Outcome, retErr error) {
+	held, err := m.acquireStopOperation(ctx, name, "mac stop "+name)
+	if err != nil {
+		return outcome, err
+	}
+	defer func() { retErr = lock.JoinRelease(retErr, held, "mac stop") }()
+	machine, err := m.Machine(name)
+	if err != nil {
+		return outcome, err
+	}
+	stopped, forced, err := m.stopRuntime(ctx, machine, force)
+	if err != nil {
+		return outcome, err
+	}
+	machine.State = "stopped"
+	if !machine.Initialized {
+		machine.State = "prepared"
+	}
+	if err := m.Store.SaveMachine(held, machine); err != nil {
+		return outcome, err
+	}
+	action := "already_stopped"
+	switch {
+	case stopped && force:
+		action = "powered_off"
+	case stopped:
+		action = "stopped"
+	}
+	outcome = outcomeOf(machine, action)
+	outcome.Forced = forced
+	return outcome, nil
+}
+
+// stopRuntime returns whether a running VM was stopped and whether it had to
+// be powered off. Success always means the runner lock proved the stop.
+func (m *Manager) stopRuntime(ctx context.Context, machine *Machine, force bool) (stopped, forced bool, err error) {
+	return m.stopRuntimeWith(ctx, machine, force, m.shutdownGuestSSH)
+}
+
+func (m *Manager) stopRuntimeWith(ctx context.Context, machine *Machine, force bool, shutdown func(context.Context, *Machine) error) (stopped, forced bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+	if _, err := m.status(ctx, machine); err != nil {
+		// The runner owns an exclusive lock for its lifetime. Prove it is free
+		// before treating an unavailable socket as a stopped VM.
+		proof, err := m.stoppedRunnerLock(machine)
+		if err != nil {
+			return false, false, fmt.Errorf("the %s runner is not responding, so a stop cannot be confirmed: %w", machine.Name, err)
+		}
+		if proof != nil {
+			if err := proof.Release(); err != nil {
+				return false, false, err
+			}
+		}
+		return false, false, ctx.Err()
+	}
+	socket, err := m.socket(machine.Name, false)
+	if err != nil {
+		return false, false, err
+	}
+	if !force {
+		m.report("stop", "Shutting down %s", machine.Name)
+		var shutdownErr error
+		if machine.Initialized {
+			shutdownErr = shutdown(ctx, machine)
+			if err := ctx.Err(); err != nil {
+				return false, false, err
+			}
+		}
+		if !machine.Initialized || shutdownErr != nil {
+			if _, err := m.Runner.RPC(ctx, socket, machine.InstanceID, "stop", false); err != nil {
+				// Neither macOS nor the VM took the request; still power off
+				// after the grace period, as a normal stop promises.
+				reason := strings.ReplaceAll(errors.Join(shutdownErr, err).Error(), "\n", "; ")
+				m.report("stop", "%s did not accept a normal shutdown (%s); waiting %s before powering it off", machine.Name, reason, stopGrace)
+			}
+		}
+		done, err := m.waitStopped(ctx, machine, stopGrace)
+		if err != nil || done {
+			return done, false, err
+		}
+		m.report("stop", "%s did not shut down within %s; powering it off", machine.Name, stopGrace)
+	}
+	if _, err := m.Runner.RPC(ctx, socket, machine.InstanceID, "stop", true); err != nil {
+		// The VM may have finished stopping between the checks.
+		if done, waitErr := m.waitStopped(ctx, machine, 5*time.Second); waitErr == nil && done {
+			return true, !force, nil
+		}
+		return false, false, err
+	}
+	done, err := m.waitStopped(ctx, machine, 30*time.Second)
+	if err == nil && !done {
+		err = fmt.Errorf("%s did not power off within 30 seconds; inspect farrow mac logs %s", machine.Name, machine.Name)
+	}
+	return done, true, err
+}
+
+// waitStopped polls until the runner exits and its lock proves the stop.
+func (m *Manager) waitStopped(ctx context.Context, machine *Machine, limit time.Duration) (bool, error) {
+	deadline := time.NewTimer(limit)
+	defer deadline.Stop()
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		status, err := m.status(ctx, slot)
+		status, err := m.status(ctx, machine)
 		if err != nil || status.State == "stopped" {
-			proof, lockErr := m.stoppedRunnerLock(slot)
+			proof, lockErr := m.stoppedRunnerLock(machine)
 			if lockErr == nil {
-				if err = proof.Release(); err != nil {
-					return err
+				if proof != nil {
+					if err := proof.Release(); err != nil {
+						return false, err
+					}
 				}
-				break
+				return true, nil
 			}
 			if !errors.Is(lockErr, lock.ErrBusy) {
-				return lockErr
+				return false, lockErr
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout.C:
-			return errors.Join(shutdownErr, fmt.Errorf("%s did not stop in 2 minutes; retry farrow mac stop %s --force to explicitly power off", slot.Name, slot.Name))
+			return false, ctx.Err()
+		case <-deadline.C:
+			return false, nil
 		case <-ticker.C:
 		}
 	}
-	return nil
 }
 
-func (m *Manager) stopLocked(ctx context.Context, held *lock.File, slot *Slot, force bool) error {
-	if err := m.stopRuntime(ctx, slot, force); err != nil {
-		return err
+// Restart stops a machine normally and starts it again, so configuration
+// changes take effect.
+func (m *Manager) Restart(ctx context.Context, name string, options StartOptions) (Outcome, error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return Outcome{}, err
 	}
-	slot.State = "stopped"
-	return m.Store.SaveSlot(held, slot)
+	machine, err := m.Machine(name)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if !machine.Initialized {
+		return Outcome{}, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name)
+	}
+	stopped, err := m.stopOne(ctx, name, false)
+	if err != nil {
+		return Outcome{}, err
+	}
+	outcome, err := m.startOne(ctx, name, options)
+	if err == nil {
+		outcome.Action, outcome.Forced = "restarted", stopped.Forced
+	}
+	return outcome, err
 }
 
-func (m *Manager) Stop(ctx context.Context, name string, force bool) (slot *Slot, retErr error) {
-	if err := m.requireRunner(); err != nil {
-		return nil, err
+// Open shows the desktop, starting an initialized machine first when needed.
+func (m *Manager) Open(ctx context.Context, name string) (outcome Outcome, retErr error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return outcome, err
 	}
-	held, err := m.acquireStopOperation(ctx, name)
+	machine, err := m.Machine(name)
 	if err != nil {
-		return nil, err
+		return outcome, err
 	}
-	defer func() { retErr = lock.JoinRelease(retErr, held, "mac stop") }()
-	slot, err = m.Store.LoadSlot(name)
-	if err != nil {
-		return nil, err
+	if status, err := m.status(ctx, machine); err == nil && status.State == "running" {
+		if err := m.showWindow(ctx, machine); err != nil {
+			return outcome, err
+		}
+		outcome = outcomeOf(machine, "opened")
+		outcome.State, outcome.Window = "running", true
+		return outcome, nil
 	}
-	return slot, m.stopLocked(ctx, held, slot, force)
+	if !machine.Initialized {
+		return outcome, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name + " --open")
+	}
+	outcome, err = m.startOne(ctx, name, StartOptions{NoWait: true, Window: true})
+	if err == nil {
+		outcome.Action = "opened"
+	}
+	return outcome, err
 }
 
-func (m *Manager) Open(ctx context.Context, name string) error {
-	if err := m.requireRunner(); err != nil {
-		return err
+// Destroy powers machines off and removes their directories. Shared images
+// and other machines are untouched.
+func (m *Manager) Destroy(ctx context.Context, names []string) (Outcomes, error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return Outcomes{}, err
 	}
-	slot, err := m.Store.LoadSlot(name)
-	if err != nil {
-		return err
+	report := Outcomes{Machines: []Outcome{}}
+	var errs []error
+	for _, name := range names {
+		outcome, err := m.destroyOne(ctx, name)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			continue
+		}
+		report.Machines = append(report.Machines, outcome)
 	}
-	socket, err := m.socket(name, false)
-	if err != nil {
-		return err
+	if warning := m.refreshSSHConfig(); warning != "" && len(report.Machines) > 0 {
+		report.Machines[len(report.Machines)-1].Warnings = append(report.Machines[len(report.Machines)-1].Warnings, warning)
 	}
-	_, err = m.Runner.RPC(ctx, socket, slot.InstanceID, "open", false)
-	if err != nil {
-		return fmt.Errorf("cannot open %s desktop: %w; run farrow mac up %s, then farrow mac open %s", name, err, name, name)
+	err := errors.Join(errs...)
+	if err != nil && len(report.Machines) > 0 {
+		err = failure.New(failure.Partial, err)
 	}
-	return nil
+	return report, err
 }
 
-func (m *Manager) Destroy(ctx context.Context, name string, reset, update bool) (result *Slot, retErr error) {
-	if err := m.requireRunner(); err != nil {
-		return nil, err
-	}
-	operation, err := m.acquireOperation(ctx, name, "mac destroy/reset "+name)
+func (m *Manager) destroyOne(ctx context.Context, name string) (outcome Outcome, retErr error) {
+	operation, err := m.acquireStopOperation(ctx, name, "mac destroy "+name)
 	if err != nil {
-		return nil, err
+		return outcome, err
 	}
-	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac destroy/reset") }()
-	held, err := m.acquireState(ctx, "mac destroy/reset "+name)
+	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac destroy") }()
+	machine, err := m.Store.LoadMachine(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return Outcome{Name: name, Action: "absent", State: "absent"}, nil
+	}
+	if errors.Is(err, errStateless) {
+		// Without a record no runner can have started it; the runner lock
+		// taken during removal proves that none holds its files.
+		held, err := m.acquireState(ctx, "mac destroy "+name)
+		if err != nil {
+			return outcome, err
+		}
+		defer func() { retErr = lock.JoinRelease(retErr, held, "mac destroy") }()
+		if err := m.removeMachineFiles(held, &Machine{Name: name}); err != nil {
+			return outcome, err
+		}
+		return Outcome{Name: name, Action: "destroyed", State: "absent"}, nil
+	}
 	if err != nil {
-		return nil, err
+		return outcome, err
 	}
-	defer func() { retErr = lock.JoinRelease(retErr, held, "mac destroy/reset") }()
-	slot, err := m.Store.LoadSlot(name)
-	if errors.Is(err, os.ErrNotExist) && !reset {
-		return &Slot{Name: name, State: "empty"}, nil
+	if _, _, err := m.stopRuntime(ctx, machine, true); err != nil {
+		return outcome, err
+	}
+	held, err := m.acquireState(ctx, "mac destroy "+name)
+	if err != nil {
+		return outcome, err
+	}
+	defer func() { retErr = lock.JoinRelease(retErr, held, "mac destroy") }()
+	if err := m.removeMachineFiles(held, machine); err != nil {
+		return outcome, err
+	}
+	return Outcome{Name: name, Action: "destroyed", State: "absent", Address: machine.Network.Address}, nil
+}
+
+// removeMachineFiles deletes a stopped machine's directory while holding its
+// runner lock, so no runner can start on the files being removed.
+func (m *Manager) removeMachineFiles(held *lock.File, machine *Machine) (retErr error) {
+	dir, err := m.Store.MachinePath(machine.Name)
+	if err != nil {
+		return err
+	}
+	proof, err := lock.TryAcquire(filepath.Join(dir, "runner.lock"), false)
+	if err != nil {
+		return fmt.Errorf("%s became active before removal: %w", machine.Name, err)
+	}
+	defer func() { retErr = lock.JoinRelease(retErr, proof, "stopped machine removal") }()
+	return m.Store.DeleteMachine(held, machine.Name)
+}
+
+// RecreateOptions choose the base and the first boot of the new instance.
+type RecreateOptions struct {
+	Update bool
+	StartOptions
+}
+
+// Recreate replaces a machine with a fresh instance of the same name,
+// settings, network and account. Update selects the current default base.
+func (m *Manager) Recreate(ctx context.Context, name string, options RecreateOptions) (outcome Outcome, retErr error) {
+	if err := m.requireRunner(ctx); err != nil {
+		return outcome, err
+	}
+	operation, err := m.acquireStopOperation(ctx, name, "mac recreate "+name)
+	if err != nil {
+		return outcome, err
+	}
+	defer func() { retErr = lock.JoinRelease(retErr, operation, "mac recreate") }()
+	old, err := m.Machine(name)
+	if err != nil {
+		return outcome, err
+	}
+	base, err := m.Store.LoadBase(old.BaseID)
+	if options.Update {
+		base, err = m.updatedBase(old)
 	}
 	if err != nil {
-		return nil, err
+		return outcome, err
 	}
-	var base *BaseImage
-	if reset {
-		base, err = m.Store.LoadBase(slot.BaseID)
+	if err := m.validateBase(base); err != nil {
+		return outcome, fmt.Errorf("cannot recreate %s: %w", name, err)
+	}
+	// Check what the new instance needs before anything is erased.
+	for _, share := range old.Shares {
+		if err := checkShareSource(share); err != nil {
+			return outcome, err
+		}
+	}
+	if _, _, err := m.stopRuntime(ctx, old, true); err != nil {
+		return outcome, err
+	}
+	if err := m.checkNetworkFree(ctx, old); err != nil {
+		return outcome, err
+	}
+	held, err := m.acquireState(ctx, "mac recreate "+name)
+	if err != nil {
+		return outcome, err
+	}
+	machine, err := func() (*Machine, error) {
+		if err := m.removeMachineFiles(held, old); err != nil {
+			return nil, err
+		}
+		id, err := NewInstanceID()
 		if err != nil {
 			return nil, err
 		}
-	}
-	if update {
-		cfg, err := m.Store.LoadConfig()
+		machine := *old
+		machine.InstanceID, machine.BaseID, machine.State, machine.Initialized = id, base.ID, "prepared", false
+		machine.DiskBytes, machine.Version, machine.Build = base.DiskBytes, base.Version, base.Build
+		machine.ObservedVersion, machine.ObservedBuild, machine.LastError = "", "", ""
+		machine.CreatedAt = time.Now().UTC()
+		password, err := NewPassword()
 		if err != nil {
 			return nil, err
 		}
-		base, err = m.Store.LoadBase(cfg.DefaultBaseID)
-		if err != nil {
+		if err := m.Store.SavePassword(name, password); err != nil {
 			return nil, err
 		}
+		return &machine, m.Store.SaveMachine(held, &machine)
+	}()
+	if releaseErr := held.Release(); releaseErr != nil {
+		err = errors.Join(err, releaseErr)
 	}
-	if reset && base.DiskBytes != slot.DiskBytes {
-		return nil, fmt.Errorf("cannot reset %s: selected base capacity is %d GiB, but this instance uses %d GiB; prepare a base with matching capacity before reset", name, base.DiskBytes>>30, slot.DiskBytes>>30)
-	}
-	if reset {
-		if err := m.validateResetBase(base); err != nil {
-			return nil, fmt.Errorf("cannot reset %s: %w", name, err)
-		}
-	}
-	if err = m.stopRuntime(ctx, slot, false); err != nil {
-		return nil, err
-	}
-	dir, err := m.Store.SlotPath(name)
 	if err != nil {
-		return nil, err
+		return outcome, err
 	}
-	stoppedProof, err := lock.TryAcquire(filepath.Join(dir, "runner.lock"), false)
-	if err != nil {
-		return nil, fmt.Errorf("slot became active before deletion: %w", err)
+	if err := m.cloneMachine(ctx, machine); err != nil {
+		machine.State, machine.LastError = "failed", err.Error()
+		return outcome, errors.Join(err, m.Store.SaveMachine(operation, machine))
 	}
-	defer func() { retErr = lock.JoinRelease(retErr, stoppedProof, "stopped slot deletion") }()
-	// Keep the instance and its keychain entry together if credential removal
-	// fails. No broad root deletion is used.
-	if err = m.Runner.DeletePassword(ctx, m.Store.Root, slot.InstanceID); err != nil {
-		return nil, CredentialErrorForSlot(name, err)
-	}
-	if err = m.Store.DeleteSlot(held, name); err != nil {
-		return nil, err
-	}
-	if !reset {
-		return &Slot{Name: name, State: "empty"}, nil
-	}
-	return m.initLocked(ctx, held, name, InitOptions{User: slot.User, CPU: slot.CPU, MemoryBytes: slot.MemoryBytes}, base)
+	outcome, err = m.startLocked(ctx, operation, machine, options.StartOptions, "recreated")
+	return outcome, err
 }
 
-// Check the small metadata and required files before destroying the current
-// guest. Native clone still validates the actual image format; this preflight
-// catches missing or incomplete bases without hashing an entire system disk.
-func (m *Manager) validateResetBase(base *BaseImage) error {
+// updatedBase is the default base's macOS at the machine's own disk capacity,
+// which recreate keeps; another capacity needs its base prepared first.
+func (m *Manager) updatedBase(machine *Machine) (*BaseImage, error) {
+	config, err := m.Store.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	if config.DefaultBaseID == "" {
+		return nil, failure.New(failure.Conflict, errors.New("no prepared default base")).Then("farrow mac image update")
+	}
+	base, err := m.Store.LoadBase(config.DefaultBaseID)
+	if err != nil || base.DiskBytes == machine.DiskBytes {
+		return base, err
+	}
+	if ready := m.readyBaseFor(base.Build, machine.DiskBytes); ready != nil {
+		return ready, nil
+	}
+	return nil, failure.New(failure.Conflict, fmt.Errorf("%s has a %d GiB disk, but macOS %s (%s) is prepared only at %d GiB", machine.Name, machine.DiskBytes>>30, base.Version, base.Build, base.DiskBytes>>30)).
+		Then(fmt.Sprintf("farrow mac setup --disk %dG, then farrow mac recreate %s --update", machine.DiskBytes>>30, machine.Name))
+}
+
+// validateBase checks a base's small metadata and required files before a
+// machine is replaced. The runner still validates the actual disk format.
+func (m *Manager) validateBase(base *BaseImage) error {
 	if base.State != "ready" {
 		return fmt.Errorf("base %s is %s, not ready", base.ID, base.State)
 	}
@@ -665,4 +1041,31 @@ func (m *Manager) validateResetBase(base *BaseImage) error {
 		}
 	}
 	return nil
+}
+
+// Password returns the guest login password saved at creation.
+func (m *Manager) Password(name string) (string, error) {
+	if _, err := m.Machine(name); err != nil {
+		return "", err
+	}
+	return m.Store.Password(name)
+}
+
+// Connection returns the OpenSSH parameters for a running, initialized guest.
+func (m *Manager) Connection(ctx context.Context, name string) (Connection, error) {
+	machine, err := m.Machine(name)
+	if err != nil {
+		return Connection{}, err
+	}
+	if !machine.Initialized {
+		return Connection{}, failure.New(failure.Conflict, fmt.Errorf("%s has not finished its first boot", name)).Because("mac_not_initialized").Then("farrow mac up " + name)
+	}
+	if err := m.checkSSHMaterial(machine); err != nil {
+		return Connection{}, err
+	}
+	status, err := m.status(ctx, machine)
+	if err != nil || status.State != "running" {
+		return Connection{}, failure.New(failure.Conflict, fmt.Errorf("%s is not running", name)).Because("mac_not_running").Then("farrow mac start " + name)
+	}
+	return m.connection(machine)
 }

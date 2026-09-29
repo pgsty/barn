@@ -119,6 +119,8 @@ func phaseLabel(phase string) string {
 		return "image"
 	case phase == "guest-ready":
 		return "boot"
+	case phase == "stop":
+		return "stop"
 	case phase == "guest-metadata":
 		return "guests"
 	case phase == "ssh-config":

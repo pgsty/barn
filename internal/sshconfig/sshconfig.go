@@ -46,6 +46,8 @@ type Result struct {
 	Config   string `json:"config"`
 	Changed  bool   `json:"changed"`
 	Action   string `json:"action"`
+	// Shadowed names are published by address only; see InstallMac.
+	Shadowed []string `json:"shadowed,omitempty"`
 }
 
 func validateEntry(entry Entry) error {
@@ -63,15 +65,19 @@ func validateEntry(entry Entry) error {
 	return nil
 }
 
-const (
-	beginMarker   = "# farrow:begin"
-	endMarker     = "# farrow:end"
-	includeMarker = "# farrow:include"
+// marks separate independently managed fragments. The Linux deployment and
+// the Mac machines each own one fragment and one Include block, so neither
+// can adopt, rewrite or remove the other.
+type marks struct{ begin, end, include string }
+
+var (
+	linuxMarks = marks{"# farrow:begin", "# farrow:end", "# farrow:include"}
+	macMarks   = marks{"# farrow-mac:begin", "# farrow-mac:end", "# farrow-mac:include"}
 )
 
 func render(entries []Entry) (string, error) {
 	var output strings.Builder
-	output.WriteString(beginMarker)
+	output.WriteString(linuxMarks.begin)
 	output.WriteByte('\n')
 	for index, entry := range entries {
 		identity, err := openssh.QuoteConfigValue(entry.Identity)
@@ -99,7 +105,7 @@ func render(entries []Entry) (string, error) {
 			output.WriteByte('\n')
 		}
 	}
-	output.WriteString(endMarker)
+	output.WriteString(linuxMarks.end)
 	output.WriteByte('\n')
 	return output.String(), nil
 }
@@ -221,9 +227,9 @@ func includesFragment(configPath, fragmentName string) bool {
 
 // markerOwned reports whether fragment content is exactly one marker-owned
 // block; only such fragments may be overwritten or removed.
-func markerOwned(data []byte) bool {
+func markerOwned(data []byte, m marks) bool {
 	trimmed := strings.TrimSuffix(string(data), "\n")
-	return strings.HasPrefix(trimmed, beginMarker+"\n") && strings.HasSuffix(trimmed, "\n"+endMarker) && strings.Count(trimmed, beginMarker) == 1 && strings.Count(trimmed, endMarker) == 1
+	return strings.HasPrefix(trimmed, m.begin+"\n") && strings.HasSuffix(trimmed, "\n"+m.end) && strings.Count(trimmed, m.begin) == 1 && strings.Count(trimmed, m.end) == 1
 }
 
 // InstallMany atomically publishes one marker-owned fragment containing every
@@ -246,22 +252,33 @@ func InstallMany(home string, entries []Entry) (Result, error) {
 		}
 		seenNodes[candidate.Node] = struct{}{}
 	}
-	directory, err := ensureSSHDir(home)
-	if err != nil {
-		return Result{}, err
-	}
-	fragment := filepath.Join(directory, entry.Name+"_config")
-	configPath := filepath.Join(directory, "config")
 	content, err := render(entries)
 	if err != nil {
 		return Result{}, err
 	}
+	return install(home, entry.Name, content, linuxMarks, nil)
+}
+
+// install publishes content as the named fragment and one Include block.
+// owned, when set, must accept an existing fragment before it is replaced.
+func install(home, name, content string, m marks, owned func([]byte) error) (Result, error) {
+	directory, err := ensureSSHDir(home)
+	if err != nil {
+		return Result{}, err
+	}
+	fragment := filepath.Join(directory, name+"_config")
+	configPath := filepath.Join(directory, "config")
 	existingFragment, fragmentExists, err := readOptionalRegular(fragment)
 	if err != nil {
 		return Result{}, err
 	}
-	if fragmentExists && !markerOwned(existingFragment) {
+	if fragmentExists && !markerOwned(existingFragment, m) {
 		return Result{}, errors.New("will not overwrite the SSH fragment: it lacks Farrow's markers")
+	}
+	if fragmentExists && owned != nil {
+		if err := owned(existingFragment); err != nil {
+			return Result{}, err
+		}
 	}
 	quotedFragment, err := openssh.QuoteConfigValue(fragment)
 	if err != nil {
@@ -291,8 +308,8 @@ func InstallMany(home string, entries []Entry) (Result, error) {
 		return Result{}, err
 	}
 	configText := string(config)
-	block := includeMarker + "\n" + includeLine + "\n"
-	markerCount := strings.Count(configText, includeMarker)
+	block := m.include + "\n" + includeLine + "\n"
+	markerCount := strings.Count(configText, m.include)
 	blockCount := strings.Count(configText, block)
 	if markerCount > 1 || blockCount > 1 || markerCount != blockCount {
 		return Result{}, errors.New("will not change ~/.ssh/config: its Farrow Include block is malformed")
@@ -322,6 +339,10 @@ func Remove(home, name string) (Result, error) {
 	if !namePattern.MatchString(name) {
 		return Result{}, errors.New("SSH remove name is invalid")
 	}
+	return remove(home, name, linuxMarks, nil)
+}
+
+func remove(home, name string, m marks, owned func([]byte) error) (Result, error) {
 	directory, err := ensureSSHDir(home)
 	if err != nil {
 		return Result{}, err
@@ -333,7 +354,7 @@ func Remove(home, name string) (Result, error) {
 		return Result{}, err
 	}
 	includeLine := "Include " + quotedFragment
-	block := includeMarker + "\n" + includeLine + "\n"
+	block := m.include + "\n" + includeLine + "\n"
 	var config []byte
 	configExists := false
 	if linked, err := managedElsewhere(configPath); err != nil {
@@ -349,16 +370,21 @@ func Remove(home, name string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if fragmentExists && !markerOwned(fragmentData) {
+	if fragmentExists && !markerOwned(fragmentData, m) {
 		return Result{}, errors.New("will not remove the SSH fragment: it lacks Farrow's markers")
+	}
+	if fragmentExists && owned != nil {
+		if err := owned(fragmentData); err != nil {
+			return Result{}, err
+		}
 	}
 	configText := string(config)
 	if strings.Contains(configText, includeLine) && !strings.Contains(configText, block) {
 		return Result{}, errors.New("will not remove the fragment while an unmarked Include of it remains in ~/.ssh/config")
 	}
 	changed := false
-	if configExists && strings.Contains(configText, includeMarker) {
-		if strings.Count(configText, includeMarker) != 1 || strings.Count(configText, block) != 1 {
+	if configExists && strings.Contains(configText, m.include) {
+		if strings.Count(configText, m.include) != 1 || strings.Count(configText, block) != 1 {
 			return Result{}, errors.New("will not change ~/.ssh/config: its Farrow Include block is malformed")
 		}
 		updated := strings.Replace(configText, block, "", 1)
