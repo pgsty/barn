@@ -328,7 +328,7 @@ func (e Executor) planInstall(ctx context.Context, origin installOrigin, interfa
 	if err := e.validateSharedInstallRoot(ctx); err != nil {
 		return InstallReport{}, err
 	}
-	for _, path := range []string{StateDir, InterfaceMarkerDir, LogDir, LeaseRoot, PlistPath, SocketPath, PIDPath} {
+	for _, path := range []string{StateDir, InterfaceMarkerDir, LogDir, PlistPath, SocketPath, PIDPath} {
 		if _, err := os.Lstat(path); err == nil {
 			return InstallReport{}, fmt.Errorf("will not overwrite %s: it exists and Barn did not create it", path)
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -739,13 +739,6 @@ func (e Executor) PlanUninstall(ctx context.Context) (UninstallReport, error) {
 		InterfaceMarkerDir:                    {"network-interface.json": {}},
 		LogDir:                                {"stdout.log": {}, "stderr.log": {}},
 	}
-	// A pre-simplification install still holds the retired lease directory;
-	// keep removing it when present.
-	leaseRootPresent := false
-	if _, err := os.Lstat(LeaseRoot); err == nil {
-		leaseRootPresent = true
-		residueChecks[LeaseRoot] = map[string]struct{}{"private-lease.lock": {}}
-	}
 	for directory, allowed := range residueChecks {
 		entries, err := e.listRootDir(ctx, directory)
 		if err != nil {
@@ -767,10 +760,6 @@ func (e Executor) PlanUninstall(ctx context.Context) (UninstallReport, error) {
 		filepath.Join(LogDir, "stdout.log"), filepath.Join(LogDir, "stderr.log"),
 	}
 	dirs := []string{StateDir, InterfaceMarkerDir, LogDir}
-	if leaseRootPresent {
-		files = append(files, filepath.Join(LeaseRoot, "private-lease.lock"))
-		dirs = append(dirs, LeaseRoot)
-	}
 	if !hostsHelperPresent {
 		dirs = append([]string{filepath.Join(InstallRoot, "libexec"), InstallRoot}, dirs...)
 	}

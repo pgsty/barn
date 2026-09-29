@@ -123,7 +123,7 @@ func parseBlocks(data []byte) ([]ownedBlock, error) {
 		}
 		match := markerPattern.FindStringSubmatch(line)
 		if match == nil {
-			return nil, fmt.Errorf("malformed or pre-simplification Barn hosts marker at byte %d; remove the old block manually", lineStart)
+			return nil, fmt.Errorf("malformed Barn hosts marker at byte %d; repair the block manually", lineStart)
 		}
 		kind := match[1]
 		if kind == "begin" {

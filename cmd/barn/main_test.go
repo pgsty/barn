@@ -1019,7 +1019,8 @@ func TestSSHConfigRemoveRemainsAvailableAfterResolvedStateIsGone(t *testing.T) {
 	}
 	entry := sshconfig.Entry{
 		Name: "lab", Node: "meta", User: "dba",
-		Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(root, "key"), KnownHosts: filepath.Join(root, "known"),
+		HostKeyAlias: "barn-vm-test-instance",
+		Host:         "127.0.0.1", Port: 2222, Identity: filepath.Join(root, "key"), KnownHosts: filepath.Join(root, "known"),
 	}
 	installed, err := sshconfig.InstallMany(home, []sshconfig.Entry{entry})
 	if err != nil {

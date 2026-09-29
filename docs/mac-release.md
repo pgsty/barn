@@ -30,7 +30,7 @@ the same tar representation used for distribution.
 `BARN_MAC_PAYLOAD=/absolute/native.tar.gz make release-snapshot` exercises this
 complete composition locally. The payload version must match the snapshot
 version selected by `.goreleaser.yaml`: the next patch after the latest tag
-with `-next` (after `v0.8.0`, `0.8.1-next`).
+with `-next` (for example, `0.9.1-next`).
 Use `uncommitted` for a dirty checkout, or its full commit for clean source.
 Snapshot builds support ad-hoc signing and are explicitly not notarized releases.
 

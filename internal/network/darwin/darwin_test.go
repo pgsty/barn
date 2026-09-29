@@ -323,7 +323,4 @@ func TestInterfaceEvidencePathsArePublicProtectedAndTargeted(t *testing.T) {
 		targets[InterfaceStatePath] != "root:wheel 0600" {
 		t.Fatalf("interface evidence metadata targets = %#v", targets)
 	}
-	if _, exists := targets[LeaseRoot]; exists {
-		t.Fatalf("current install contract still creates retired lease root: %#v", targets)
-	}
 }

@@ -454,7 +454,7 @@ fi
 [[ $(wc -l <"${temporary}/official-matrix.txt" | tr -d ' ') == 8 ]]
 grep -Fxq $'el8/amd64\t8.10.20240528.1\tel8\tpackages=2' "${temporary}/official-matrix.txt"
 grep -Fxq $'el9/arm64\t9.8.20260525.1\tel9\tpackages=0' "${temporary}/official-matrix.txt"
-grep -Fxq $'d12/arm64\t20260909.2596.1\td12\tpackages=3' "${temporary}/official-matrix.txt"
+grep -Fxq $'d12/arm64\t20260923.2610.1\td12\tpackages=3' "${temporary}/official-matrix.txt"
 grep -Fxq $'d13/amd64\t20260914.2601.1\td13\tpackages=3' "${temporary}/official-matrix.txt"
 python3 - "${repo}/packaging/image-pipeline/official-v1.json" <<'PY'
 import json

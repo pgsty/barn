@@ -199,14 +199,9 @@ common failures; change it together with the message.
 
 ## Naming and state
 
-Barn 0.9 starts a new internal namespace. Use `barn`, `Barn`, `BARN_*`,
-`barn_version` and Barn-owned paths throughout current code. Do not add
-Farrow command aliases, environment fallbacks, old-state readers, network
-adoption or migration shims. Existing internal labs are recreated after their
-owners preserve needed data and retire the old lab with its original binary.
-
-Historical release evidence and signed image provenance keep their original
-identity and bytes. They are records, not supported runtime interfaces.
+Use `barn`, `Barn`, `BARN_*`, `barn_version`, and Barn-owned paths
+throughout code, packages, and documentation. Keep interfaces simple and use
+one current format; do not introduce migration shims for development builds.
 
 ## Release checklist
 

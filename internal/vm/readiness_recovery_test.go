@@ -24,7 +24,7 @@ func (r *refusedSSHRunner) Run(context.Context, string, ...string) (execx.Result
 func TestPermanentSSHFailuresDoNotSpendReadinessDeadline(t *testing.T) {
 	for _, message := range []string{"Host key verification failed.", "Permission denied (publickey).", "Bad configuration option: unknown"} {
 		runner := &refusedSSHRunner{stderr: message}
-		lifecycle := Lifecycle{Runner: runner}
+		lifecycle := Lifecycle{Runner: runner, HostKeyAlias: HostKeyAlias("fixture-instance")}
 		_, err := lifecycle.WaitReady(context.Background(), "ssh", "/key", "/known", 2222, ReadyMarker{}, time.Minute)
 		if err == nil || runner.calls != 1 || !strings.Contains(err.Error(), message) {
 			t.Fatalf("calls=%d err=%v", runner.calls, err)
@@ -34,7 +34,7 @@ func TestPermanentSSHFailuresDoNotSpendReadinessDeadline(t *testing.T) {
 
 func TestReadinessTimeoutPreservesSSHReasonAndParentCancellation(t *testing.T) {
 	runner := &refusedSSHRunner{stderr: "Connection refused"}
-	lifecycle := Lifecycle{Runner: runner}
+	lifecycle := Lifecycle{Runner: runner, HostKeyAlias: HostKeyAlias("fixture-instance")}
 	_, err := lifecycle.WaitReady(context.Background(), "ssh", "/key", "/known", 2222, ReadyMarker{}, 20*time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "within 20ms: Connection refused") {
 		t.Fatalf("timeout lost cause: %v", err)

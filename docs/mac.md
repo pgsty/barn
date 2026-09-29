@@ -213,5 +213,5 @@ prepares it as the default base; existing machines keep theirs until
   missing or mismatched component.
 
 `make mac-native-test` runs the native tests; `go test ./internal/macvm
-./cmd/barn` covers the CLI. Live acceptance evidence is recorded in
-[the implementation log](mac-implementation-log.md).
+./cmd/barn` covers the CLI. The required live checks are listed in
+[the release checklist](mac-release.md).

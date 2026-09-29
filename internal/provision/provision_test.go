@@ -84,7 +84,7 @@ func (r *recordingRunner) Run(_ context.Context, target Target, _ Script, _ bool
 }
 
 func fixtureTarget(name string) Target {
-	return Target{Node: name, User: "dba", Port: 2200, PrivateKey: "/tmp/key", KnownHosts: "/tmp/known_hosts"}
+	return Target{Node: name, User: "dba", Port: 2200, PrivateKey: "/tmp/key", KnownHosts: "/tmp/known_hosts", HostKeyAlias: vm.HostKeyAlias(name)}
 }
 
 func fixtureScript() Script {
@@ -211,6 +211,6 @@ func vmCommandForTest(target Target, sudo bool) string {
 	if sudo {
 		remote = []string{"sudo", "-n", "--", "/bin/bash", "-se"}
 	}
-	args := vm.SSHArgsForUser(target.User, target.PrivateKey, target.KnownHosts, target.Port, remote...)
+	args := vm.SSHArgsForInstance(target.User, target.PrivateKey, target.KnownHosts, target.HostKeyAlias, target.Port, remote...)
 	return args[len(args)-1]
 }

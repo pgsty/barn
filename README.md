@@ -129,8 +129,7 @@ ports. Running VMs keep their port and process.
 
 SSH trust is keyed by VM instance UUID, allowing a recreated VM to reuse an SSH
 port without inheriting its predecessor's host key. Changed keys for the same
-instance still fail verification. Existing labs adopt this namespace on their
-first connection with the new binary; legacy port entries remain until destroy.
+instance still fail verification.
 SSH aliases, guest hostname refresh, and diagnostic event writes are optional
 after a successful lifecycle operation: their failures produce warnings with a
 retry command, while the VM result remains successful. Explicit commands such
@@ -163,7 +162,7 @@ Mac commands use `$BARN_HOME/mac` and never read `barn.yml`; Linux
 `Barn Mac.app`, next to `barn`. Releases do not include it until it is
 signed and notarized by Apple; until then build both with Xcode 27 —
 `make mac-build` puts them in `bin/mac`. See [the guide](https://github.com/pgsty/barn/blob/main/docs/mac.md)
-and the [acceptance log](https://github.com/pgsty/barn/blob/main/docs/mac-implementation-log.md).
+and the [release checklist](https://github.com/pgsty/barn/blob/main/docs/mac-release.md).
 
 ## Linux guest requirements
 
@@ -216,13 +215,7 @@ GitHub does not expose prereleases through `/releases/latest`, so
 always verifies the selected archive against the `checksums.txt` produced by
 the GitHub release workflow.
 
-Barn starts a new internal installation namespace: `barn.yml`, `BARN_*`,
-`~/.barn`, and Barn-owned host resources. It does not read Farrow state,
-environment variables, network ownership, or SSH fragments and has no old-name
-aliases or migration command. Stop and retire an old internal lab with its
-original executable before setting up Barn on the same subnet. Preserve any
-needed guest files and inventory before rebuilding; changing the binary name
-does not convert an existing lab.
+Barn uses `barn.yml`, `BARN_*`, and `~/.barn` for its configuration and data.
 
 From source:
 

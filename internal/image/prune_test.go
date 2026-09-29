@@ -30,7 +30,7 @@ func writeCachedFixture(t *testing.T, store Store, family, filename, content str
 	t.Helper()
 	hash := sha256.Sum256([]byte(content))
 	digest := hex.EncodeToString(hash[:])
-	entry := Entry{Alias: family, File: family + "/" + filename, SHA256: digest, Format: "qcow2", ArtifactSize: int64(len(content)), VirtualSize: 1 << 30}
+	entry := Entry{Alias: family, CacheFile: family + "/" + filename, SHA256: digest, Format: "qcow2", ArtifactSize: int64(len(content)), VirtualSize: 1 << 30}
 	imagePath, err := store.Path(entry)
 	if err != nil {
 		t.Fatal(err)

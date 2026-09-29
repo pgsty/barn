@@ -395,15 +395,6 @@ func (e Executor) rootUnlink(ctx context.Context, path string) error {
 	return err
 }
 
-func (e Executor) rootUnlinkIfPlanned(ctx context.Context, plan UninstallPlan, path string) error {
-	for _, planned := range plan.RemoveFiles {
-		if planned == path {
-			return e.rootUnlink(ctx, path)
-		}
-	}
-	return nil
-}
-
 func (e Executor) rootRmdir(ctx context.Context, path string) error {
 	if _, err := e.Root.Run(ctx, "/usr/bin/rmdir", path); err != nil {
 		if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
@@ -450,14 +441,6 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 	if _, err := e.Root.Run(ctx, "/usr/bin/networkctl", "reload"); err != nil {
 		return report, err
 	}
-	if manifest.NetworkManager {
-		if err := e.rootUnlink(ctx, NetworkManagerPath); err != nil {
-			return report, err
-		}
-		if _, err := e.Root.Run(ctx, "/usr/bin/nmcli", "general", "reload"); err != nil {
-			return report, err
-		}
-	}
 	if manifest.AppliedOverride != nil {
 		for _, command := range []Command{
 			{Binary: "/usr/bin/dpkg-statoverride", Args: []string{"--remove", manifest.HelperPath}},
@@ -495,16 +478,10 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 			return report, err
 		}
 	}
-	if err := e.rootUnlinkIfPlanned(ctx, plan, TmpfilesPath); err != nil {
-		return report, err
-	}
 	for _, command := range restoreNetworkdCommands(manifest.NetworkdUnits) {
 		if _, err := e.Root.Run(ctx, command.Binary, command.Args...); err != nil {
 			return report, err
 		}
-	}
-	if err := e.rootUnlinkIfPlanned(ctx, plan, LeaseLockPath); err != nil {
-		return report, err
 	}
 	if err := e.rootUnlink(ctx, StatePath); err != nil {
 		return report, err
@@ -515,7 +492,7 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 		}
 	}
 	report.Applied = true
-	report.Checks["restored"] = "helper, networkd units, paths, bridge and lease boundary"
+	report.Checks["restored"] = "helper, networkd units, paths and bridge"
 	return report, nil
 }
 
@@ -562,6 +539,6 @@ func (e Executor) applyNetworkManagerUninstall(ctx context.Context, report Unins
 		}
 	}
 	report.Applied = true
-	report.Checks["restored"] = "helper, bridge connection, paths, and lease boundary"
+	report.Checks["restored"] = "helper, bridge connection and paths"
 	return report, nil
 }

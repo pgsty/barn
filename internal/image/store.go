@@ -182,17 +182,8 @@ func validStoreFile(filename string) bool {
 	return len(parts) == 2 && catalogName.MatchString(parts[0]) && localImageFilename.MatchString(parts[1])
 }
 
-func localStoreFile(entry Entry) string {
-	if entry.CacheFile != "" {
-		return entry.CacheFile
-	}
-	// Backward-compatible fallback for private local aliases and tests created
-	// before repository and cache paths became separate fields.
-	return entry.File
-}
-
 func (s Store) Path(entry Entry) (string, error) {
-	filename := localStoreFile(entry)
+	filename := entry.CacheFile
 	if !validStoreFile(filename) {
 		return "", fmt.Errorf("invalid local image path %q", filename)
 	}
@@ -250,7 +241,7 @@ func digestFile(pathname string) (string, int64, error) {
 func (s Store) manager() disk.Manager { return disk.Manager{QEMUImg: s.QEMUImg, Runner: s.Runner} }
 
 func validateEntryIdentity(entry Entry) error {
-	if !digestPattern.MatchString(entry.SHA256) || entry.Format != "qcow2" || !validStoreFile(localStoreFile(entry)) {
+	if !digestPattern.MatchString(entry.SHA256) || entry.Format != "qcow2" || !validStoreFile(entry.CacheFile) {
 		return errors.New("catalog image digest, format, or local cache file is invalid")
 	}
 	if entry.ArtifactSize < 0 || entry.ArtifactSize > MaxArtifactSize || entry.VirtualSize < 0 {
@@ -715,8 +706,8 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 			return "", Metadata{}, errors.New("catalog upstream image URL must be empty or absolute HTTPS")
 		}
 	}
-	if s.Repository == "" && entry.Upstream == "" {
-		return "", Metadata{}, errors.New("catalog image has neither a repository nor an upstream source")
+	if s.Repository == "" {
+		return "", Metadata{}, errors.New("image pull requires a configured repository")
 	}
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -760,29 +751,21 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 		kind   string
 		source string
 	}
-	candidates := make([]candidate, 0, 1)
-	if s.Repository != "" {
-		source, sourceErr := RepositoryArtifactSource(s.Repository, entry.File)
+	source, sourceErr := RepositoryArtifactSource(s.Repository, entry.File)
+	if sourceErr != nil {
+		return "", Metadata{}, sourceErr
+	}
+	candidates := []candidate{{kind: "repository", source: source}}
+	if fallback := officialFallback(s.Repository); fallback != "" {
+		mirrorSource, sourceErr := RepositoryArtifactSource(fallback, entry.File)
 		if sourceErr != nil {
 			return "", Metadata{}, sourceErr
 		}
-		candidates = append(candidates, candidate{kind: "repository", source: source})
-		if fallback := officialFallback(s.Repository); fallback != "" {
-			mirrorSource, sourceErr := RepositoryArtifactSource(fallback, entry.File)
-			if sourceErr != nil {
-				return "", Metadata{}, sourceErr
-			}
-			candidates = append(candidates, candidate{kind: "mirror", source: mirrorSource})
-		}
-	} else if entry.Upstream != "" {
-		// Upstream remains a provenance field and a compatibility source for a
-		// Store deliberately constructed without a repository. Normal command
-		// paths resolve a repository; official repositories can fail over to their mirror.
-		candidates = append(candidates, candidate{kind: "upstream", source: entry.Upstream})
+		candidates = append(candidates, candidate{kind: "mirror", source: mirrorSource})
 	}
 	failures := make([]string, 0, len(candidates))
 	next := ""
-	gone := len(candidates) > 0
+	gone := true
 	for index, candidate := range candidates {
 		tempPath, copied, stageErr := s.stageWithRetry(ctx, candidate.source, directory, entry)
 		if stageErr != nil {
@@ -822,11 +805,7 @@ func (s Store) Pull(ctx context.Context, entry Entry) (_ string, _ Metadata, ret
 	}
 	message := fmt.Errorf("download image %s %s: %s", entry.Alias, entry.Release, strings.Join(failures, "; "))
 	if gone {
-		if candidates[0].kind == "repository" {
-			return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the selected repository does not carry this catalog artifact", message), "barn update, choose another repository with --mirror / --repo, or barn image import a local copy")
-		}
-		// A Store without a repository is a compatibility-only upstream path.
-		return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the pinned artifact is no longer published upstream", message), "barn update, point --repo at a repository that carries it, or barn image import a local copy")
+		return "", Metadata{}, failure.WithNext(fmt.Errorf("%w; the selected repository does not carry this catalog artifact", message), "barn update, choose another repository with --mirror / --repo, or barn image import a local copy")
 	}
 	return "", Metadata{}, failure.WithNext(message, next)
 }

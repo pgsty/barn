@@ -51,7 +51,7 @@ type Result struct {
 }
 
 func validateEntry(entry Entry) error {
-	if entry.HostKeyAlias != "" && !aliasPattern.MatchString(entry.HostKeyAlias) {
+	if !aliasPattern.MatchString(entry.HostKeyAlias) {
 		return errors.New("SSH host key alias is invalid")
 	}
 	if !namePattern.MatchString(entry.Name) || !namePattern.MatchString(entry.Node) || !namePattern.MatchString(entry.User) || strings.ContainsAny(entry.Host, "\r\n\x00$%") || entry.Host == "" || entry.Port == 0 || !safeOpenSSHPath(entry.Identity) || !safeOpenSSHPath(entry.KnownHosts) {
@@ -98,9 +98,7 @@ func render(entries []Entry) (string, error) {
 			patterns = append(patterns, pattern)
 		}
 		fmt.Fprintf(&output, "Host %s\n  HostName %s\n  User %s\n  Port %d\n  IdentityFile %s\n  UserKnownHostsFile %s\n  IdentitiesOnly yes\n  StrictHostKeyChecking accept-new\n", strings.Join(patterns, " "), entry.Host, entry.User, entry.Port, identity, knownHosts)
-		if entry.HostKeyAlias != "" {
-			fmt.Fprintf(&output, "  HostKeyAlias %s\n", entry.HostKeyAlias)
-		}
+		fmt.Fprintf(&output, "  HostKeyAlias %s\n", entry.HostKeyAlias)
 		if index != len(entries)-1 {
 			output.WriteByte('\n')
 		}

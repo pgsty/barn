@@ -20,18 +20,14 @@ import (
 )
 
 const (
-	BridgeName         = "barn0"
-	QEMUConfigDir      = "/etc/qemu"
-	BridgeConfPath     = "/etc/qemu/bridge.conf"
-	NetDevPath         = "/etc/systemd/network/80-barn0.netdev"
-	NetworkPath        = "/etc/systemd/network/80-barn0.network"
-	NetworkManagerPath = "/etc/NetworkManager/conf.d/90-barn-unmanaged.conf"
-	TmpfilesPath       = "/etc/tmpfiles.d/barn.conf"
-	StatePath          = "/var/lib/barn/network.json"
-	LeaseRoot          = "/run/barn"
-	LeaseLockPath      = "/run/barn/private-lease.lock"
-	markerBegin        = "# BEGIN BARN MANAGED: barn0"
-	markerEnd          = "# END BARN MANAGED: barn0"
+	BridgeName     = "barn0"
+	QEMUConfigDir  = "/etc/qemu"
+	BridgeConfPath = "/etc/qemu/bridge.conf"
+	NetDevPath     = "/etc/systemd/network/80-barn0.netdev"
+	NetworkPath    = "/etc/systemd/network/80-barn0.network"
+	StatePath      = "/var/lib/barn/network.json"
+	markerBegin    = "# BEGIN BARN MANAGED: barn0"
+	markerEnd      = "# END BARN MANAGED: barn0"
 
 	// The backend is selected by the active host-network owner: NetworkManager
 	// when it is running, otherwise systemd-networkd.
@@ -206,7 +202,6 @@ type Manifest struct {
 	AppliedOverride    *Override            `json:"applied_override,omitempty"`
 	Files              map[string]string    `json:"files"`
 	NetworkManager     bool                 `json:"network_manager"`
-	LeaseRoot          string               `json:"lease_root"`
 }
 
 type Plan struct {
@@ -668,7 +663,7 @@ func NewInstallPlan(facts Facts, config Config) (Plan, error) {
 
 func validateManifest(manifest Manifest) error {
 	backend := ManifestBackend(manifest)
-	if manifest.Schema != 1 || manifest.Bridge != BridgeName || (manifest.LeaseRoot != "" && manifest.LeaseRoot != LeaseRoot) || (manifest.Family != Debian && manifest.Family != RPM) || (manifest.HelperPath != "/usr/lib/qemu/qemu-bridge-helper" && manifest.HelperPath != "/usr/libexec/qemu-bridge-helper") {
+	if manifest.Schema != 1 || manifest.Bridge != BridgeName || (manifest.Family != Debian && manifest.Family != RPM) || (manifest.HelperPath != "/usr/lib/qemu/qemu-bridge-helper" && manifest.HelperPath != "/usr/libexec/qemu-bridge-helper") {
 		return errors.New("linux network ownership manifest identity is invalid")
 	}
 	if backend != BackendNetworkd && backend != BackendNetworkManager {
@@ -692,18 +687,13 @@ func validateManifest(manifest Manifest) error {
 		if len(manifest.NetworkdUnits) != 0 {
 			return errors.New("NetworkManager-backend manifest must not carry networkd prestate")
 		}
-		// TmpfilesPath and LeaseLockPath survive only in pre-simplification
-		// manifests; new installs no longer write them.
-		allowed = map[string]struct{}{BridgeConfPath: {}, TmpfilesPath: {}, LeaseLockPath: {}, PublicStatePath: {}}
+		allowed = map[string]struct{}{BridgeConfPath: {}, PublicStatePath: {}}
 		required = []string{BridgeConfPath, PublicStatePath}
 	} else {
 		if err := validateNetworkdUnits(manifest.NetworkdUnits); err != nil {
 			return err
 		}
-		allowed = map[string]struct{}{BridgeConfPath: {}, NetDevPath: {}, NetworkPath: {}, TmpfilesPath: {}, LeaseLockPath: {}}
-		if manifest.NetworkManager {
-			allowed[NetworkManagerPath] = struct{}{}
-		}
+		allowed = map[string]struct{}{BridgeConfPath: {}, NetDevPath: {}, NetworkPath: {}}
 		required = []string{BridgeConfPath, NetDevPath, NetworkPath}
 	}
 	for _, pathname := range required {
@@ -811,12 +801,9 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 		phases = append(phases, CommandPhase{Name: "restore-helper-after-vm-detach", Commands: helperCommands})
 	}
 	phases = append(phases, CommandPhase{Name: "reload-after-network-file-removal", Commands: []Command{{Binary: "/usr/bin/networkctl", Args: []string{"reload"}}}})
-	if manifest.NetworkManager {
-		phases = append(phases, CommandPhase{Name: "reload-network-manager-after-dropin-removal", Commands: []Command{{Binary: "/usr/bin/nmcli", Args: []string{"general", "reload"}}}})
-	}
 	phases = append(phases, CommandPhase{Name: "restore-networkd-prestate", Commands: restoreNetworkdCommands(manifest.NetworkdUnits)})
 	removeFiles := make([]string, 0, len(manifest.Files)+1)
-	for _, pathname := range []string{NetDevPath, NetworkPath, NetworkManagerPath, TmpfilesPath, LeaseLockPath} {
+	for _, pathname := range []string{NetDevPath, NetworkPath} {
 		if _, owned := manifest.Files[pathname]; owned {
 			removeFiles = append(removeFiles, pathname)
 		}
@@ -829,9 +816,6 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 	}
 	removeFiles = append(removeFiles, StatePath)
 	removeDirectories := []string{"/var/lib/barn"}
-	if manifest.LeaseRoot != "" {
-		removeDirectories = append([]string{manifest.LeaseRoot}, removeDirectories...)
-	}
 	if manifest.QEMUConfigCreated {
 		removeDirectories = append(removeDirectories, QEMUConfigDir)
 	}
@@ -867,12 +851,7 @@ func newNetworkManagerUninstallPlan(manifest Manifest, facts UninstallFacts) (Un
 	if len(helperCommands) > 0 {
 		phases = append(phases, CommandPhase{Name: "restore-helper-after-vm-detach", Commands: helperCommands})
 	}
-	removeFiles := make([]string, 0, len(manifest.Files)+1)
-	for _, pathname := range []string{TmpfilesPath, LeaseLockPath, PublicStatePath} {
-		if _, owned := manifest.Files[pathname]; owned {
-			removeFiles = append(removeFiles, pathname)
-		}
-	}
+	removeFiles := []string{PublicStatePath}
 	restoreFiles := make([]File, 0, 1)
 	if manifest.OriginalBridgePath.Existed {
 		restoreFiles = append(restoreFiles, File{Path: BridgeConfPath, Owner: manifest.OriginalBridgePath.Owner + ":" + manifest.OriginalBridgePath.Group, Mode: manifest.OriginalBridgePath.Mode, Content: manifest.OriginalBridgeConf})
@@ -881,9 +860,6 @@ func newNetworkManagerUninstallPlan(manifest Manifest, facts UninstallFacts) (Un
 	}
 	removeFiles = append(removeFiles, StatePath)
 	removeDirectories := []string{"/var/lib/barn"}
-	if manifest.LeaseRoot != "" {
-		removeDirectories = append([]string{manifest.LeaseRoot}, removeDirectories...)
-	}
 	if manifest.PublicDirCreated {
 		removeDirectories = append(removeDirectories, PublicStateDir)
 	}

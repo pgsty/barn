@@ -726,7 +726,7 @@ func linuxRequiredTargets(networkManager bool, stateDir string) []linuxPublicTar
 func (p Probe) collectLinux(ctx context.Context, request Request) Snapshot {
 	snapshot := Snapshot{Addresses: make(map[string]string), Installation: Installation{Status: "absent"}}
 	stateDir := filepath.Dir(linuxnet.StatePath)
-	anchorPaths := []string{linuxnet.NetDevPath, linuxnet.NetworkPath, linuxnet.NetworkManagerPath, linuxnet.TmpfilesPath, linuxnet.PublicStatePath, stateDir, linuxnet.LeaseRoot}
+	anchorPaths := []string{linuxnet.NetDevPath, linuxnet.NetworkPath, linuxnet.PublicStatePath, stateDir}
 	anchors := 0
 	for _, path := range anchorPaths {
 		if _, err := p.lstat(path); err == nil {
@@ -893,15 +893,6 @@ func (p Probe) verifyLinuxNetworkdInstallation(ctx context.Context, snapshot *Sn
 			invalidate(&snapshot.Installation, exact.path+": "+fileErr.Error())
 		}
 	}
-	if managerInfo, managerErr := p.lstat(linuxnet.NetworkManagerPath); managerErr == nil {
-		if metadataErr := rootMetadata(managerInfo, 0o644, "file", 0, false); metadataErr != nil {
-			invalidate(&snapshot.Installation, linuxnet.NetworkManagerPath+": "+metadataErr.Error())
-		} else if fileErr := p.exactPublicFile(linuxnet.NetworkManagerPath, []byte("[keyfile]\nunmanaged-devices=interface-name:barn0\n"), 1<<20); fileErr != nil {
-			invalidate(&snapshot.Installation, linuxnet.NetworkManagerPath+": "+fileErr.Error())
-		}
-	} else if !errors.Is(managerErr, os.ErrNotExist) {
-		invalidate(&snapshot.Installation, linuxnet.NetworkManagerPath+": "+managerErr.Error())
-	}
 	protectedState := p.verifyLinuxOwnedCommon(ctx, snapshot, layout, linuxnet.BackendNetworkd)
 	if snapshot.Installation.Status != "invalid" {
 		if protectedState {
@@ -944,13 +935,6 @@ func (p Probe) verifyLinuxNMInstallation(ctx context.Context, snapshot *Snapshot
 	snapshot.Installation.CIDR = layout.CIDR()
 	snapshot.Installation.HostAddress = layout.HostAddress()
 	snapshot.Installation.Interface = linuxnet.BridgeName
-	// The unmanaged drop-in belongs to the networkd backend; its presence under
-	// the NetworkManager backend is stale foreign state.
-	if _, managerErr := p.lstat(linuxnet.NetworkManagerPath); managerErr == nil {
-		invalidate(&snapshot.Installation, linuxnet.NetworkManagerPath+": stale networkd-backend drop-in present under the NetworkManager backend")
-	} else if !errors.Is(managerErr, os.ErrNotExist) {
-		invalidate(&snapshot.Installation, linuxnet.NetworkManagerPath+": "+managerErr.Error())
-	}
 	protectedState := p.verifyLinuxOwnedCommon(ctx, snapshot, layout, linuxnet.BackendNetworkManager)
 	if snapshot.Installation.Status != "invalid" {
 		if protectedState {

@@ -30,10 +30,10 @@ func TestCatalogResolvesDefaultChannelExactVersionAndAlias(t *testing.T) {
 	t.Parallel()
 	catalog := EmbeddedCatalog()
 	defaultEntry, err := catalog.Entry("", "arm64")
-	if err != nil || defaultEntry.Alias != "u24" || defaultEntry.Channel != "stable" || defaultEntry.Release != "20260911.0.0" {
+	if err != nil || defaultEntry.Alias != "u24" || defaultEntry.Channel != "stable" || defaultEntry.Release != "20260926.0.0" {
 		t.Fatalf("default entry = %#v, %v", defaultEntry, err)
 	}
-	exact, err := catalog.Entry("ubuntu2404@20260911.0.0", "arm64")
+	exact, err := catalog.Entry("ubuntu2404@20260926.0.0", "arm64")
 	if err != nil || exact.Alias != "u24" || exact.Channel != "" || exact.SHA256 != defaultEntry.SHA256 {
 		t.Fatalf("exact entry = %#v, %v", exact, err)
 	}
@@ -104,6 +104,14 @@ func TestCatalogRefreshRetainsPinnedImages(t *testing.T) {
 	t.Parallel()
 	catalog := EmbeddedCatalog()
 	for _, test := range []struct{ reference, arch, sha256 string }{
+		{"d12@20260909.2596.1", "amd64", "ad255513c30684f7bc833ba8aaa55745764d957c2ea587ef28adf78548dfcfbf"},
+		{"d12@20260909.2596.1", "arm64", "b4095d161fd3b551df4cc47db9019cb98b96c45ad3320a00c6ef9ca3425ca676"},
+		{"u22@20260913.0.0", "amd64", "9144540e8af7637d258b50dbabe82ce1aa6752c9574fedfb048270da0e087899"},
+		{"u22@20260913.0.0", "arm64", "ab5fcc80611a98bf999018045119d87b3a0e7c78f3b43b254b93d5c22bae3ff6"},
+		{"u24@20260911.0.0", "amd64", "612b2c0cc1bc413a6cb8c38fd611794caf0f2b436c50013d8b3794db12ad7354"},
+		{"u24@20260911.0.0", "arm64", "7b682958a67ff5de068e36de6af8b75fa645d296af5a70d6500527f6a33781db"},
+		{"u26@20260918.0.0", "amd64", "4908fb59ccd4e87ae4e8e973b7ef56f535448eacb24a87fd787270c0048987bc"},
+		{"u26@20260918.0.0", "arm64", "8dc812bc6356d0abf825d8029f25f1b71f02cb103e1d0cc5c17fbb2572322972"},
 		{"d12@20260806.2562.1", "amd64", "5e25ae70d8b95a1f1258c9243c8130e746dae602185a97c186ddbe62f5c563a1"},
 		{"d12@20260806.2562.1", "arm64", "a8898040189bf0e0d7dca6cf8db965957fbfb172c726e6ba264fe18303f48607"},
 		{"d13@20260810.2566.1", "amd64", "1abcb1ee7081ae5f577d25f573376d140e2a15df8bfe135418f7d9999ce4bab5"},

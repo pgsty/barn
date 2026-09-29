@@ -51,14 +51,14 @@ func TestHomebrewProvenanceStateContract(t *testing.T) {
 	if err != nil || parsed != brewPlan.State {
 		t.Fatalf("strict homebrew state=%#v err=%v", parsed, err)
 	}
-	// Legacy archive-sourced states must not grow new keys.
-	legacyJSON, err := plan.StateJSON()
+	// Archive-sourced states use pinned digests without Homebrew provenance.
+	archiveJSON, err := plan.StateJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, forbidden := range []string{"source", "socket_sha256", "client_sha256"} {
-		if strings.Contains(string(legacyJSON), forbidden) {
-			t.Fatalf("legacy state grew key %q:\n%s", forbidden, legacyJSON)
+		if strings.Contains(string(archiveJSON), forbidden) {
+			t.Fatalf("archive state gained Homebrew key %q:\n%s", forbidden, archiveJSON)
 		}
 	}
 	invalid := []NetworkState{}
@@ -115,23 +115,23 @@ func TestHomebrewProvenanceInterfaceMarkerRoundTrip(t *testing.T) {
 	if _, err := StrictInterfaceMarker(tampered); err == nil {
 		t.Fatal("marker with missing recorded digest accepted")
 	}
-	// Legacy markers must not grow new keys and must keep parsing.
-	legacyPlan, err := NewInstallPlan("arm64", testInterfaceID)
+	// Archive-sourced markers omit Homebrew provenance and remain valid.
+	archivePlan, err := NewInstallPlan("arm64", testInterfaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyPlan, err = legacyPlan.WithBSDInterface("bridge100")
+	archivePlan, err = archivePlan.WithBSDInterface("bridge100")
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyData, err := legacyPlan.InterfaceJSON()
+	archiveData, err := archivePlan.InterfaceJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(legacyData), "source") || strings.Contains(string(legacyData), "sha256") {
-		t.Fatalf("legacy marker grew provenance keys:\n%s", legacyData)
+	if strings.Contains(string(archiveData), "source") || strings.Contains(string(archiveData), "sha256") {
+		t.Fatalf("archive marker gained Homebrew provenance keys:\n%s", archiveData)
 	}
-	if _, err := StrictInterfaceMarker(legacyData); err != nil {
+	if _, err := StrictInterfaceMarker(archiveData); err != nil {
 		t.Fatal(err)
 	}
 }

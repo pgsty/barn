@@ -323,11 +323,6 @@ func (m ManifestManager) Current() (Catalog, ManifestState, error) {
 			return Catalog{}, ManifestState{}, keyErr
 		}
 		signatureText, signatureErr := readLimitedFile(versionSignaturePath(manifestPath, state.KeyID), MaxSignatureSize)
-		if errors.Is(signatureErr, os.ErrNotExist) {
-			// Schema-1 state stored one unqualified signature beside each
-			// catalog. Preserve that read path during migration.
-			signatureText, signatureErr = readLimitedFile(manifestPath+".minisig", MaxSignatureSize)
-		}
 		if signatureErr != nil {
 			return Catalog{}, ManifestState{}, signatureErr
 		}

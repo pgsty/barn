@@ -1,8 +1,8 @@
 {
   "artifact_base_url": "https://repo.pigsty.cc/barn",
-  "manifest_version": 2026092001,
+  "manifest_version": 2026092901,
   "schema": 1,
-  "source_date_epoch": 1789862400,
+  "source_date_epoch": 1790640000,
   "targets": [
     {
       "arch": "amd64",
@@ -44,11 +44,11 @@
         "schema": 1
       },
       "profile": "d12",
-      "release": "20260909.2596.1",
-      "source_filename": "d12-20260909.2596.1-amd64.source.qcow2",
-      "source_sha256": "5b842b549629637613f1770ad749b868b08c6e16c437a5940f21178816f3d7e9",
-      "source_sha512": "84946d6e2f55b1e8dcc114efc059f13882bd2ccdf36852126a13a0aa4a4ce0efee945406b78280e5942096639edc2a3ced20b70c12d9c7c7366ce364ba47a0ff",
-      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20260909-2596/debian-12-generic-amd64-20260909-2596.qcow2"
+      "release": "20260923.2610.1",
+      "source_filename": "d12-20260923.2610.1-amd64.source.qcow2",
+      "source_sha256": "30da13ad03a8713f3cf2b9b2830b4db892e2e7dca2572f9eb690f86ad4e8fe97",
+      "source_sha512": "b789a983661b93ae280dcebbcecc425e7a05f15ab4a60d08e0bf130759a4f84dd26de39bd0e77e33b3f513910e5c5e84bdb335324b5138b4c43a0899a1733455",
+      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-amd64-20260923-2610.qcow2"
     },
     {
       "arch": "arm64",
@@ -90,11 +90,11 @@
         "schema": 1
       },
       "profile": "d12",
-      "release": "20260909.2596.1",
-      "source_filename": "d12-20260909.2596.1-arm64.source.qcow2",
-      "source_sha256": "38190f378a1564c8bf5cf6a44898999bfcb5972876dc3e4a9b5413b6398a1efa",
-      "source_sha512": "791a822d93afa20360af4497ea2d2c0c0867b9663b8fc4e8b864364334855585a9f053d8fc82c72fe703d66ff76387c6dfc7be8534f0c85c47f0448f6dd28dd4",
-      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20260909-2596/debian-12-generic-arm64-20260909-2596.qcow2"
+      "release": "20260923.2610.1",
+      "source_filename": "d12-20260923.2610.1-arm64.source.qcow2",
+      "source_sha256": "36af134bafc3e426e551f250deec7581e4352d473ba40be7d9fd905fb832d0ed",
+      "source_sha512": "2c94f9e36787ec5bc8703e261a03f7b046ff71407cfbff18a2c0849a9dcc0973dcd6ef4cf02b9dd66a795ae204061516f4c967d69b41158a4ed1f066474d9638",
+      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-arm64-20260923-2610.qcow2"
     },
     {
       "arch": "amd64",

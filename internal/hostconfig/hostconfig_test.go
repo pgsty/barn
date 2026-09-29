@@ -49,9 +49,9 @@ func TestReconcileRejectsMalformedMarkersAndConflictingNames(t *testing.T) {
 	if _, _, _, err := ReconcileContent(malformed, ActionInstall, fixtureEntries()); err == nil {
 		t.Fatal("unterminated marker block was accepted")
 	}
-	legacyMarker := []byte("127.0.0.1 localhost\n# barn:11111111-1111-4111-8111-111111111111:begin\n10.10.10.10 meta\n# barn:11111111-1111-4111-8111-111111111111:end\n")
-	if _, _, _, err := ReconcileContent(legacyMarker, ActionInstall, fixtureEntries()); err == nil {
-		t.Fatal("pre-simplification per-project marker was accepted")
+	invalidMarker := []byte("127.0.0.1 localhost\n# barn:invalid:begin\n10.10.10.10 meta\n# barn:invalid:end\n")
+	if _, _, _, err := ReconcileContent(invalidMarker, ActionInstall, fixtureEntries()); err == nil {
+		t.Fatal("malformed marker was accepted")
 	}
 	duplicate := []byte("# barn:begin\n10.10.10.20 other\n# barn:end\n# barn:begin\n10.10.10.21 more\n# barn:end\n")
 	if _, _, _, err := ReconcileContent(duplicate, ActionInstall, fixtureEntries()); err == nil {

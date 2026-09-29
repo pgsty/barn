@@ -44,9 +44,9 @@ func TestNetworkManagerBackendPlan(t *testing.T) {
 			t.Errorf("NM plan missing %q:\n%s", want, commands)
 		}
 	}
-	for _, forbidden := range []string{"networkctl", "systemd-networkd", "unmanaged-devices", "systemd-tmpfiles"} {
+	for _, forbidden := range []string{"networkctl", "systemd-networkd", "unmanaged-devices"} {
 		if strings.Contains(commands, forbidden) {
-			t.Errorf("NM plan must not touch networkd or retired lease runtime: %q in\n%s", forbidden, commands)
+			t.Errorf("NM plan must not touch networkd: %q in\n%s", forbidden, commands)
 		}
 	}
 	paths := make(map[string]struct{}, len(plan.Files))
@@ -58,9 +58,9 @@ func TestNetworkManagerBackendPlan(t *testing.T) {
 			t.Errorf("NM plan missing owned file %s: %v", want, paths)
 		}
 	}
-	for _, forbidden := range []string{NetDevPath, NetworkPath, NetworkManagerPath, TmpfilesPath, LeaseLockPath} {
+	for _, forbidden := range []string{NetDevPath, NetworkPath} {
 		if _, ok := paths[forbidden]; ok {
-			t.Errorf("NM plan must not write networkd or retired lease file %s", forbidden)
+			t.Errorf("NM plan must not write networkd file %s", forbidden)
 		}
 	}
 	// No sudo firewalld: zone argument absent.

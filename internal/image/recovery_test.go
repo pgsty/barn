@@ -21,6 +21,7 @@ func TestCachePermissionRecoveryVerifiesBytes(t *testing.T) {
 	t.Parallel()
 	store := testImageStore(t)
 	artifact := testHTTPArtifact(t)
+	store.Repository = "https://unreachable.invalid"
 	entry := artifact.entry("https://unreachable.invalid/image.qcow2")
 	path, err := store.Path(entry)
 	if err != nil {
@@ -59,6 +60,7 @@ func TestDamagedUnreferencedCacheIsPreservedAndFetchedAgain(t *testing.T) {
 		http.ServeContent(w, r, "image.qcow2", time.Time{}, strings.NewReader(string(artifact.data)))
 	}))
 	defer server.Close()
+	store.Repository = server.URL
 	store.HTTPClient = server.Client()
 	entry := artifact.entry(server.URL + "/image.qcow2")
 	path, err := store.Path(entry)
@@ -91,6 +93,7 @@ func TestCacheRecoveryPreservesReferencedBackingEvenAfterCatalogDigestChange(t *
 	t.Parallel()
 	store := testImageStore(t)
 	artifact := testHTTPArtifact(t)
+	store.Repository = "https://unreachable.invalid"
 	entry := artifact.entry("https://unreachable.invalid/image.qcow2")
 	path, err := store.Path(entry)
 	if err != nil {
@@ -135,6 +138,7 @@ func TestCancellationDuringRetryPreservesResumePoint(t *testing.T) {
 		http.ServeContent(w, r, "image.qcow2", time.Time{}, strings.NewReader(string(artifact.data)))
 	}))
 	defer server.Close()
+	store.Repository = server.URL
 	store.HTTPClient = server.Client()
 	entry := artifact.entry(server.URL + "/image.qcow2")
 	ctx, cancel := context.WithCancel(context.Background())

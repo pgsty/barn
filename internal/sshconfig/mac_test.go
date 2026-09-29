@@ -15,7 +15,7 @@ func macEntry(name, host string) MacEntry {
 
 func TestMacFragmentCoexistsWithTheLinuxFragment(t *testing.T) {
 	home := t.TempDir()
-	if _, err := InstallMany(home, []Entry{{Name: "barn", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2222, Identity: "/k/id", KnownHosts: "/k/known"}}); err != nil {
+	if _, err := InstallMany(home, []Entry{{Name: "barn", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2222, Identity: "/k/id", KnownHosts: "/k/known", HostKeyAlias: "barn-fixture-meta"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InstallMac(home, "/data/mac", []MacEntry{macEntry("mac1", "10.10.20.10"), macEntry("dev", "10.10.30.10")}, false); err != nil {
@@ -32,7 +32,7 @@ func TestMacFragmentCoexistsWithTheLinuxFragment(t *testing.T) {
 		}
 	}
 	// Linux install and removal leave the Mac block alone, and vice versa.
-	if _, err := InstallMany(home, []Entry{{Name: "barn", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2223, Identity: "/k/id", KnownHosts: "/k/known"}}); err != nil {
+	if _, err := InstallMany(home, []Entry{{Name: "barn", Node: "meta", User: "vagrant", Host: "127.0.0.1", Port: 2223, Identity: "/k/id", KnownHosts: "/k/known", HostKeyAlias: "barn-fixture-meta"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Remove(home, "barn"); err != nil {

@@ -1,6 +1,6 @@
 {
   "schema": 3,
-  "revision": 2026092001,
+  "revision": 2026092901,
   "defaults": {
     "image": "u24",
     "channel": "stable",
@@ -15,7 +15,7 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260909.2596.1"
+        "stable": "20260923.2610.1"
       },
       "versions": {
         "20260806.2562.1": {
@@ -61,6 +61,29 @@
               "virtual_size": 3221225472,
               "source_user": "dba",
               "provenance": "Farrow official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260909-2596/debian-12-generic-arm64-20260909-2596.qcow2 sha256:38190f378a1564c8bf5cf6a44898999bfcb5972876dc3e4a9b5413b6398a1efa; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF dual-NIC SSH, default-locale, en_US locale, and XFS data-disk smoke passed 2026-09-20; upstream is build provenance only"
+            }
+          }
+        },
+        "20260923.2610.1": {
+          "status": "supported",
+          "variants": {
+            "amd64": {
+              "file": "images/d12-20260923.2610.1-amd64.qcow2",
+              "sha256": "00d96945c7b7b0f86d5f919658b0fe32829146851ce5f752f2fc50e907e894bc",
+              "format": "qcow2",
+              "artifact_size": 763166720,
+              "virtual_size": 3221225472,
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-amd64-20260923-2610.qcow2 sha256:30da13ad03a8713f3cf2b9b2830b4db892e2e7dca2572f9eb690f86ad4e8fe97; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+            },
+            "arm64": {
+              "file": "images/d12-20260923.2610.1-arm64.qcow2",
+              "sha256": "b7a91965bd9612d51c69396c2cb03b230707c69982b8286327844ce59f6cea00",
+              "format": "qcow2",
+              "artifact_size": 724500480,
+              "virtual_size": 3221225472,
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-arm64-20260923-2610.qcow2 sha256:36af134bafc3e426e551f250deec7581e4352d473ba40be7d9fd905fb832d0ed; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
             }
           }
         }
@@ -391,7 +414,7 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260913.0.0"
+        "stable": "20260926.0.0"
       },
       "versions": {
         "20260810.0.0": {
@@ -443,6 +466,31 @@
               "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260913; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
             }
           }
+        },
+        "20260926.0.0": {
+          "status": "supported",
+          "variants": {
+            "amd64": {
+              "file": "images/u22-20260926.0.0-amd64.qcow2",
+              "upstream": "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-amd64.img",
+              "sha256": "0c9811a81e6329acacbb5ae4e701a7650f85cd3f19852cd159d79ab8357b210e",
+              "format": "qcow2",
+              "artifact_size": 735731200,
+              "virtual_size": 2361393152,
+              "source_user": "ubuntu",
+              "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            },
+            "arm64": {
+              "file": "images/u22-20260926.0.0-arm64.qcow2",
+              "upstream": "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-arm64.img",
+              "sha256": "04f2ca6af841918df1fa1aaba485f2b5f3d451f90459e48c066bbd70ebed174f",
+              "format": "qcow2",
+              "artifact_size": 705299456,
+              "virtual_size": 2361393152,
+              "source_user": "ubuntu",
+              "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            }
+          }
         }
       }
     },
@@ -455,7 +503,7 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260911.0.0"
+        "stable": "20260926.0.0"
       },
       "versions": {
         "20260801.0.0": {
@@ -507,6 +555,31 @@
               "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260911; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
             }
           }
+        },
+        "20260926.0.0": {
+          "status": "supported",
+          "variants": {
+            "amd64": {
+              "file": "images/u24-20260926.0.0-amd64.qcow2",
+              "upstream": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-amd64.img",
+              "sha256": "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2",
+              "format": "qcow2",
+              "artifact_size": 625612288,
+              "virtual_size": 3758096384,
+              "source_user": "ubuntu",
+              "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            },
+            "arm64": {
+              "file": "images/u24-20260926.0.0-arm64.qcow2",
+              "upstream": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img",
+              "sha256": "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55",
+              "format": "qcow2",
+              "artifact_size": 620224512,
+              "virtual_size": 3758096384,
+              "source_user": "ubuntu",
+              "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            }
+          }
         }
       }
     },
@@ -518,7 +591,7 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260918.0.0"
+        "stable": "20260927.0.0"
       },
       "versions": {
         "20260731.0.0": {
@@ -568,6 +641,31 @@
               "virtual_size": 3758096384,
               "source_user": "ubuntu",
               "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260918; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
+            }
+          }
+        },
+        "20260927.0.0": {
+          "status": "supported",
+          "variants": {
+            "amd64": {
+              "file": "images/u26-20260927.0.0-amd64.qcow2",
+              "upstream": "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img",
+              "sha256": "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2",
+              "format": "qcow2",
+              "artifact_size": 865115136,
+              "virtual_size": 3758096384,
+              "source_user": "ubuntu",
+              "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260927; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            },
+            "arm64": {
+              "file": "images/u26-20260927.0.0-arm64.qcow2",
+              "upstream": "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-arm64.img",
+              "sha256": "63a93bd5a8d76e33b15ceb5daa3657bd79be804748051ab178e643b0f5da22e7",
+              "format": "qcow2",
+              "artifact_size": 945530880,
+              "virtual_size": 3758096384,
+              "source_user": "ubuntu",
+              "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260927; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
             }
           }
         }

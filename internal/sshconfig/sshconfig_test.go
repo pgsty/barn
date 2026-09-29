@@ -22,7 +22,7 @@ func TestInstallIdempotentAndRemovePreservesUserConfig(t *testing.T) {
 	}
 	entry := Entry{
 		Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222,
-		Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known"),
+		Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known"),
 	}
 	first, err := Install(home, entry)
 	if err != nil || !first.Changed {
@@ -76,7 +76,7 @@ func TestInstallAndRemoveRefuseUnownedFragment(t *testing.T) {
 	if err := os.WriteFile(fragment, []byte("Host user-owned\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known")}
 	if _, err := Install(home, entry); err == nil {
 		t.Fatal("unowned fragment was overwritten")
 	}
@@ -95,8 +95,8 @@ func TestInstallManyRendersNodeAndPrivateAddressAliases(t *testing.T) {
 	identity := filepath.Join(home, "id_ed25519")
 	knownHosts := filepath.Join(home, "known_hosts")
 	entries := []Entry{
-		{Name: "lab", Node: "meta", Aliases: []string{"meta", "10.10.10.10"}, User: "dba", Host: "127.0.0.1", Port: 2222, Identity: identity, KnownHosts: knownHosts},
-		{Name: "lab", Node: "node-1", Aliases: []string{"node-1", "10.10.10.11"}, User: "dba", Host: "127.0.0.1", Port: 2223, Identity: identity, KnownHosts: knownHosts},
+		{Name: "lab", Node: "meta", Aliases: []string{"meta", "10.10.10.10"}, User: "dba", Host: "127.0.0.1", Port: 2222, Identity: identity, HostKeyAlias: "barn-fixture-meta", KnownHosts: knownHosts},
+		{Name: "lab", Node: "node-1", Aliases: []string{"node-1", "10.10.10.11"}, User: "dba", Host: "127.0.0.1", Port: 2223, Identity: identity, HostKeyAlias: "barn-fixture-node-1", KnownHosts: knownHosts},
 	}
 	result, err := InstallMany(home, entries)
 	if err != nil || !result.Changed {
@@ -126,7 +126,7 @@ func TestInstallManyRendersNodeAndPrivateAddressAliases(t *testing.T) {
 func TestInstallManyRejectsDuplicateNodeAndUnsafeAlias(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	base := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	base := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known")}
 	if _, err := InstallMany(home, []Entry{base, base}); err == nil {
 		t.Fatal("duplicate node was accepted")
 	}
@@ -143,7 +143,7 @@ func TestInstallRefusesMalformedOwnedInclude(t *testing.T) {
 	if err := os.Mkdir(sshDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known")}
 	marker := "# barn:include\n"
 	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(marker+"Host unrelated\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestInstallRejectsOpenSSHTokenExpansionPaths(t *testing.T) {
 	if err := os.Mkdir(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(root, "key"), KnownHosts: filepath.Join(root, "known")}
+	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(root, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(root, "known")}
 	if _, err := Install(home, entry); err == nil {
 		t.Fatal("OpenSSH percent-token home was accepted")
 	}
@@ -178,7 +178,7 @@ func TestInstallRejectsOpenSSHTokenExpansionPaths(t *testing.T) {
 func TestRemoveValidatesFragmentBeforeChangingConfig(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known")}
 	installed, err := Install(home, entry)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestLinkedConfigIsNeverEditedAndAcceptsManualInclude(t *testing.T) {
 	if err := os.Symlink(managed, filepath.Join(sshDir, "config")); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Name: "barn", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), KnownHosts: filepath.Join(home, "known")}
+	entry := Entry{Name: "barn", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known")}
 	result, err := Install(home, entry)
 	if err == nil || !strings.Contains(err.Error(), "managed outside Barn") || !result.Changed {
 		t.Fatalf("linked install = %#v, %v", result, err)

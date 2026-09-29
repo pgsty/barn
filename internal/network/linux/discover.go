@@ -328,7 +328,7 @@ func discoverFacts(ctx context.Context, runner, privileged execx.Runner, needAcc
 		return Facts{}, err
 	}
 	if manifest == nil {
-		for _, path := range []string{NetDevPath, NetworkPath, NetworkManagerPath, TmpfilesPath, PublicStatePath, filepath.Dir(StatePath), StatePath, LeaseRoot, LeaseLockPath} {
+		for _, path := range []string{NetDevPath, NetworkPath, PublicStatePath, filepath.Dir(StatePath), StatePath} {
 			if _, err := os.Lstat(path); err == nil {
 				return Facts{}, fmt.Errorf("will not overwrite %s: it exists and Barn did not create it", path)
 			} else if !errors.Is(err, os.ErrNotExist) {

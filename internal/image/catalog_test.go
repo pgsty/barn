@@ -20,18 +20,20 @@ func TestEmbeddedCatalogRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry.SHA256 != "7b682958a67ff5de068e36de6af8b75fa645d296af5a70d6500527f6a33781db" || entry.ArtifactSize != 619621888 || entry.VirtualSize != 3758096384 || catalog.Version != EmbeddedManifestVersion || catalog.Defaults.Image != "u24" || entry.Channel != "stable" {
+	if entry.SHA256 != "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55" || entry.ArtifactSize != 620224512 || entry.VirtualSize != 3758096384 || catalog.Version != EmbeddedManifestVersion || catalog.Defaults.Image != "u24" || entry.Channel != "stable" {
 		t.Fatalf("entry/catalog = %#v %#v", entry, catalog)
 	}
-	if len(catalog.Images) != 9 || len(catalog.Entries()) != 37 {
+	if len(catalog.Images) != 9 || len(catalog.Entries()) != 45 {
 		t.Fatalf("embedded catalog matrix = %d images / %d entries", len(catalog.Images), len(catalog.Entries()))
 	}
 	for _, alias := range formalAliases {
 		record, ok := catalog.Images[alias]
 		wantVersions := 1
 		switch alias {
-		case "d12", "d13", "u22", "u24", "u26":
+		case "d13":
 			wantVersions = 2
+		case "d12", "u22", "u24", "u26":
+			wantVersions = 3
 		case "el9":
 			wantVersions = 4
 		case "el10":

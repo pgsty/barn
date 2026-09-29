@@ -98,7 +98,7 @@ func privateNodeTargets(deploymentValue Deployment, node state.NodeState) (strin
 	return nodeDir, ordered, nil
 }
 
-func (m Manager) removeKnownHostEntries(ctx context.Context, deploymentValue Deployment, nodes []state.NodeState, resolvedAddresses map[string]string) error {
+func (m Manager) removeKnownHostEntries(ctx context.Context, deploymentValue Deployment, nodes []state.NodeState) error {
 	sshKeygen, err := m.lookPath("ssh-keygen")
 	if err != nil {
 		return err
@@ -106,24 +106,19 @@ func (m Manager) removeKnownHostEntries(ctx context.Context, deploymentValue Dep
 	keysDir := filepath.Join(deploymentValue.Root, "keys")
 	knownHosts := filepath.Join(keysDir, "known_hosts")
 	for _, node := range nodes {
-		for _, host := range []string{fmt.Sprintf("[127.0.0.1]:%d", node.SSHPort), resolvedAddresses[node.Node], vm.HostKeyAlias(node.VMUUID)} {
-			if host == "" {
-				continue
+		if _, err := m.runner().Run(ctx, sshKeygen, "-f", knownHosts, "-R", vm.HostKeyAlias(node.VMUUID)); err != nil {
+			return err
+		}
+		backup := knownHosts + ".old"
+		if info, err := os.Lstat(backup); err == nil {
+			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				return errors.New("ssh-keygen created an unsafe private known_hosts backup")
 			}
-			if _, err := m.runner().Run(ctx, sshKeygen, "-f", knownHosts, "-R", host); err != nil {
+			if err := os.Remove(backup); err != nil {
 				return err
 			}
-			backup := knownHosts + ".old"
-			if info, err := os.Lstat(backup); err == nil {
-				if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-					return errors.New("ssh-keygen created an unsafe private known_hosts backup")
-				}
-				if err := os.Remove(backup); err != nil {
-					return err
-				}
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 	}
 	return fsutil.SyncDir(keysDir)
@@ -205,7 +200,6 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 	allNodes := make([]state.NodeState, 0, len(deploymentState.Resolved.Nodes))
 	targets := make(map[string][]string)
 	nodeDirs := make(map[string]string)
-	addresses := make(map[string]string)
 	for _, definition := range deploymentState.Resolved.Nodes {
 		node, err := store.ReadNode(definition.Name)
 		if missingPath(err) {
@@ -235,7 +229,6 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		nodes = append(nodes, node)
 		targets[node.Node] = nodeTargets
 		nodeDirs[node.Node] = nodeDir
-		addresses[node.Node] = definition.Address
 	}
 	persistentIdentities, err := validatePrivatePersistentState(deploymentValue, deploymentState, allNodes)
 	if err != nil {
@@ -288,7 +281,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		// failure. Its instance identity also prevents reuse by a later VM.
 		_ = store.WriteGuestWarnings(node, nil)
 	}
-	if err := m.removeKnownHostEntries(ctx, deploymentValue, nodes, addresses); err != nil {
+	if err := m.removeKnownHostEntries(ctx, deploymentValue, nodes); err != nil {
 		return Status{}, err
 	}
 	if !partial {

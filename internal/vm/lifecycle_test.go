@@ -21,7 +21,7 @@ import (
 
 func TestSSHArgsAreIsolated(t *testing.T) {
 	t.Parallel()
-	joined := strings.Join(SSHArgsForUser("dba", "/key", "/known", 2222, "true"), " ")
+	joined := strings.Join(SSHArgsForInstance("dba", "/key", "/known", HostKeyAlias("fixture-instance"), 2222, "true"), " ")
 	for _, expected := range []string{"-F /dev/null", "IdentitiesOnly=yes", "StrictHostKeyChecking=accept-new", `UserKnownHostsFile="/known"`, "dba@127.0.0.1 'true'"} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("SSH args missing %q: %s", expected, joined)
@@ -35,7 +35,7 @@ func TestSSHArgsAreIsolated(t *testing.T) {
 func TestSSHArgsPreserveKnownHostsPathWithSpaces(t *testing.T) {
 	t.Parallel()
 	knownHosts := filepath.Join(t.TempDir(), "Application Support", "barn", "known_hosts")
-	args := SSHArgsForUser("dba", "/key", knownHosts, 2222)
+	args := SSHArgsForInstance("dba", "/key", knownHosts, HostKeyAlias("fixture-instance"), 2222)
 	wantOption := `UserKnownHostsFile="` + knownHosts + `"`
 	found := false
 	for _, argument := range args {
@@ -69,12 +69,15 @@ func TestQuoteRemotePreservesBoundaries(t *testing.T) {
 
 func TestSSHArgsUseValidatedResolvedUser(t *testing.T) {
 	t.Parallel()
-	joined := strings.Join(SSHArgsForUser("operator", "/key", "/known", 2222, "true"), " ")
+	joined := strings.Join(SSHArgsForInstance("operator", "/key", "/known", HostKeyAlias("fixture-instance"), 2222, "true"), " ")
 	if !strings.Contains(joined, "operator@127.0.0.1") || strings.Contains(joined, "dba@127.0.0.1") {
 		t.Fatalf("custom SSH user was not preserved: %s", joined)
 	}
-	if args := SSHArgsForUser("-oProxyCommand=bad", "/key", "/known", 2222); args != nil {
+	if args := SSHArgsForInstance("-oProxyCommand=bad", "/key", "/known", HostKeyAlias("fixture-instance"), 2222); args != nil {
 		t.Fatalf("unsafe SSH user produced args: %v", args)
+	}
+	if args := SSHArgsForInstance("dba", "/key", "/known", "", 2222); args != nil {
+		t.Fatalf("missing instance alias produced args: %v", args)
 	}
 }
 
@@ -114,7 +117,7 @@ func TestWaitReadyAcceptsMatchingMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lifecycle := Lifecycle{Runner: readinessRunner{ready: data}, SSHUser: "dba"}
+	lifecycle := Lifecycle{Runner: readinessRunner{ready: data}, SSHUser: "dba", HostKeyAlias: HostKeyAlias("fixture-instance")}
 	if _, err := lifecycle.WaitReady(context.Background(), "/ssh", "/key", "/known", 2222, expected, time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +130,7 @@ func TestWaitReadyReturnsLimitationsWithoutFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	data = append(data[:len(data)-1], []byte(`,"warnings":[{"stage":"shares","detail":"/shared: read-only"}]}`)...)
-	lifecycle := Lifecycle{Runner: readinessRunner{ready: data}, SSHUser: "dba"}
+	lifecycle := Lifecycle{Runner: readinessRunner{ready: data}, SSHUser: "dba", HostKeyAlias: HostKeyAlias("fixture-instance")}
 	warnings, err := lifecycle.WaitReady(context.Background(), "/ssh", "/key", "/known", 2222, expected, time.Second)
 	if err != nil || len(warnings) != 1 || warnings[0].Stage != "shares" {
 		t.Fatalf("warnings=%+v err=%v", warnings, err)
@@ -140,7 +143,7 @@ func TestWaitReadyReturnsLimitationsWithoutFailure(t *testing.T) {
 
 func TestWaitReadyReturnsGuestBootstrapFailure(t *testing.T) {
 	t.Parallel()
-	lifecycle := Lifecycle{Runner: readinessRunner{error: []byte(`{"exit_status":1,"line":27,"stage":"data-disks"}`)}, SSHUser: "dba"}
+	lifecycle := Lifecycle{Runner: readinessRunner{error: []byte(`{"exit_status":1,"line":27,"stage":"data-disks"}`)}, SSHUser: "dba", HostKeyAlias: HostKeyAlias("fixture-instance")}
 	_, err := lifecycle.WaitReady(context.Background(), "/ssh", "/key", "/known", 2222, ReadyMarker{Node: "meta", Generation: 1, SpecHash: strings.Repeat("a", 64)}, time.Second)
 	if err == nil || !strings.Contains(err.Error(), "guest bootstrap failed during data-disks (exit status 1)") {
 		t.Fatalf("bootstrap failure = %v", err)
@@ -149,7 +152,7 @@ func TestWaitReadyReturnsGuestBootstrapFailure(t *testing.T) {
 
 func TestWaitReadyReportsGuestBootstrapDetail(t *testing.T) {
 	t.Parallel()
-	lifecycle := Lifecycle{Runner: readinessRunner{error: []byte(`{"exit_status":2,"stage":"data-disks","detail":"xfs requested but mkfs.xfs is unavailable"}`)}, SSHUser: "dba"}
+	lifecycle := Lifecycle{Runner: readinessRunner{error: []byte(`{"exit_status":2,"stage":"data-disks","detail":"xfs requested but mkfs.xfs is unavailable"}`)}, SSHUser: "dba", HostKeyAlias: HostKeyAlias("fixture-instance")}
 	_, err := lifecycle.WaitReady(context.Background(), "/ssh", "/key", "/known", 2222, ReadyMarker{Node: "meta", Generation: 1, SpecHash: strings.Repeat("a", 64)}, time.Second)
 	var bootstrap *BootstrapError
 	if !errors.As(err, &bootstrap) || bootstrap.Stage != "data-disks" || bootstrap.ExitStatus != 2 {

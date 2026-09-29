@@ -101,11 +101,6 @@ func TestDebianInstallPlanIsTypedAndMarkerPreserving(t *testing.T) {
 	if plan.Manifest.AppliedOverride == nil || plan.Manifest.AppliedOverride.Mode != "4750" || len(plan.Files) != 4 || len(plan.Directories) != 1 {
 		t.Fatalf("plan = %#v", plan)
 	}
-	for _, file := range plan.Files {
-		if file.Path == LeaseLockPath || file.Path == TmpfilesPath {
-			t.Fatalf("install plan still creates retired lease artifact %s", file.Path)
-		}
-	}
 	foundOverride := false
 	for _, command := range plan.Commands {
 		if command.Binary == "/usr/bin/dpkg-statoverride" {

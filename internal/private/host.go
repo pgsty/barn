@@ -305,7 +305,7 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 		if err != nil || publicState.CIDR != layout.CIDR() || publicState.HostAddress != layout.HostAddress() || publicState.DHCPEnd != layout.DHCPEnd() {
 			return Backend{}, errors.New("NetworkManager public state does not match the requested network")
 		}
-		for _, stale := range []string{linuxnet.NetDevPath, linuxnet.NetworkPath, linuxnet.NetworkManagerPath} {
+		for _, stale := range []string{linuxnet.NetDevPath, linuxnet.NetworkPath} {
 			if _, err := os.Lstat(stale); err == nil {
 				return Backend{}, fmt.Errorf("NetworkManager backend has stale networkd path: %s", stale)
 			} else if !errors.Is(err, os.ErrNotExist) {

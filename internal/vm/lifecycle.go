@@ -535,10 +535,6 @@ func (Lifecycle) duration(configured, fallback time.Duration) time.Duration {
 	return fallback
 }
 
-func SSHArgsForUser(user, key, knownHosts string, port uint16, command ...string) []string {
-	return SSHArgsForInstance(user, key, knownHosts, "", port, command...)
-}
-
 // The forwarding port is reusable; trust belongs to the VM instance instead.
 func HostKeyAlias(uuid string) string {
 	if uuid == "" {
@@ -548,7 +544,7 @@ func HostKeyAlias(uuid string) string {
 }
 
 func SSHArgsForInstance(user, key, knownHosts, alias string, port uint16, command ...string) []string {
-	if !sshUserPattern.MatchString(user) {
+	if !sshUserPattern.MatchString(user) || alias == "" {
 		return nil
 	}
 	knownHostsOption, err := openssh.QuoteConfigValue(knownHosts)
@@ -566,13 +562,11 @@ func SSHArgsForInstance(user, key, knownHosts, alias string, port uint16, comman
 	if len(command) > 0 {
 		args = append(args, QuoteRemote(command))
 	}
-	if alias != "" {
-		quoted, err := openssh.QuoteConfigValue(alias)
-		if err != nil {
-			return nil
-		}
-		args = append([]string{"-o", "HostKeyAlias=" + quoted}, args...)
+	quoted, err := openssh.QuoteConfigValue(alias)
+	if err != nil {
+		return nil
 	}
+	args = append([]string{"-o", "HostKeyAlias=" + quoted}, args...)
 	return args
 }
 

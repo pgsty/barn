@@ -19,7 +19,6 @@ const (
 	PlistPath           = "/Library/LaunchDaemons/io.pgsty.barn.vmnet.plist"
 	SocketPath          = "/private/var/run/barn-vmnet.sock"
 	PIDPath             = "/private/var/run/barn-vmnet.pid"
-	LeaseRoot           = "/private/var/run/barn"
 	StateDir            = "/private/var/db/barn"
 	StatePath           = "/private/var/db/barn/network.json"
 	InterfaceStatePath  = "/private/var/db/barn/network-interface.json"

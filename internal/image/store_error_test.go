@@ -43,7 +43,7 @@ func TestValidateCachedDigestMismatchHasFactualError(t *testing.T) {
 	if err := os.WriteFile(pathname, []byte("corrupt"), 0o444); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{File: "u24/fixture.qcow2", SHA256: strings.Repeat("0", 64), Format: "qcow2", ArtifactSize: int64(len("corrupt"))}
+	entry := Entry{CacheFile: "u24/fixture.qcow2", SHA256: strings.Repeat("0", 64), Format: "qcow2", ArtifactSize: int64(len("corrupt"))}
 	_, _, err := (Store{DataRoot: dataRoot}).ValidateCached(context.Background(), entry)
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch") || strings.Contains(err.Error(), "%!w") || strings.Contains(err.Error(), "<nil>") {
 		t.Fatalf("digest mismatch error = %v", err)

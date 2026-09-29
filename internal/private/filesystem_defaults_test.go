@@ -42,17 +42,17 @@ all:
 	return resolved, persisted
 }
 
-func TestInventoryDefaultFilesystemStaysCompatibleWithV020State(t *testing.T) {
+func TestInventoryAutoFilesystemPreservesFormattedState(t *testing.T) {
 	desired, persisted := inventoryDefaultDiskResolved(t, false)
 	diff := diffResolved(persisted, desired, func(string) bool { return true })
 	if err := refuseDrift(diff); err != nil || len(diff.Changed) != 0 || len(diff.Unchanged) != 1 || diff.Unchanged[0] != "meta" {
-		t.Fatalf("released inventory default drifted: diff=%#v err=%v", diff, err)
+		t.Fatalf("auto filesystem default caused drift: diff=%#v err=%v", diff, err)
 	}
 }
 
-func TestInventoryDefaultPersistentFilesystemStaysRecreateCompatibleWithV020(t *testing.T) {
+func TestInventoryAutoFilesystemAllowsPersistentRecreate(t *testing.T) {
 	desired, persisted := inventoryDefaultDiskResolved(t, true)
 	if err := validatePrivateRecreatePersistent(Deployment{Root: t.TempDir()}, persisted, desired); err != nil {
-		t.Fatalf("released persistent inventory default became incompatible: %v", err)
+		t.Fatalf("auto filesystem default prevented persistent recreation: %v", err)
 	}
 }
