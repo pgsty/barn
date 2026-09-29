@@ -185,16 +185,18 @@ access only when a host transaction genuinely needs it.
 
 ## Install
 
-Barn is pre-1.0. A successful build from source is not evidence of a tagged
-release, a published package, or a supported guest image.
+Install the current development version with Homebrew:
 
-Version 0.9.0 introduces the Barn name. See the
-[0.9.0 notes](.github/releases/0.9.0.md) for changes and validation scope.
-This checkout prepares that release; use a source build until its assets are
-published.
+```bash
+brew install --HEAD pgsty/infra/barn
+barn version
+```
 
-Download `install.sh`, `barn.rb`, or the native package from the
-[Barn 0.9.0 release](https://github.com/pgsty/barn/releases/tag/v0.9.0), once published.
+The formula builds the CLI and hosts-file helper from source.
+
+The 0.9.0 release packages are not published yet. Once available, download
+`install.sh`, `barn.rb`, or the native package from the
+[Barn 0.9.0 release](https://github.com/pgsty/barn/releases/tag/v0.9.0):
 
 ```bash
 # From a release: user-scoped, no sudo, checksum-verified
