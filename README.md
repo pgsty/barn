@@ -309,8 +309,7 @@ Per-node `ready: true` records a successful guest readiness check in that startu
 operation; ordinary `status` reports runtime state without claiming SSH readiness.
 Per-node `warnings` contain `{stage, detail}` for limited guest features; these
 survive CLI invocations and are refreshed on the next readiness check. These
-limitations use a disposable cache separate from core VM state, so diagnostic
-metadata does not prevent rolling back to 0.6.0. Per-node
+limitations use a disposable cache separate from core VM state. Per-node
 `repairs` describe automatic actions taken in that operation, such as a changed
 SSH port or a reset data disk. Automation that requires every configured guest feature should check
 `nodes[].warnings` as well as the exit code.

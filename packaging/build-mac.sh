@@ -31,7 +31,6 @@ install -m 0755 "$bundle/Barn Mac.app/Contents/MacOS/barn-mac-runner" "$bundle/"
 codesign --force --sign "${BARN_CODESIGN_IDENTITY:--}" --entitlements native/mac-runner/entitlements.plist "$bundle/barn-mac-runner"
 install -m 0644 LICENSE "$bundle/LICENSE"
 install -m 0644 docs/mac.md "$bundle/USER_GUIDE.md"
-install -m 0644 docs/mac-implementation-log.md "$bundle/mac-implementation-log.md"
 install -m 0644 native/mac-runner/README.md "$bundle/RUNNER_PROTOCOL.md"
 cat > "$bundle/README.md" <<'EOF'
 # Barn Mac local bundle
@@ -53,7 +52,6 @@ inventory is never read by these commands. ./barn mac ls --json works before
 anything exists and creates nothing.
 
 USER_GUIDE.md explains commands, persistent data and limitations.
-mac-implementation-log.md records implementation and live acceptance evidence.
 RUNNER_PROTOCOL.md describes the native process and its JSON interface.
 SHA256SUMS checks the included files: shasum -a 256 -c SHA256SUMS.
 EOF
@@ -64,7 +62,7 @@ codesign --verify --deep --strict "$bundle/Barn Mac.app"
 BARN_HOME="$stage/empty-home" "$bundle/barn" mac ls --json > "$stage/empty-slots.json"
 (
   cd "$bundle"
-  shasum -a 256 barn barn-hosts-helper barn-mac-runner LICENSE README.md USER_GUIDE.md mac-implementation-log.md RUNNER_PROTOCOL.md \
+  shasum -a 256 barn barn-hosts-helper barn-mac-runner LICENSE README.md USER_GUIDE.md RUNNER_PROTOCOL.md \
     "Barn Mac.app/Contents/Info.plist" "Barn Mac.app/Contents/MacOS/"* "Barn Mac.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
