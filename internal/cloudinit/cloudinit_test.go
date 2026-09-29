@@ -56,7 +56,7 @@ func TestRenderQuickContract(t *testing.T) {
 		}
 	}
 	userData := string(files.UserData)
-	for _, want := range []string{"#cloud-config", `name: "dba"`, "uid: 88", "primary_group: admin", "create_groups: false", "/usr/sbin/groupadd --gid 88 admin", "/usr/sbin/groupmod --gid 88 admin", "lock_passwd: true", "ssh_deletekeys: false", "ntp:\n  enabled: true", "/dev/disk/by-id/", "UUID=%s", "defaults,nofail", `mountpoint -q "${mountpoint}"`, "filesystem probe failed", "previous data discarded", "e2fsck -fn", "xfs_repair -n", "/usr/local/libexec/barn-network-check", "/usr/local/libexec/barn-identity-contract", "login identity", "for attempt in 1 2 3", "timeout 10s /bin/bash", "/dev/tcp/example.com/80", "/var/lib/barn/ready.json", "/var/lib/barn/error.json", "run_optional data-disks"} {
+	for _, want := range []string{"#cloud-config", `name: "dba"`, "uid: 88", "primary_group: admin", "create_groups: false", "/usr/sbin/groupadd --gid 88 admin", "/usr/sbin/groupmod --gid 88 admin", "lock_passwd: true", "sudo: ALL=(ALL) NOPASSWD:ALL", "ssh_deletekeys: false", "ntp:\n  enabled: true", "/dev/disk/by-id/", "UUID=%s", "defaults,nofail", `mountpoint -q "${mountpoint}"`, "filesystem probe failed", "previous data discarded", "e2fsck -fn", "xfs_repair -n", "/usr/local/libexec/barn-network-check", "/usr/local/libexec/barn-identity-contract", "login identity", "for attempt in 1 2 3", "timeout 10s /bin/bash", "/dev/tcp/example.com/80", "/var/lib/barn/ready.json", "/var/lib/barn/error.json", "run_optional data-disks"} {
 		if !strings.Contains(userData, want) {
 			t.Errorf("user-data missing %q", want)
 		}

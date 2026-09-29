@@ -970,7 +970,7 @@ func renderUserData(input Input) ([]byte, error) {
 	if input.SSHUser == "dba" {
 		out.WriteString("\n    uid: 88\n    primary_group: admin\n    create_groups: false")
 	}
-	out.WriteString("\n    shell: /bin/bash\n    lock_passwd: true\n    sudo:\n      - ALL=(ALL) NOPASSWD:ALL\n    ssh_authorized_keys:\n      - ")
+	out.WriteString("\n    shell: /bin/bash\n    lock_passwd: true\n    sudo: ALL=(ALL) NOPASSWD:ALL\n    ssh_authorized_keys:\n      - ")
 	out.WriteString(yamlQuote(input.PublicKey))
 	out.WriteString("\ngrowpart:\n  mode: auto\n  devices: ['/']\nresize_rootfs: true\nntp:\n  enabled: true\nwrite_files:\n")
 
