@@ -87,7 +87,7 @@ func FindRunner() (string, error) {
 			return found, nil
 		}
 	}
-	return "", failure.New(failure.Capability, errors.New("the Barn Mac component is not installed next to this barn")).
+	return "", failure.New(failure.Capability, errors.New("the Barn macOS component is not installed next to this barn")).
 		Because("mac_runner_missing").
 		Then("make mac-build in a Barn source checkout, then use bin/mac/barn (https://barn.pgsty.com/docs/start/macos/)")
 }
@@ -95,12 +95,18 @@ func FindRunner() (string, error) {
 // runnerCandidates covers the source bundle, the installer's version-independent
 // component directory, and Homebrew's libexec.
 func runnerCandidates(dir string) []string {
-	app := filepath.Join("Barn Mac.app", "Contents", "MacOS", "barn-mac-runner")
+	app := filepath.Join("Barn.app", "Contents", "MacOS", "barn-mac-runner")
+	// Existing installations may still contain the app's previous name.
+	legacyApp := filepath.Join("Barn Mac.app", "Contents", "MacOS", "barn-mac-runner")
 	return []string{
 		filepath.Join(dir, app),
 		filepath.Join(dir, "libexec", app),
 		filepath.Join(dir, "..", "libexec", app),
 		filepath.Join(dir, "..", "libexec", "barn-mac", app),
+		filepath.Join(dir, legacyApp),
+		filepath.Join(dir, "libexec", legacyApp),
+		filepath.Join(dir, "..", "libexec", legacyApp),
+		filepath.Join(dir, "..", "libexec", "barn-mac", legacyApp),
 		filepath.Join(dir, "barn-mac-runner"),
 		filepath.Join(dir, "libexec", "barn-mac-runner"),
 		filepath.Join(dir, "..", "libexec", "barn-mac-runner"),
@@ -129,7 +135,7 @@ func (r Runner) CheckProtocol(ctx context.Context) error {
 		return err
 	}
 	if probe.Protocol != RunnerProtocol {
-		return failure.New(failure.Capability, fmt.Errorf("the installed Barn Mac component (%s) speaks protocol %d, but this barn needs protocol %d", probe.Version, probe.Protocol, RunnerProtocol)).
+		return failure.New(failure.Capability, fmt.Errorf("the installed Barn macOS component (%s) speaks protocol %d, but this barn needs protocol %d", probe.Version, probe.Protocol, RunnerProtocol)).
 			Because("mac_runner_protocol").Then("reinstall Barn so the CLI and its Mac component match")
 	}
 	return nil

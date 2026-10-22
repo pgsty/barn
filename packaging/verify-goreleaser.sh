@@ -141,7 +141,7 @@ for os_name in darwin linux; do
     for path in "${expected_paths[@]}"; do
       case ${path} in bin/barn|bin/barn-hosts-helper) continue ;; esac
       case ${path} in
-        "bin/Barn Mac.app/Contents/MacOS/barn-mac-runner")
+        "bin/Barn.app/Contents/MacOS/barn-mac-runner")
           [[ $(file_mode "${root}/${path}") == 755 ]] || { printf 'native Mac entry point is not executable: %s\n' "${path}" >&2; exit 1; }
           continue ;;
       esac
@@ -176,13 +176,13 @@ for os_name in darwin linux; do
         printf 'the native archive binary does not report version %s: %s\n' "${version}" "$("${root}/bin/barn" version)" >&2
         exit 1
       }
-      if [[ -d ${root}/bin/Barn\ Mac.app ]]; then
-        codesign --verify --deep --strict "${root}/bin/Barn Mac.app"
+      if [[ -d ${root}/bin/Barn.app ]]; then
+        codesign --verify --deep --strict "${root}/bin/Barn.app"
         if [[ ${BARN_MAC_REQUIRE_NOTARIZATION:-0} == 1 ]]; then
-          xcrun stapler validate "${root}/bin/Barn Mac.app"
-          spctl --assess --type execute "${root}/bin/Barn Mac.app"
+          xcrun stapler validate "${root}/bin/Barn.app"
+          spctl --assess --type execute "${root}/bin/Barn.app"
         fi
-        "${root}/bin/Barn Mac.app/Contents/MacOS/barn-mac-runner" probe >/dev/null
+        "${root}/bin/Barn.app/Contents/MacOS/barn-mac-runner" probe >/dev/null
       fi
     fi
     printf '%s verified; helper=%s\n' "${archive_name}" "${helper_sha}"

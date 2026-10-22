@@ -80,7 +80,7 @@ func acceleratorSmoke(ctx context.Context, qemuPath string, profile platform.Pro
 	defer func() {
 		if !finished {
 			cancel()
-			<-done
+			<-done //nolint:errcheck // Cancellation may kill QEMU; preserve the probe's original error.
 		}
 	}()
 	client := &qmp.Client{Timeout: time.Second}

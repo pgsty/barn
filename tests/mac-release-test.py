@@ -23,7 +23,8 @@ spec.loader.exec_module(release)
 class PayloadTests(unittest.TestCase):
     def fixture(self):
         files = {"MACOS.md": (b"guide", 0o644)}
-        files[release.APP + "/Contents/Info.plist"] = plistlib.dumps({"BarnVersion": "0.8.1-next", "BarnCommit": "uncommitted", "LSMinimumSystemVersion": "27.0"}), 0o644
+        files[release.APP + "/Contents/Info.plist"] = plistlib.dumps({"BarnVersion": "0.8.1-next", "BarnCommit": "uncommitted", "LSMinimumSystemVersion": "27.0",
+                "CFBundleIdentifier": "com.pgsty.barn", "CFBundleName": "Barn", "CFBundleDisplayName": "Barn", "CFBundleExecutable": "barn-mac-runner"}), 0o644
         for name in ("MacOS/barn-mac-runner", "_CodeSignature/CodeResources"):
             files[release.APP + "/Contents/" + name] = b"test bytes", 0o644 if name.startswith("_CodeSignature/") else 0o755
         manifest = {"schema": 1, "version": "0.8.1-next", "commit": "uncommitted", "target": "darwin/arm64", "signing": "ad_hoc", "notarized": False,
@@ -66,6 +67,18 @@ class PayloadTests(unittest.TestCase):
         with patch.dict(os.environ, BARN_MAC_REQUIRE_NOTARIZATION="1"):
             with self.assertRaisesRegex(ValueError, "notarized"):
                 release.validate(self.fixture(), "0.8.1-next")
+
+    def test_wrong_bundle_identity_is_rejected_even_with_matching_digests(self):
+        files = self.fixture()
+        path = release.APP + "/Contents/Info.plist"
+        info = plistlib.loads(files[path][0])
+        info["CFBundleIdentifier"] = "io.pgsty.barn.mac-runner"
+        files[path] = plistlib.dumps(info), 0o644
+        manifest = json.loads(files[release.MANIFEST][0])
+        manifest["files"][path]["sha256"] = hashlib.sha256(files[path][0]).hexdigest()
+        files[release.MANIFEST] = json.dumps(manifest).encode(), 0o644
+        with self.assertRaisesRegex(ValueError, "bundle identity"):
+            release.validate(files, "0.8.1-next")
 
     def test_unsafe_archive_members(self):
         for kind in ("parent", "absolute", "symlink", "duplicate", "oversized"):

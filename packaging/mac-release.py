@@ -20,7 +20,7 @@ import tarfile
 import tempfile
 
 REPO = Path(__file__).resolve().parents[1]
-APP = "bin/Barn Mac.app"
+APP = "bin/Barn.app"
 MANIFEST = "MACOS.json"
 
 
@@ -80,6 +80,10 @@ def validate(files, version, commit=None):
     info = plistlib.loads(files[APP + "/Contents/Info.plist"][0])
     if info.get("BarnVersion") != version or info.get("BarnCommit") != manifest["commit"] or info.get("LSMinimumSystemVersion") != "27.0":
         raise ValueError("Mac app identity does not match its manifest")
+    if (info.get("CFBundleIdentifier") != "com.pgsty.barn" or
+            info.get("CFBundleName") != "Barn" or info.get("CFBundleDisplayName") != "Barn" or
+            info.get("CFBundleExecutable") != "barn-mac-runner"):
+        raise ValueError("Mac app bundle identity does not match Barn")
     return manifest
 
 

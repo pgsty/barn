@@ -15,11 +15,11 @@ expected=$(printf '%s\n' \
   $'github.com/spf13/cobra\tv1.10.2' \
   $'github.com/spf13/pflag\tv1.0.10' \
   $'go.yaml.in/yaml/v3\tv3.0.5' \
-  $'golang.org/x/crypto\tv0.57.0' \
-  $'golang.org/x/net\tv0.59.0' \
-  $'golang.org/x/sys\tv0.48.0' \
-  $'golang.org/x/term\tv0.46.0' \
-  $'golang.org/x/text\tv0.42.0' | LC_ALL=C sort)
+  $'golang.org/x/crypto\tv0.58.0' \
+  $'golang.org/x/net\tv0.61.0' \
+  $'golang.org/x/sys\tv0.49.0' \
+  $'golang.org/x/term\tv0.47.0' \
+  $'golang.org/x/text\tv0.43.0' | LC_ALL=C sort)
 actual=$(
   cd "${repo}"
   go list -deps -json ./cmd/barn ./cmd/barn-hosts-helper |

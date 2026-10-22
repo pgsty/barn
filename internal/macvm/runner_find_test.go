@@ -34,9 +34,11 @@ func TestFindRunnerCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const bundle = "bin/Barn Mac.app/Contents/MacOS/barn-mac-runner"
-	const localBundle = "bin/libexec/Barn Mac.app/Contents/MacOS/barn-mac-runner"
-	const brewBundle = "libexec/Barn Mac.app/Contents/MacOS/barn-mac-runner"
+	const bundle = "bin/Barn.app/Contents/MacOS/barn-mac-runner"
+	const localBundle = "bin/libexec/Barn.app/Contents/MacOS/barn-mac-runner"
+	const brewBundle = "libexec/Barn.app/Contents/MacOS/barn-mac-runner"
+	const legacyBundle = "bin/Barn Mac.app/Contents/MacOS/barn-mac-runner"
+	const legacyBrewBundle = "libexec/Barn Mac.app/Contents/MacOS/barn-mac-runner"
 	const bare = "bin/barn-mac-runner"
 	const localLibexec = "bin/libexec/barn-mac-runner"
 	const parentLibexec = "libexec/barn-mac-runner"
@@ -50,6 +52,9 @@ func TestFindRunnerCandidates(t *testing.T) {
 		{"bundle_preferred", []string{bundle, bare, localLibexec, parentLibexec}, "", bundle},
 		{"local_bundle_preferred", []string{localBundle, bare}, "", localBundle},
 		{"homebrew_bundle_preferred", []string{brewBundle, bare, parentLibexec}, "", brewBundle},
+		{"new_bundle_preferred_over_legacy", []string{bundle, legacyBundle, bare}, "", bundle},
+		{"legacy_bundle_fallback", []string{legacyBundle, bare}, "", legacyBundle},
+		{"legacy_homebrew_bundle_fallback", []string{legacyBrewBundle, bare}, "", legacyBrewBundle},
 		{"bare_fallback", []string{bare, localLibexec, parentLibexec}, "", bare},
 		{"local_libexec_fallback", []string{localLibexec, parentLibexec}, "", localLibexec},
 		{"parent_libexec_fallback", []string{parentLibexec}, "", parentLibexec},

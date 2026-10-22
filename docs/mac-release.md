@@ -20,6 +20,11 @@ stamps the release version and commit, and exports `MACOS.md`, `MACOS.json` and 
 app. `MACOS.json` records the exact files, modes, digests and signing state. This
 payload contains no VM state, credentials, installer image or installed service.
 
+The application is `Barn.app`, with display name `Barn` and bundle identifier
+`com.pgsty.barn`. Its internal executable remains `barn-mac-runner`, matching
+the CLI's existing runner protocol. The CLI also recognizes the previous
+`Barn Mac.app` name when upgrading an existing installation.
+
 The existing GoReleaser job attaches that payload to the Darwin arm64 archive,
 requiring an identical version and source commit. It regenerates the archive's
 SPDX document and checksums, then runs the existing archive/package verifiers.
@@ -34,6 +39,21 @@ Use `uncommitted` for a dirty checkout, or its full commit for clean source.
 Snapshot builds support ad-hoc signing and are explicitly not notarized releases.
 
 ## Formal signing
+
+To build and verify a local app with a certificate installed in your login
+keychain, select an identity from `security find-identity -v -p codesigning`:
+
+```sh
+export BARN_CODESIGN_IDENTITY='Developer ID Application: your organization (TEAMID)'
+BARN_VERSION=0.9.1-next BARN_COMMIT=uncommitted bash packaging/build-mac-app.sh
+codesign --verify --deep --strict bin/Barn.app
+codesign -d --verbose=4 bin/Barn.app
+bin/Barn.app/Contents/MacOS/barn-mac-runner probe
+```
+
+This signs `Barn.app` with hardened runtime and a secure timestamp. Certificate
+signing alone does not notarize the app; complete the following steps before
+distributing it to users.
 
 Formal builds require a Developer ID Application identity and a stored
 `notarytool` profile:

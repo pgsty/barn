@@ -504,7 +504,7 @@ func vmnetFailure(_ status: UInt32) -> String {
     case 1009: // VMNET_SHARING_SERVICE_BUSY
         return "Cannot create this machine's private network: the macOS network sharing service is busy (vmnet status 1009). Turn off Internet Sharing or quit the other tool that uses it, then start again"
     case 1010: // VMNET_NOT_AUTHORIZED
-        return "macOS did not allow this machine's private network (vmnet status 1010). Check Barn Mac.app with barn mac doctor"
+        return "macOS did not allow this machine's private network (vmnet status 1010). Check Barn.app with barn mac doctor"
     default:
         return "Cannot create this machine's private network (vmnet status \(status))"
     }

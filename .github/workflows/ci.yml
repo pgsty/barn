@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.3"
           check-latest: false
           cache: true
       - run: go test -race ./internal/macvm ./cmd/barn
@@ -42,7 +42,7 @@ jobs:
       - name: Set up pinned Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.3"
           check-latest: false
           cache: true
 
@@ -50,16 +50,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-          go install golang.org/x/tools/cmd/deadcode@v0.49.0
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+          go install golang.org/x/tools/cmd/deadcode@v0.52.0
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
       - name: Install pinned GoReleaser
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: v2.18.0
+          version: v2.18.3
           install-only: true
 
       - name: Verify pinned source toolchain

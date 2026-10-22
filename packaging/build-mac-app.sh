@@ -3,13 +3,13 @@
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 if [[ $# -gt 1 ]]; then echo "usage: $0 [OUTPUT_APP]" >&2; exit 2; fi
-output=${1:-"$repo/bin/Barn Mac.app"}
+output=${1:-"$repo/bin/Barn.app"}
 identity=${BARN_CODESIGN_IDENTITY:--}
 if [[ ${BARN_MAC_REQUIRE_NOTARIZATION:-0} == 1 && ( $identity == - || -z ${BARN_NOTARY_PROFILE:-} ) ]]; then
   echo "A release app requires BARN_CODESIGN_IDENTITY and BARN_NOTARY_PROFILE; use a Developer ID certificate and a stored notarytool profile." >&2; exit 2
 fi
 if [[ $(uname -s) != Darwin || $(uname -m) != arm64 || $(sw_vers -productVersion | cut -d. -f1) -lt 27 ]]; then
-  echo "Barn Mac.app requires Apple Silicon and macOS 27+." >&2; exit 2
+  echo "Barn.app requires Apple Silicon and macOS 27+." >&2; exit 2
 fi
 [[ ! -L $repo/bin && ( ! -e $repo/bin || -d $repo/bin ) ]] || { echo "Unsafe bin directory" >&2; exit 2; }
 mkdir -p "$repo/bin"
@@ -17,7 +17,7 @@ mkdir -p "$repo/bin"
 stage="$(mktemp -d "$repo/bin/.mac-native-build.XXXXXXXX")"
 cleanup() { case $stage in "$repo"/bin/.mac-native-build.*) rm -rf -- "$stage" ;; esac; }
 trap cleanup EXIT
-app="$stage/Barn Mac.app"
+app="$stage/Barn.app"
 macos="$app/Contents/MacOS"
 native="$stage/native"
 mkdir -p "$macos" "$native" "$app/Contents/Resources"

@@ -13,9 +13,10 @@ Linux `destroy` and `purge` leave them alone.
 ## Install
 
 Install [Barn 0.9.0](https://barn.pgsty.com/docs/start/installation/) and run
-`barn mac doctor`. Mac guests require the native component `Barn Mac.app`
-alongside the CLI. The installer preserves it when it is included in the
-Darwin arm64 archive.
+`barn mac doctor`. Mac guests require the native component alongside the CLI.
+It is named `Barn Mac.app` in v0.9.0 and `Barn.app` in the later development
+checkout. The installer preserves a bundled component when the selected
+Darwin arm64 archive includes one.
 
 The 0.9.0 release archives provide the CLI. Build the native bundle from the
 0.9.0 source with Xcode 27 on Apple Silicon:
@@ -28,8 +29,10 @@ export PATH="$PWD/bin/mac:$PATH"
 barn mac doctor
 ```
 
-Keep `barn` and `Barn Mac.app` together in `bin/mac`. Xcode is needed for
-building the component, not for running a packaged one.
+The v0.9.0 command above builds `Barn Mac.app`; keep it beside the matching
+`barn` in `bin/mac`. A build from the later development checkout instead
+produces `Barn.app`. Xcode is needed for building the component, not for
+running a packaged one.
 
 ## Quick start
 
@@ -106,7 +109,7 @@ operations show progress on stderr with the same display as the Linux commands.
 the window changes the guest resolution, and **View → Enter Full Screen** works
 as usual. Closing the window keeps the machine running in the background.
 **Machine → Restart…** and **Machine → Shut Down…** act on the guest;
-**Barn Mac → Quit Barn Mac…** asks whether to keep the machine running or
+**Barn → Quit Barn…** asks whether to keep the machine running or
 shut it down. Logging out, restarting or shutting down the Mac shuts running
 machines down normally, powering off any that take more than a minute, and is
 never held up. Keyboard shortcuts go to the guest while its window is focused.

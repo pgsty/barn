@@ -302,7 +302,7 @@ for source in bin/barn bin/barn-hosts-helper; do
   }
 done
 
-mac_app="${temporary}/${root}/bin/Barn Mac.app"
+mac_app="${temporary}/${root}/bin/Barn.app"
 has_mac_app=false
 if [[ -e ${mac_app} || -e ${temporary}/${root}/MACOS.json ]]; then
   [[ ${goos} == darwin && ${goarch} == arm64 && -d ${mac_app} && -f ${temporary}/${root}/MACOS.json && -f ${temporary}/${root}/MACOS.md ]] || {
@@ -314,14 +314,14 @@ fi
 
 verify_mac_app() {
   local destination=$1
-  [[ -d ${destination}/Barn\ Mac.app && ! -L ${destination}/Barn\ Mac.app ]] || return 1
-  /usr/bin/diff -qr "${mac_app}" "${destination}/Barn Mac.app" >/dev/null || return 1
+  [[ -d ${destination}/Barn.app && ! -L ${destination}/Barn.app ]] || return 1
+  /usr/bin/diff -qr "${mac_app}" "${destination}/Barn.app" >/dev/null || return 1
   for name in barn-mac-runner; do
-    [[ -x ${destination}/Barn\ Mac.app/Contents/MacOS/${name} ]] || return 1
+    [[ -x ${destination}/Barn.app/Contents/MacOS/${name} ]] || return 1
   done
   cmp -s "${temporary}/${root}/MACOS.json" "${destination}/MACOS.json" || return 1
   cmp -s "${temporary}/${root}/MACOS.md" "${destination}/MACOS.md" || return 1
-  /usr/bin/codesign --verify --deep --strict "${destination}/Barn Mac.app"
+  /usr/bin/codesign --verify --deep --strict "${destination}/Barn.app"
 }
 
 if [[ -L ${install_directory} || (-e ${install_directory} && ! -d ${install_directory}) ]]; then
@@ -413,7 +413,7 @@ else
     }
   done
   if [[ ${has_mac_app} == true ]]; then
-    /usr/bin/ditto "${mac_app}" "${release_stage}/Barn Mac.app"
+    /usr/bin/ditto "${mac_app}" "${release_stage}/Barn.app"
     install -m 0644 "${temporary}/${root}/MACOS.json" "${temporary}/${root}/MACOS.md" "${release_stage}/"
     verify_mac_app "${release_stage}" || { printf 'staged native Mac app differs from verified archive\n' >&2; exit 7; }
   fi

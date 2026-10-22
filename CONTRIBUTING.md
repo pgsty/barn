@@ -38,6 +38,10 @@ Continue independent work and state exactly which features remain unavailable.
 
 ## Development loop
 
+Use Go 1.27.3. The current release is 0.9.1; to stamp a local candidate,
+run `BARN_VERSION=0.9.1-dev.1 make build`. Unstamped development builds report
+`dev`; formal release versions come from the Git tag.
+
 ```bash
 make build     # build ./bin/barn and ./bin/barn-hosts-helper
 make test      # unit tests
@@ -56,10 +60,10 @@ The toolchain is pinned in `packaging/toolchain.env` and CI asserts the exact
 versions, so install those versions locally:
 
 ```bash
-go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-go install golang.org/x/tools/cmd/deadcode@v0.49.0
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
-go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+go install golang.org/x/tools/cmd/deadcode@v0.52.0
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 ```
 
 Changes under `tools/`, `packaging/`, `.goreleaser.yaml`, or the `Makefile` also
@@ -202,6 +206,11 @@ common failures; change it together with the message.
 Use `barn`, `Barn`, `BARN_*`, `barn_version`, and Barn-owned paths
 throughout code, packages, and documentation. Keep interfaces simple and use
 one current format; do not introduce migration shims for development builds.
+
+Naming changes must preserve release notes, design rationale, and validation
+records. Update names in those documents and retain their original dates,
+versions, measurements, and limitations. Keep superseded designs accessible
+through the [documentation history](docs/README.md).
 
 ## Release checklist
 

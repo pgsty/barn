@@ -10,6 +10,8 @@ VM state, and it never needs root.
 `Barn.icns` is the Compute Barn brand mark at macOS icon sizes.
 `packaging/build-mac-app.sh` installs it into `Contents/Resources` before
 signing the app; `Info.plist` selects it for the desktop and Dock.
+The app is named `Barn.app`, displayed as `Barn`, with bundle identifier
+`com.pgsty.barn`. The internal runner executable name is unchanged.
 
 Build with Xcode 27 on Apple Silicon:
 
@@ -19,8 +21,9 @@ bash native/mac-runner/test.sh
 ```
 
 The default output is `bin/barn-mac-runner`. `BARN_CODESIGN_IDENTITY` selects
-a signing identity; development defaults to ad hoc. The only entitlement is
-`com.apple.security.virtualization`. Creating a private shared-mode vmnet
+a signing identity; development defaults to ad hoc. Builds use hardened
+runtime, and Developer ID signatures include a secure timestamp. The only
+entitlement is `com.apple.security.virtualization`. Creating a private shared-mode vmnet
 network needs no other entitlement and no privilege.
 
 ## Protocol 2

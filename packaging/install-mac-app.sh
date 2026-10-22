@@ -18,15 +18,15 @@ codesign --verify --deep --strict "$source_app"
 stage="$(mktemp -d "$parent/.mac-app-stage.XXXXXXXX")"
 cleanup() { case $stage in "$parent"/.mac-app-stage.*) rm -rf -- "$stage" ;; esac; }
 trap cleanup EXIT
-ditto "$source_app" "$stage/Barn Mac.app"
-codesign --verify --deep --strict "$stage/Barn Mac.app"
+ditto "$source_app" "$stage/Barn.app"
+codesign --verify --deep --strict "$stage/Barn.app"
 previous=
 if [[ -e $destination ]]; then
   previous="$(mktemp -d "$parent/.mac-app-previous.XXXXXXXX")"
-  mv "$destination" "$previous/Barn Mac.app"
+  mv "$destination" "$previous/Barn.app"
 fi
-if ! mv "$stage/Barn Mac.app" "$destination"; then
-  if [[ -n $previous && ! -e $destination ]]; then mv "$previous/Barn Mac.app" "$destination"; fi
+if ! mv "$stage/Barn.app" "$destination"; then
+  if [[ -n $previous && ! -e $destination ]]; then mv "$previous/Barn.app" "$destination"; fi
   exit 1
 fi
 case $previous in "$parent"/.mac-app-previous.*) rm -rf -- "$previous" ;; esac

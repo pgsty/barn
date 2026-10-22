@@ -39,8 +39,8 @@ class Barn < Formula
   def install
     bin.install "bin/barn"
     libexec.install "bin/barn-hosts-helper"
-    if (buildpath/"bin/Barn Mac.app").directory?
-      libexec.install "bin/Barn Mac.app"
+    if (buildpath/"bin/Barn.app").directory?
+      libexec.install "bin/Barn.app"
       doc.install "MACOS.md", "MACOS.json"
     end
     doc.install "README.md"
@@ -59,7 +59,7 @@ class Barn < Formula
       Use barn init full to customize a four-node lab before starting it.
       For unattended preparation, run barn setup --yes before barn up.
     EOS
-    return text unless (libexec/"Barn Mac.app").exist?
+    return text unless (libexec/"Barn.app").exist?
 
     text + <<~EOS
 

@@ -17,7 +17,7 @@ struct Main {
         app.setActivationPolicy(.accessory)
         if CommandLine.arguments.count == 1 && Bundle.main.bundleURL.pathExtension == "app" {
             let alert = NSAlert()
-            alert.messageText = "Barn Mac runs from Terminal"
+            alert.messageText = "Barn runs from Terminal"
             alert.informativeText = "Run barn mac up to create and start a macOS virtual machine, then barn mac open to show its desktop."
             alert.addButton(withTitle: "OK")
             app.activate(ignoringOtherApps: true)

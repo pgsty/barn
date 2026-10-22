@@ -9,5 +9,8 @@ xcrun clang -O2 -Wall -Wextra -Werror -mmacosx-version-min=27.0 -c Bridge.c -o "
 xcrun swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macosx27.0 \
   -import-objc-header Bridge.h Sources/*.swift "$temporary/Bridge.o" \
   -framework Virtualization -framework DiskImageKit -framework vmnet -framework AppKit -o "$output"
-codesign --force --sign "${BARN_CODESIGN_IDENTITY:--}" --entitlements entitlements.plist "$output"
+identity=${BARN_CODESIGN_IDENTITY:--}
+sign_args=(--force --sign "$identity" --options runtime)
+if [[ $identity != - ]]; then sign_args+=(--timestamp); fi
+codesign "${sign_args[@]}" --entitlements entitlements.plist "$output"
 codesign --verify --strict "$output"

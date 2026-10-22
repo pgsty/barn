@@ -26,18 +26,21 @@ mkdir "$bundle"
 # then materialize regular files beside the native companions.
 ./packaging/build-dev.sh darwin arm64 "$stage/go"
 cp -L "$stage/go/barn" "$stage/go/barn-hosts-helper" "$bundle/"
-bash packaging/build-mac-app.sh "$bundle/Barn Mac.app"
-install -m 0755 "$bundle/Barn Mac.app/Contents/MacOS/barn-mac-runner" "$bundle/"
-codesign --force --sign "${BARN_CODESIGN_IDENTITY:--}" --entitlements native/mac-runner/entitlements.plist "$bundle/barn-mac-runner"
+bash packaging/build-mac-app.sh "$bundle/Barn.app"
+install -m 0755 "$bundle/Barn.app/Contents/MacOS/barn-mac-runner" "$bundle/"
+identity=${BARN_CODESIGN_IDENTITY:--}
+sign_args=(--force --sign "$identity" --options runtime)
+if [[ $identity != - ]]; then sign_args+=(--timestamp); fi
+codesign "${sign_args[@]}" --entitlements native/mac-runner/entitlements.plist "$bundle/barn-mac-runner"
 install -m 0644 LICENSE "$bundle/LICENSE"
 install -m 0644 docs/mac.md "$bundle/USER_GUIDE.md"
 install -m 0644 native/mac-runner/README.md "$bundle/RUNNER_PROTOCOL.md"
 cat > "$bundle/README.md" <<'EOF'
-# Barn Mac local bundle
+# Barn macOS local bundle
 
 Requires Apple Silicon and macOS 27 or later. Keep barn, barn-hosts-helper,
-Barn Mac.app and barn-mac-runner together in one directory. The CLI prefers
-the runner inside Barn Mac.app so the desktop has a native application
+Barn.app and barn-mac-runner together in one directory. The CLI prefers
+the runner inside Barn.app so the desktop has a native application
 identity. This developer bundle is signed with BARN_CODESIGN_IDENTITY, or ad
 hoc when none was supplied; it is not a notarized public release.
 
@@ -56,15 +59,15 @@ RUNNER_PROTOCOL.md describes the native process and its JSON interface.
 SHA256SUMS checks the included files: shasum -a 256 -c SHA256SUMS.
 EOF
 codesign --verify --strict "$bundle/barn-mac-runner"
-codesign --verify --deep --strict "$bundle/Barn Mac.app"
+codesign --verify --deep --strict "$bundle/Barn.app"
 "$bundle/barn-mac-runner" probe > "$stage/probe.json"
 "$bundle/barn" mac --help > "$stage/mac-help.txt"
 BARN_HOME="$stage/empty-home" "$bundle/barn" mac ls --json > "$stage/empty-slots.json"
 (
   cd "$bundle"
   shasum -a 256 barn barn-hosts-helper barn-mac-runner LICENSE README.md USER_GUIDE.md RUNNER_PROTOCOL.md \
-    "Barn Mac.app/Contents/Info.plist" "Barn Mac.app/Contents/MacOS/"* \
-    "Barn Mac.app/Contents/Resources/Barn.icns" "Barn Mac.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
+    "Barn.app/Contents/Info.plist" "Barn.app/Contents/MacOS/"* \
+    "Barn.app/Contents/Resources/Barn.icns" "Barn.app/Contents/_CodeSignature/CodeResources" > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 archive="$stage/barn-mac-darwin-arm64.tar.gz"
@@ -75,26 +78,26 @@ tar -xzf "$archive" -C "$stage/extracted"
 (
   cd "$stage/extracted/barn-mac-darwin-arm64"
   shasum -a 256 -c SHA256SUMS
-  codesign --verify --deep --strict "Barn Mac.app"
+  codesign --verify --deep --strict "Barn.app"
   ./barn-mac-runner probe
-  "./Barn Mac.app/Contents/MacOS/barn-mac-runner" probe
+  "./Barn.app/Contents/MacOS/barn-mac-runner" probe
   ./barn mac --help >/dev/null
   BARN_HOME="$stage/extracted-empty-home" ./barn mac ls --json
   [[ ! -e $stage/extracted-empty-home ]]
 )
 for source in "$bundle"/*; do
-  [[ ${source##*/} != "Barn Mac.app" ]] || continue
+  [[ ${source##*/} != "Barn.app" ]] || continue
   destination="$repo/bin/mac/${source##*/}"
   if [[ -L $destination || ( -e $destination && ! -f $destination ) ]]; then
     echo "Refusing unsafe bundle destination: $destination" >&2; exit 2
   fi
 done
 for source in "$bundle"/*; do
-  [[ ${source##*/} != "Barn Mac.app" ]] || continue
+  [[ ${source##*/} != "Barn.app" ]] || continue
   destination="$repo/bin/mac/${source##*/}"
   if [[ -x $source ]]; then install -m 0755 "$source" "$destination"; else install -m 0644 "$source" "$destination"; fi
 done
-bash packaging/install-mac-app.sh "$bundle/Barn Mac.app" "$repo/bin/mac/Barn Mac.app"
+bash packaging/install-mac-app.sh "$bundle/Barn.app" "$repo/bin/mac/Barn.app"
 install -m 0644 "$archive" "$repo/bin/barn-mac-darwin-arm64.tar.gz"
 (
   cd "$repo/bin"
