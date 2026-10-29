@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -29,11 +30,31 @@ func TestOpenSSHArgsPinTheInstanceNotTheAddress(t *testing.T) {
 			t.Errorf("missing %q in %s", want, joined)
 		}
 	}
-	if args[len(args)-1] != "barn@10.10.30.10" {
-		t.Fatalf("destination %q", args[len(args)-1])
+	if len(args) < 2 || args[len(args)-2] != "--" || args[len(args)-1] != "barn@10.10.30.10" {
+		t.Fatalf("destination is not protected by OpenSSH option terminator: %#v", args)
 	}
 	if slices.Contains(connection.OpenSSHArgs(false), "-t") {
 		t.Fatal("a command session requested a terminal")
+	}
+}
+
+func TestOpenSSHArgsTerminateOptionsBeforeTarget(t *testing.T) {
+	t.Parallel()
+	sshPath, err := exec.LookPath("ssh")
+	if err != nil {
+		t.Skip("OpenSSH client unavailable")
+	}
+	connection := Connection{User: "barn", Host: "10.10.30.10", PrivateKey: "/dev/null", KnownHosts: "/known", HostKeyAlias: "barn-mac-abc"}
+	args := connection.OpenSSHArgs(false)
+	if len(args) < 2 || args[len(args)-2] != "--" {
+		t.Fatalf("missing OpenSSH terminator: %q", args)
+	}
+	for _, remote := range []string{"-V", "-oHostname=changed.invalid", "-oProxyCommand=printf marker"} {
+		probe := append(append([]string{"-G"}, args...), remote)
+		output, err := exec.Command(sshPath, probe...).CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "hostname 10.10.30.10\n") || strings.Contains(string(output), "proxycommand printf marker") {
+			t.Fatalf("remote %q affected local ssh configuration: %v\n%s", remote, err, output)
+		}
 	}
 }
 

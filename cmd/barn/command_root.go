@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -310,18 +311,16 @@ inventory; validate always requires an inventory file.`,
 	purge := newPurgeCommand(stdout, stderr)
 	purge.GroupID = "lifecycle"
 	root.AddCommand(purge)
-	ssh := rawOperation(
-		"ssh [node] [-- command [args...]]",
+	ssh := remoteOperation(
+		"ssh [node] [-- command...]",
 		"Open SSH or run a command in a guest",
 		`Open an interactive SSH session to a node, or run a remote command exactly
 as plain ssh would: everything after -- is joined and parsed by the remote
 shell, so quotes, pipes, and semicolons work the way they do with ssh.
-Flags before -- belong to Barn; everything before -- must be nothing or one
-known node; an unknown node before -- is refused.
-Without --, a known first argument selects the node; a near-miss node name is
-refused as a typo; otherwise all arguments run as a command on the default
-node, with a warning. Use -- in scripts to make the node/command boundary
-explicit.`,
+Flags before -- belong to Barn. Positional arguments before -- must be empty
+or one known node. A remote command requires --; without it, only an
+interactive session on the default or selected node is allowed.
+The first remote argument must not be empty.`,
 		`  barn ssh                            # open the default node
   barn ssh meta                       # open one named node
   barn ssh meta -- uptime             # run a remote command
@@ -329,28 +328,28 @@ explicit.`,
 		stdout, stderr, func(ctx context.Context, arguments []string, stdout, stderr io.Writer) (commandOutcome, error) {
 			return runSSH(ctx, "ssh", arguments, stdout, stderr)
 		})
-	ssh.ValidArgsFunction = nodeCompletion(false, true)
+	ssh.ValidArgsFunction = remoteCompletion(nodeCompletion(false, true))
 	ssh.GroupID = "access"
-	execCommand := rawOperation(
-		"exec [node] -- <command> [args...]",
+	execCommand := remoteOperation(
+		"exec [node] -- command...",
 		"Run a command in a guest",
 		`Run a remote command over the deployment SSH connection and pass its exit
-status through. Multiple arguments after -- keep their argument boundaries,
-including spaces, quotes and empty values. A single command string keeps the
-shell shorthand; use sh -c for explicit shell expressions.
-Everything before -- must be nothing or one known node.
-For convenience, -- may be omitted: a known first argument selects the node;
-a near-miss node name is refused as a typo; otherwise the command runs on the
-default node, with a warning.`,
+status through. Pass the program and its arguments separately after -- to
+preserve spaces, quotes and empty values. Use sh -c explicitly for shell
+expressions, including pipes, redirection and variable expansion. A single
+command string remains supported as shell shorthand for compatibility.
+A remote command requires --. Positional arguments before -- must be empty
+or one known node. The first remote argument must not be empty; later empty
+arguments are preserved. Flags before -- belong to Barn.`,
 		`  barn exec -- hostname
   barn exec meta -- systemctl is-active postgresql
-  barn exec meta -- 'uptime; id'
+  barn exec meta -- sh -c 'uptime; id'
   barn exec meta -- sh -c 'exit 17'
   barn --json exec meta -- uname -a`,
 		stdout, stderr, func(ctx context.Context, arguments []string, stdout, stderr io.Writer) (commandOutcome, error) {
 			return runSSH(ctx, "exec", arguments, stdout, stderr)
 		})
-	execCommand.ValidArgsFunction = nodeCompletion(false, true)
+	execCommand.ValidArgsFunction = remoteCompletion(nodeCompletion(false, true))
 	execCommand.Aliases = []string{"ex"}
 	execCommand.GroupID = "access"
 	provision := newProvisionCommand(stdout, stderr)
@@ -433,6 +432,12 @@ func completeInventoryFiles(command *cobra.Command) {
 func executeCLI(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {
 	collector := &commandOutcomeCollector{}
 	ctx = context.WithValue(ctx, commandOutcomeContextKey{}, collector)
+	if len(arguments) > 1 {
+		// Cobra probes flag parsing with a synthetic --, which pflag retains
+		// in ArgsLenAtDash. Completion uses only completed words from the
+		// actual request, which may have global flags before __complete.
+		ctx = context.WithValue(ctx, completionSeparatorContextKey{}, slices.Contains(arguments[:len(arguments)-1], "--"))
+	}
 	root := newRootCommand(stdout, stderr)
 	root.SetArgs(arguments)
 	if errors.Is(ctx.Err(), context.Canceled) {

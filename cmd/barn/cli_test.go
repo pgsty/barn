@@ -487,9 +487,9 @@ func TestRetiredNetworkCIDRFlagIsRejected(t *testing.T) {
 	}
 }
 
-func TestOnlyRemotePassthroughDisablesCobraFlagParsing(t *testing.T) {
+func TestAllCommandsUseCobraFlagParsing(t *testing.T) {
 	root := newRootCommand(&bytes.Buffer{}, &bytes.Buffer{})
-	expected := map[string]bool{"barn ssh": true, "barn exec": true}
+	expected := map[string]bool{}
 	var walk func(*cobra.Command)
 	walk = func(parent *cobra.Command) {
 		for _, command := range parent.Commands() {
@@ -763,5 +763,18 @@ func TestDoctorLabelsMatchTheirConsequence(t *testing.T) {
 	}
 	if !(doctor.Report{Checks: []doctor.Check{capability}}).HasErrors() {
 		t.Error("a capability failure must fail doctor, which is why it is labelled an error")
+	}
+}
+
+func TestRemoteCompletionStopsAtSeparator(t *testing.T) {
+	t.Setenv("BARN_HOME", t.TempDir())
+	for _, path := range [][]string{{"ssh"}, {"exec"}, {"mac", "ssh"}, {"mac", "exec"}} {
+		for _, tail := range [][]string{{"--", "--j"}, {"--", ""}, {"meta", "--", "--j"}} {
+			args := append(append([]string{"__complete"}, path...), tail...)
+			var out, errOut bytes.Buffer
+			if code := run(args, &out, &errOut); code != exitOK || strings.TrimSpace(out.String()) != ":4" {
+				t.Errorf("%q: code=%d stdout=%q stderr=%q", args, code, out.String(), errOut.String())
+			}
+		}
 	}
 }

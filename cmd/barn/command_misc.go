@@ -47,7 +47,7 @@ templates, image aliases, and best-effort node-name completion.`,
 			var err error
 			switch arguments[0] {
 			case "bash":
-				err = root.GenBashCompletion(&script)
+				err = root.GenBashCompletionV2(&script, true)
 			case "zsh":
 				err = root.GenZshCompletion(&script)
 			case "fish":

@@ -32,6 +32,25 @@ func TestSSHArgsAreIsolated(t *testing.T) {
 	}
 }
 
+func TestSSHArgsTerminateOptionsBeforeTarget(t *testing.T) {
+	t.Parallel()
+	sshPath, err := exec.LookPath("ssh")
+	if err != nil {
+		t.Skip("OpenSSH client unavailable")
+	}
+	args := SSHArgsForInstance("dba", "/dev/null", "/known", HostKeyAlias("fixture-instance"), 2222)
+	if len(args) < 2 || args[len(args)-2] != "--" {
+		t.Fatalf("missing OpenSSH terminator: %q", args)
+	}
+	for _, remote := range []string{"-V", "-oHostname=changed.invalid", "-oProxyCommand=printf marker"} {
+		probe := append(append([]string{"-G"}, args...), remote)
+		output, err := exec.Command(sshPath, probe...).CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "hostname 127.0.0.1\n") || strings.Contains(string(output), "proxycommand printf marker") {
+			t.Fatalf("remote %q affected local ssh configuration: %v\n%s", remote, err, output)
+		}
+	}
+}
+
 func TestSSHArgsPreserveKnownHostsPathWithSpaces(t *testing.T) {
 	t.Parallel()
 	knownHosts := filepath.Join(t.TempDir(), "Application Support", "barn", "known_hosts")

@@ -12,12 +12,12 @@ import (
 
 func TestCommandRunnersReturnOutcomesWithoutRenderingFailures(t *testing.T) {
 	runners := map[string]bool{
-		"runVersionCommand": true, "runNetwork": true, "runPrivateSSH": true, "runSSH": true,
+		"runVersionCommand": true, "runNetwork": true, "runSSH": true,
 		"runProvision": true, "runPrivateCommand": true, "runLifecycleCommand": true, "runPurgeCommand": true,
 		"runSSHConfig": true, "runHosts": true, "runLogs": true, "runValidate": true,
 		"runInit": true, "runImage": true, "runDoctor": true, "runSetupCommand": true,
 	}
-	streaming := map[string]bool{"runPrivateSSH": true, "runSSH": true, "runLogs": true}
+	streaming := map[string]bool{"runSSH": true, "runLogs": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)

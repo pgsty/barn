@@ -204,3 +204,84 @@ func TestMacPartialFailureKeepsTheReport(t *testing.T) {
 		t.Fatalf("payload %#v", boundary.payload)
 	}
 }
+
+func TestMacRemoteCommandsRejectInvalidInvocations(t *testing.T) {
+	root := macTestHome(t)
+	for _, verb := range []string{"ssh", "exec"} {
+		cases := [][]string{{"dev", "uptime"}, {"missing", "--", "id"}, {"--", ""}, {"dev", "--", "", "id"}, {"dev", "other", "--", "id"}}
+		if verb == "exec" {
+			cases = append(cases, nil, []string{"dev"}, []string{"--"})
+		}
+		for _, args := range cases {
+			invocation := append([]string{"mac", verb}, args...)
+			if code, out, errOut := runMacCLI(t, invocation...); code != exitUsage {
+				t.Errorf("%q: exit=%d stdout=%s stderr=%s", invocation, code, out, errOut)
+			}
+		}
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid invocation created state: %v", err)
+	}
+}
+
+func TestMacRemoteSelectorsAndCompletionUseExistingMachines(t *testing.T) {
+	root := macTestHome(t)
+	machine := macvm.Machine{
+		SchemaVersion: macvm.SchemaVersion, Name: "dev",
+		InstanceID: "e4409c09-1804-4cf9-b28a-1f0bec7a2984", BaseID: "fixture",
+		State: "stopped", User: "barn", CPU: 4, MemoryBytes: 8 << 30,
+		DiskBytes: 100 << 30, MAC: "02:00:00:00:00:01",
+		Network: macvm.MachineNetwork{Subnet: "10.10.30.0/24", Gateway: "10.10.30.1", Address: "10.10.30.10"},
+	}
+	data, err := json.Marshal(machine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(root, "mac", "slots", machine.Name)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "state.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"ssh", "exec"} {
+		// An uninitialized fixture stops before runtime or SSH access.
+		for _, args := range [][]string{{"--", "sw_vers"}, {"dev", "--", "sw_vers"}, {"dev", "--", "--"}} {
+			invocation := append([]string{"--json", "mac", verb}, args...)
+			code, out, errOut := runMacCLI(t, invocation...)
+			if code != exitConflict || !strings.Contains(out, `"reason": "mac_not_initialized"`) {
+				t.Errorf("%q: exit=%d stdout=%s stderr=%s", invocation, code, out, errOut)
+			}
+		}
+		for _, test := range []struct {
+			tail []string
+			want string
+		}{
+			{[]string{""}, "dev\n:4"},
+			{[]string{"dev", ""}, ":4"},
+			{[]string{"--", ""}, ":4"},
+			{[]string{"dev", "--", "--j"}, ":4"},
+		} {
+			invocation := append([]string{"__complete", "mac", verb}, test.tail...)
+			code, out, errOut := runMacCLI(t, invocation...)
+			if code != exitOK || strings.TrimSpace(out) != test.want {
+				t.Errorf("%q: exit=%d stdout=%q stderr=%q", invocation, code, out, errOut)
+			}
+		}
+	}
+	for _, request := range []string{"__complete", "__completeNoDesc"} {
+		for _, verb := range []string{"up", "restart", "open", "configure", "recreate", "password", "logs"} {
+			invocation := []string{request, "mac", verb, "--", ""}
+			code, out, errOut := runMacCLI(t, invocation...)
+			if code != exitOK || strings.TrimSpace(out) != "dev\n:4" {
+				t.Errorf("ordinary completion %q: exit=%d stdout=%q stderr=%q", invocation, code, out, errOut)
+			}
+		}
+	}
+	for _, args := range [][]string{{"ssh"}, {"ssh", "dev"}, {"ssh", "--"}} {
+		code, out, errOut := runMacCLI(t, append([]string{"mac"}, args...)...)
+		if code != exitConflict || !strings.Contains(errOut, "has not finished its first boot") {
+			t.Errorf("%q: exit=%d stdout=%s stderr=%s", args, code, out, errOut)
+		}
+	}
+}

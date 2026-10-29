@@ -133,7 +133,7 @@ func macName(args []string) (string, error) {
 // macCompletion offers existing machine names.
 func macCompletion(multiple bool) cobra.CompletionFunc {
 	return func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 && !multiple {
+		if !multiple && len(args) > 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		store, err := macStore()
@@ -457,32 +457,43 @@ clipboard is shared while the window is focused.`,
 
 	for _, verb := range []string{"ssh", "exec"} {
 		verb := verb
-		use, short := "ssh [name] [-- command [args...]]", "Open a shell in a machine, or run a command"
+		use, short := "ssh [name] [-- command...]", "Open a shell in a machine, or run a command"
 		example := "  barn mac ssh\n  barn mac ssh dev\n  barn mac ssh dev -- 'sw_vers; id'"
 		if verb == "exec" {
-			use, short = "exec [name] -- <command> [args...]", "Run a command in a machine and pass its exit status through"
+			use, short = "exec [name] -- command...", "Run a command in a machine and pass its exit status through"
 			example = "  barn mac exec -- sw_vers\n  barn mac exec dev -- xcodebuild -version\n  barn --json mac exec -- sh -c 'exit 3'"
 		}
 		command := &cobra.Command{
-			Use: use, Short: short, Example: example, GroupID: "mac-access", Args: cobra.ArbitraryArgs, ValidArgsFunction: macCompletion(false),
+			Use: use, Short: short, Example: example, GroupID: "mac-access", Args: cobra.ArbitraryArgs, ValidArgsFunction: remoteCompletion(macCompletion(false)),
 			Long: `Connect with the machine's own key and pinned host key. Everything before --
-selects at most one machine; everything after it is the remote command.
-exec keeps argument boundaries; ssh passes the command line to the remote
-shell like plain ssh.`,
+must be empty or one known machine name, apart from Barn flags. A remote
+command requires --, and its first argument must not be empty.
+For exec, pass the program and its arguments separately to preserve argument
+boundaries, including later empty values. Use sh -c explicitly for shell
+expressions. A single command string remains supported as shell shorthand
+for compatibility. exec requires a command.
+ssh passes the command line to the remote shell like plain ssh. Without a
+command, ssh opens an interactive session.`,
 		}
 		command.RunE = func(cmd *cobra.Command, args []string) error {
-			head, remote := args, []string(nil)
-			if index := cmd.ArgsLenAtDash(); index >= 0 {
-				head, remote = args[:index], args[index:]
-			} else if len(args) > 1 {
-				head, remote = args[:1], args[1:]
+			head, remote, err := splitRemoteArguments(remoteArguments(cmd, args), "barn mac "+verb, "name", verb == "exec")
+			if err != nil {
+				return newUsageError(err)
 			}
 			name, err := macName(head)
 			if err != nil {
 				return err
 			}
-			if verb == "exec" && len(remote) == 0 {
-				return newUsageError(errors.New("exec needs a command after --: barn mac exec [name] -- command [args...]"))
+			if len(head) > 0 {
+				store, err := macStore()
+				if err != nil {
+					return newRuntimeError(err)
+				}
+				if _, err := store.LoadMachine(name); errors.Is(err, os.ErrNotExist) {
+					return newUsageError(failure.WithNext(fmt.Errorf("unknown machine %q", name), "barn mac ls"))
+				} else if err != nil {
+					return newRuntimeError(err)
+				}
 			}
 			return macRun(stderr, "", func(c macCommandContext) (commandOutcome, error) {
 				return runMacSSH(cmd.Context(), c.manager, verb, name, remote, stdout, stderr)

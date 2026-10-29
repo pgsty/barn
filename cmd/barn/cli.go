@@ -32,33 +32,21 @@ func init() {
 	cobra.EnableCommandSorting = false
 }
 
-func helpBeforeSeparator(arguments []string) bool {
-	for _, argument := range arguments {
-		if argument == "--" {
-			return false
-		}
-		if argument == "-h" || argument == "--help" {
-			return true
-		}
+// remoteArguments restores the separator removed by Cobra, preserving a second
+// literal -- and every remote argument after the first separator.
+func remoteArguments(command *cobra.Command, arguments []string) []string {
+	if index := command.ArgsLenAtDash(); index >= 0 {
+		raw := append([]string(nil), arguments[:index]...)
+		raw = append(raw, "--")
+		return append(raw, arguments[index:]...)
 	}
-	return false
+	return arguments
 }
 
-func rawOperation(use, short, long, example string, stdout, stderr io.Writer, runner commandRunner) *cobra.Command {
-	command := &cobra.Command{
-		Use:                   use,
-		Short:                 short,
-		Long:                  long,
-		Example:               example,
-		Args:                  cobra.ArbitraryArgs,
-		DisableFlagParsing:    true,
-		DisableFlagsInUseLine: true,
-	}
+func remoteOperation(use, short, long, example string, stdout, stderr io.Writer, runner commandRunner) *cobra.Command {
+	command := &cobra.Command{Use: use, Short: short, Long: long, Example: example, Args: cobra.ArbitraryArgs}
 	command.RunE = func(command *cobra.Command, arguments []string) error {
-		if helpBeforeSeparator(arguments) {
-			return command.Help()
-		}
-		outcome, err := runner(command.Context(), arguments, stdout, stderr)
+		outcome, err := runner(command.Context(), remoteArguments(command, arguments), stdout, stderr)
 		if err != nil {
 			return err
 		}
@@ -147,6 +135,17 @@ func sortedNodeNames(resolved spec.Resolved) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+type completionSeparatorContextKey struct{}
+
+func remoteCompletion(complete cobra.CompletionFunc) cobra.CompletionFunc {
+	return func(command *cobra.Command, arguments []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		if after, _ := command.Context().Value(completionSeparatorContextKey{}).(bool); after {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return complete(command, arguments, prefix)
+	}
 }
 
 func nodeCompletion(preferConfig, firstOnly bool) cobra.CompletionFunc {

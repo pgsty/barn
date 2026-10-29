@@ -86,8 +86,8 @@ running machines to stop instead of stopping anything itself.
 | `mac stop [name...] [--all]` | Shut down normally through macOS. A machine still running after two minutes is powered off, and the result says so. `--force` powers off at once. |
 | `mac restart [name]` | Stop and start again, applying configuration changes. |
 | `mac open [name]` | Show the desktop, starting the machine first if needed. |
-| `mac ssh [name] [-- cmd]` | Interactive shell, or a command line for the guest shell. |
-| `mac exec [name] -- cmd args…` | Run a command, keeping argument boundaries and passing the exit status through. `--json` returns stdout, stderr and the exit code. |
+| `mac ssh [name] [-- command...]` | Interactive shell, or a command line for the guest shell. |
+| `mac exec [name] -- command...` | Run a program with separate arguments and pass its exit status through. Use `sh -c` for shell expressions. `--json` returns stdout, stderr and the exit code. |
 | `mac configure name …` | Change CPUs, memory, shared folders, the network (while stopped) or clipboard sharing (anytime). |
 | `mac recreate name [--update]` | Replace the machine with a fresh macOS of the same name, account, resources, disk size, folders and address. `--update` uses the default base's macOS; for another disk size, `setup --disk` prepares it first. |
 | `mac destroy name…` | Delete machines: disk, keys, password and settings. The shared base is kept. |
@@ -137,6 +137,25 @@ serve stale file contents for a while after the host changes a file; use SSH
 to copy files with `scp` or `rsync` onto the guest's own disk when you need the latest bytes immediately.
 
 ## SSH
+
+Barn 1.0 (unreleased) requires `--` before a remote command. Before it, pass
+Barn flags and at most one existing machine name. `ssh` without a command
+opens an interactive session; `exec` requires a command. An empty first remote
+argument is rejected; later empty arguments are preserved by `exec`.
+`ssh` joins arguments for the guest shell. For `exec`, pass the program and
+its arguments separately to preserve their boundaries. Use `sh -c` explicitly
+for pipes, redirection, variable expansion, or several commands.
+
+```bash
+barn mac ssh dev -- 'sw_vers; id'
+barn mac exec dev -- sw_vers
+barn mac exec dev -- printf '<%s>\n' 'a b' ''
+barn mac exec dev -- sh -c 'sw_vers; id'
+```
+
+For compatibility, `exec` still interprets a single command string as shell
+shorthand. Use the forms above for new scripts. If a machine name is unknown,
+run `barn mac ls` to see the existing machines.
 
 Every machine has its own SSH key pair and a host key pinned on first contact.
 `mac ssh` and `mac exec` always use them, never your personal keys or

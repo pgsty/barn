@@ -261,37 +261,35 @@ func TestCommandTimeoutHonorsResolvedReadiness(t *testing.T) {
 	}
 }
 
-func TestSplitRemoteInvocationValidatesNodesBeforeSeparator(t *testing.T) {
+func TestSplitRemoteArgumentsRequiresExplicitSeparator(t *testing.T) {
 	t.Parallel()
-	resolved := spec.Resolved{Nodes: []spec.Node{{Name: "meta"}, {Name: "node-1"}}}
 	for _, test := range []struct {
 		arguments []string
 		node      string
 		command   string
-		implicit  bool
 		wantErr   string
 	}{
 		{arguments: nil},
 		{arguments: []string{"meta"}, node: "meta"},
-		{arguments: []string{"meta", "uptime"}, node: "meta", command: "uptime"},
-		{arguments: []string{"uptime", "-p"}, command: "uptime -p", implicit: true},
+		{arguments: []string{"meta", "uptime"}, wantErr: "require --"},
+		{arguments: []string{"uptime", "-p"}, wantErr: "require --"},
 		{arguments: []string{"--", "uptime"}, command: "uptime"},
 		{arguments: []string{"meta", "--", "ls", "--", "-l"}, node: "meta", command: "ls -- -l"},
-		{arguments: []string{"metaa", "--", "uptime"}, wantErr: `the deployment has no node "metaa"`},
 		{arguments: []string{"meta", "node-1", "--", "uptime"}, wantErr: "at most one node may precede --"},
-		{arguments: []string{"node-2", "uptime"}, wantErr: `unknown node "node-2" (did you mean node-1?)`},
+		{arguments: []string{"node-2", "uptime"}, wantErr: "require --"},
 		{arguments: []string{"--", "node-2"}, command: "node-2"},
-		{arguments: []string{"node", "-e", "1"}, command: "node -e 1", implicit: true},
+		{arguments: []string{"--", ""}, wantErr: "remote command must start with a non-empty argument"},
+		{arguments: []string{"node", "-e", "1"}, wantErr: "require --"},
 	} {
-		node, command, implicit, err := splitRemoteInvocation(test.arguments, resolved)
+		head, command, err := splitRemoteArguments(test.arguments, "barn ssh", "node", false)
 		if test.wantErr != "" {
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Errorf("split(%v) err = %v, want %q", test.arguments, err, test.wantErr)
 			}
 			continue
 		}
-		if err != nil || node != test.node || strings.Join(command, " ") != test.command || implicit != test.implicit {
-			t.Errorf("split(%v) = %q, %q, implicit=%t, %v; want %q, %q, implicit=%t", test.arguments, node, strings.Join(command, " "), implicit, err, test.node, test.command, test.implicit)
+		if err != nil || strings.Join(head, " ") != test.node || strings.Join(command, " ") != test.command {
+			t.Errorf("split(%v) = %q, %q, %v; want %q, %q", test.arguments, head, command, err, test.node, test.command)
 		}
 	}
 	for _, arguments := range [][]string{
@@ -319,27 +317,108 @@ func TestSplitRemoteInvocationValidatesNodesBeforeSeparator(t *testing.T) {
 	}
 }
 
-func TestImplicitRemoteCommandWarnsOnceAtTheCommandBoundary(t *testing.T) {
-	t.Setenv("BARN_HOME", t.TempDir())
-	resolved := spec.Resolved{Nodes: []spec.Node{{Name: "meta", Control: true}}}
-	for _, test := range []struct {
-		name        string
-		commandName string
-		arguments   []string
-		want        string
-	}{
-		{name: "ssh heuristic", commandName: "ssh", arguments: []string{"uptime"}, want: `warning: treating "uptime" as a remote command; write barn ssh [node] -- command`},
-		{name: "exec heuristic", commandName: "exec", arguments: []string{"hostname"}, want: `warning: treating "hostname" as a remote command; write barn exec [node] -- command`},
-		{name: "known node", commandName: "ssh", arguments: []string{"meta", "uptime"}},
-		{name: "explicit separator", commandName: "ssh", arguments: []string{"--", "uptime"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var stderr bytes.Buffer
-			_, _ = runPrivateSSH(context.TODO(), test.commandName, test.arguments, resolved, io.Discard, &stderr)
-			if got := strings.TrimSpace(stderr.String()); got != test.want {
-				t.Fatalf("stderr=%q want=%q", got, test.want)
+func TestRemoteCommandsRejectInvalidInvocationsBeforeConnection(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("BARN_HOME", root)
+	resolved := quickResolved(false, false)
+	hash, err := spec.Hash(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (state.Store{Root: root}).WriteDeployment(state.DeploymentState{
+		Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash,
+		Resolved: resolved, UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"ssh", "exec"} {
+		cases := [][]string{{"uptime"}, {"meta", "uptime"}, {"--", ""}, {"meta", "--", "", "id"}, {"missing", "--", "id"}, {"", "--", "id"}}
+		if verb == "exec" {
+			cases = append(cases, nil, []string{"meta"}, []string{"--"})
+		}
+		for _, args := range cases {
+			var out, errOut bytes.Buffer
+			invocation := append([]string{"--json", verb}, args...)
+			if code := run(invocation, &out, &errOut); code != exitUsage || !strings.Contains(out.String(), `"error": "usage"`) {
+				t.Errorf("%q: exit=%d stdout=%s stderr=%s, want usage error before connection", invocation, code, out.String(), errOut.String())
 			}
-		})
+		}
+	}
+}
+
+func TestRemoteSyntaxErrorsPrecedeDeploymentReads(t *testing.T) {
+	for _, corrupt := range []bool{false, true} {
+		root := t.TempDir()
+		t.Setenv("BARN_HOME", root)
+		path := filepath.Join(root, "state.json")
+		if corrupt {
+			if err := os.WriteFile(path, []byte("{invalid"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, verb := range []string{"ssh", "exec"} {
+			cases := [][]string{{"meta", "uptime"}, {"--", ""}, {"meta", "--", "", "id"}}
+			if verb == "exec" {
+				cases = append(cases, nil, []string{"meta"}, []string{"--"})
+			}
+			for _, args := range cases {
+				var out, errOut bytes.Buffer
+				invocation := append([]string{"--json", verb}, args...)
+				if code := run(invocation, &out, &errOut); code != exitUsage || !strings.Contains(out.String(), `"error": "usage"`) {
+					t.Errorf("%q with corrupt state=%t: exit=%d stdout=%s stderr=%s", invocation, corrupt, code, out.String(), errOut.String())
+				}
+			}
+		}
+		data, err := os.ReadFile(path)
+		if corrupt && (err != nil || string(data) != "{invalid") || !corrupt && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("invalid invocation changed deployment state: data=%q err=%v", data, err)
+		}
+	}
+}
+
+func TestLinuxRemoteCompletionUsesAppliedNodesBeforeSeparator(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("BARN_HOME", root)
+	resolved := quickResolved(false, false)
+	hash, err := spec.Hash(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (state.Store{Root: root}).WriteDeployment(state.DeploymentState{
+		Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash,
+		Resolved: resolved, UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, verb := range []string{"ssh", "exec", "ex"} {
+		for _, request := range []string{"__complete", "__completeNoDesc"} {
+			for _, test := range []struct {
+				tail []string
+				want string
+			}{
+				{[]string{""}, "meta\n:4"},
+				{[]string{"meta", ""}, ":4"},
+				{[]string{"--", ""}, ":4"},
+				{[]string{"meta", "--", "--j"}, ":4"},
+			} {
+				for _, prefix := range [][]string{nil, {"-vv"}} {
+					invocation := append(append(prefix, request, verb), test.tail...)
+					var out, errOut bytes.Buffer
+					if code := run(invocation, &out, &errOut); code != exitOK || strings.TrimSpace(out.String()) != test.want {
+						t.Errorf("%q: exit=%d stdout=%q stderr=%q", invocation, code, out.String(), errOut.String())
+					}
+				}
+			}
+		}
+	}
+	for _, request := range []string{"__complete", "__completeNoDesc"} {
+		for _, verb := range []string{"logs", "l"} {
+			var out, errOut bytes.Buffer
+			invocation := []string{request, verb, "--", ""}
+			if code := run(invocation, &out, &errOut); code != exitOK || strings.TrimSpace(out.String()) != "meta\n:4" {
+				t.Errorf("ordinary completion %q: exit=%d stdout=%q stderr=%q", invocation, code, out.String(), errOut.String())
+			}
+		}
 	}
 }
 

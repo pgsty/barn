@@ -182,7 +182,7 @@ func TestSSHRunnerStreamsSnapshotAndCapturesExit(t *testing.T) {
 	if result.Success || result.ExitCode != 17 || result.DurationMS < 0 {
 		t.Fatalf("result = %#v", result)
 	}
-	if !strings.Contains(result.Stdout, "'sudo' '-n' '--' '/bin/bash' '-se'") || !strings.Contains(result.Stdout, "stdin=echo ok") || !strings.Contains(result.Stdout, "HostKeyAlias=\""+target.HostKeyAlias+"\"") {
+	if !strings.Contains(result.Stdout, " -- "+target.User+"@127.0.0.1 'sudo' '-n' '--' '/bin/bash' '-se'") || !strings.Contains(result.Stdout, "stdin=echo ok") || !strings.Contains(result.Stdout, "HostKeyAlias=\""+target.HostKeyAlias+"\"") {
 		t.Fatalf("stdout = %q", result.Stdout)
 	}
 	if result.Stderr != "fixture stderr\n" || !strings.Contains(result.Error, "exit status 17") {

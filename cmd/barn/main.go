@@ -28,7 +28,6 @@ import (
 	"github.com/pgsty/barn/internal/hostconfig"
 	"github.com/pgsty/barn/internal/identity"
 	"github.com/pgsty/barn/internal/image"
-	"github.com/pgsty/barn/internal/naming"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	linuxnet "github.com/pgsty/barn/internal/network/linux"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
@@ -584,47 +583,27 @@ func runSSHChild(command *exec.Cmd) error {
 	return command.Wait()
 }
 
-// splitRemoteInvocation separates the optional node selector from the remote
-// command. With a literal --, everything before it is the selector and must
-// be nothing or one known node, so a misspelled node is a usage error rather
-// than a command run on the control node. Without --, the first argument is
-// the node only when it names one; anything else is the remote command.
-func splitRemoteInvocation(arguments []string, resolved spec.Resolved) (string, []string, bool, error) {
-	known := func(name string) bool {
-		for _, candidate := range resolved.Nodes {
-			if candidate.Name == name {
-				return true
-			}
-		}
-		return false
+// splitRemoteArguments accepts only an optional selector before the first --.
+// Everything after it belongs to the remote command, including later -- tokens.
+func splitRemoteArguments(arguments []string, commandPath, selector string, requireCommand bool) ([]string, []string, error) {
+	head, remote := arguments, []string(nil)
+	index := slices.Index(arguments, "--")
+	if index >= 0 {
+		head, remote = arguments[:index], arguments[index+1:]
 	}
-	for index, argument := range arguments {
-		if argument != "--" {
-			continue
+	if len(head) > 1 {
+		if index < 0 {
+			return nil, nil, fmt.Errorf("remote commands require --: %s [%s] -- command [args...]", commandPath, selector)
 		}
-		head, command := arguments[:index], arguments[index+1:]
-		switch {
-		case len(head) == 0:
-			return "", command, false, nil
-		case len(head) > 1:
-			return "", nil, false, fmt.Errorf("at most one node may precede --, got %s", strings.Join(head, " "))
-		case !known(head[0]):
-			return "", nil, false, privatevm.UnknownNodeError(head[0], "deployment", resolved.Nodes)
-		}
-		return head[0], command, false, nil
+		return nil, nil, fmt.Errorf("at most one %s may precede --", selector)
 	}
-	if len(arguments) > 0 && known(arguments[0]) {
-		return arguments[0], arguments[1:], false, nil
+	if len(remote) > 0 && remote[0] == "" {
+		return nil, nil, errors.New("remote command must start with a non-empty argument")
 	}
-	// A near-miss node name is a typo, not a command to run on the default node.
-	// Only words shaped like node names (a digit or '-') qualify, so short
-	// commands such as ls, df, or wc still run.
-	if len(arguments) > 0 && strings.ContainsAny(arguments[0], "-0123456789") {
-		if suggestion := naming.Closest(arguments[0], sortedNodeNames(resolved)); suggestion != "" {
-			return "", nil, false, failure.New(failure.Usage, fmt.Errorf("unknown node %q (did you mean %s?)", arguments[0], suggestion)).Then("to run it on the default node, put -- before it")
-		}
+	if requireCommand && len(remote) == 0 {
+		return nil, nil, fmt.Errorf("exec requires a remote command after --: %s [%s] -- command [args...]", commandPath, selector)
 	}
-	return "", arguments, len(arguments) > 0, nil
+	return head, remote, nil
 }
 
 func remoteCommandText(commandName string, arguments []string) string {
@@ -636,16 +615,24 @@ func remoteCommandText(commandName string, arguments []string) string {
 	return strings.Join(arguments, " ")
 }
 
-func runPrivateSSH(parent context.Context, commandName string, args []string, resolved spec.Resolved, stdout, stderr io.Writer) (commandOutcome, error) {
-	node, command, implicitCommand, err := splitRemoteInvocation(args, resolved)
+func runSSH(parent context.Context, commandName string, args []string, stdout, stderr io.Writer) (commandOutcome, error) {
+	head, command, err := splitRemoteArguments(args, "barn "+commandName, "node", commandName == "exec")
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
-	if implicitCommand {
-		warningf(stderr, "treating %q as a remote command; write barn %s [node] -- command", args[0], commandName)
+	resolved, err := currentDeploymentResolved()
+	if err != nil {
+		return commandOutcome{}, deploymentReadError(err)
 	}
-	if commandName == "exec" && len(command) == 0 {
-		return commandOutcome{}, newUsageError(errors.New("exec requires a remote command: barn exec [node] -- command [args...]"))
+	if resolved.Network != "private" {
+		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
+	}
+	if err := validateNodeSelectors(resolved, head, "deployment"); err != nil {
+		return commandOutcome{}, newUsageError(failure.WithNext(err, "barn status"))
+	}
+	node := ""
+	if len(head) == 1 {
+		node = head[0]
 	}
 	manager := privatevm.Manager{BarnVersion: version.Version}
 	ctx, cancel := context.WithCancel(parent)
@@ -680,17 +667,6 @@ func runPrivateSSH(parent context.Context, commandName string, args []string, re
 		return commandOutcome{}, newRuntimeError(runErr)
 	}
 	return outcome, nil
-}
-
-func runSSH(ctx context.Context, commandName string, args []string, stdout, stderr io.Writer) (commandOutcome, error) {
-	resolved, err := currentDeploymentResolved()
-	if err != nil {
-		return commandOutcome{}, deploymentReadError(err)
-	}
-	if resolved.Network != "private" {
-		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
-	}
-	return runPrivateSSH(ctx, commandName, args, resolved, stdout, stderr)
 }
 
 func printProvisionReport(stdout, stderr io.Writer, report provision.Report) {

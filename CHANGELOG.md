@@ -4,6 +4,30 @@ Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
 1.0.0 may include incompatible changes between minor versions.
 
+## 1.0.0 — Unreleased
+
+### Changed
+
+- Require `--` before remote commands for `ssh`, `exec`, `mac ssh`, and
+  `mac exec`. Before the separator, accept at most one known node or machine.
+  `ssh` still opens an interactive session without a command; `exec` requires
+  one. Reject an empty first remote argument; `exec` retains later empty
+  values. Replace `barn exec meta hostname` with `barn exec meta -- hostname`.
+- Parse Barn flags normally before `--` and stop suggesting Barn flags or
+  selectors after it. `ssh` retains shell command-line semantics; `exec`
+  preserves multiple-argument boundaries. Prefer separate program arguments
+  and explicit `sh -c` for shell expressions; single-string shell shorthand
+  remains supported for compatibility.
+  Regenerate saved Bash completion scripts after upgrading.
+
+### Fixed
+
+- Distinguish missing `--`, extra selectors, and unknown nodes or machines
+  in SSH/exec errors. Unknown selectors point to `barn status` or `barn mac ls`.
+- Terminate OpenSSH option parsing before the destination for Linux and Mac
+  guests, so remote `-V` and `-o...` commands cannot affect the local client.
+  Provisioning retains its fixed command, script input, and exit handling.
+
 ## 0.9.1 — 2026-10-22
 
 Release assets contain the CLI and hosts helper for all four platforms, plus

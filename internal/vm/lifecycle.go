@@ -557,7 +557,7 @@ func SSHArgsForInstance(user, key, knownHosts, alias string, port uint16, comman
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "LogLevel=ERROR",
 		"-o", "UserKnownHostsFile=" + knownHostsOption,
-		"-o", "ConnectTimeout=5", "-p", strconv.Itoa(int(port)), user + "@127.0.0.1",
+		"-o", "ConnectTimeout=5", "-p", strconv.Itoa(int(port)), "--", user + "@127.0.0.1",
 	}
 	if len(command) > 0 {
 		args = append(args, QuoteRemote(command))

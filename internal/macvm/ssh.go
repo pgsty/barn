@@ -118,7 +118,7 @@ func (c Connection) OpenSSHArgs(interactive bool) []string {
 	if interactive {
 		args = append(args, "-t")
 	}
-	return append(args, c.User+"@"+c.Host)
+	return append(args, "--", c.User+"@"+c.Host)
 }
 
 func (m *Manager) sshIdentity(machine *Machine) (ssh.Signer, ssh.HostKeyCallback, error) {
