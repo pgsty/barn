@@ -11,30 +11,110 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/naming"
 )
 
-func fallbackBase(uid int) string {
-	root := "/tmp"
-	if runtime.GOOS == "darwin" {
-		root = "/private/tmp"
-	}
+func barnScope() string {
 	scope := os.Getenv("BARN_HOME")
 	if scope == "" {
 		if home, err := os.UserHomeDir(); err == nil {
 			scope = filepath.Join(home, ".barn")
 		}
 	}
+	if expanded, err := fsutil.UserPath(scope, ""); err == nil {
+		scope = expanded
+	} else if absolute, err := filepath.Abs(scope); err == nil {
+		scope = absolute
+	}
 	if canonical, err := fsutil.CanonicalPath(scope); err == nil {
 		scope = canonical
 	} else if absolute, err := filepath.Abs(scope); err == nil {
 		scope = absolute
 	}
-	digest := sha256.Sum256([]byte(scope))
+	return scope
+}
+
+func scopedBase(root string, uid int) string {
+	digest := sha256.Sum256([]byte(barnScope()))
 	return filepath.Join(root, fmt.Sprintf("barn-%d-%x", uid, digest[:8]))
+}
+
+func fallbackBase(uid int) string {
+	root := "/tmp"
+	if runtime.GOOS == "darwin" {
+		root = "/private/tmp"
+	}
+	return scopedBase(root, uid)
+}
+
+func xdgBase(uid int) (string, error) {
+	canonical, err := xdgRoot(uid)
+	if err != nil {
+		return "", err
+	}
+	return scopedBase(canonical, uid), nil
+}
+
+func xdgRoot(uid int) (string, error) {
+	configured := os.Getenv("XDG_RUNTIME_DIR")
+	if configured == "" {
+		return "", os.ErrNotExist
+	}
+	if !filepath.IsAbs(configured) {
+		return "", errors.New("XDG_RUNTIME_DIR must be an absolute path")
+	}
+	configured = filepath.Clean(configured)
+	if err := validateOwnedDirectory(configured, uid); err != nil {
+		return "", err
+	}
+	canonical, err := filepath.EvalSymlinks(configured)
+	if err != nil {
+		return "", err
+	}
+	return canonical, nil
+}
+
+func managedBase(path string, uid int) bool {
+	if path == fallbackBase(uid) {
+		return true
+	}
+	root, err := xdgRoot(uid)
+	if err != nil {
+		return false
+	}
+	// Existing state may have been planned with a different BARN_HOME. Any
+	// previously generated namespace directly below the validated XDG root is
+	// still safe to reuse; it is identified by the UID and fixed hash shape.
+	return path == root || isScopedXDGBase(path, root, uid)
+}
+
+func prunableBase(path string, uid int) bool {
+	if path == fallbackBase(uid) {
+		return true
+	}
+	root, err := xdgRoot(uid)
+	return err == nil && isScopedXDGBase(path, root, uid)
+}
+
+func isScopedXDGBase(path, root string, uid int) bool {
+	if filepath.Dir(path) != root {
+		return false
+	}
+	prefix := fmt.Sprintf("barn-%d-", uid)
+	suffix := strings.TrimPrefix(filepath.Base(path), prefix)
+	if suffix == filepath.Base(path) || len(suffix) != 16 {
+		return false
+	}
+	for _, character := range suffix {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func ownerUID(info os.FileInfo) (int, bool) {
@@ -61,19 +141,8 @@ func selectedBase(uid int) (string, error) {
 	if uid < 0 {
 		return "", errors.New("runtime UID is invalid")
 	}
-	if configured := os.Getenv("XDG_RUNTIME_DIR"); configured != "" {
-		if !filepath.IsAbs(configured) {
-			return "", errors.New("XDG_RUNTIME_DIR must be an absolute path")
-		}
-		configured = filepath.Clean(configured)
-		if err := validateOwnedDirectory(configured, uid); err != nil {
-			return "", err
-		}
-		canonical, err := filepath.EvalSymlinks(configured)
-		if err != nil {
-			return "", err
-		}
-		return canonical, nil
+	if os.Getenv("XDG_RUNTIME_DIR") != "" {
+		return xdgBase(uid)
 	}
 	return fallbackBase(uid), nil
 }
@@ -86,7 +155,7 @@ func maxSocketPath() int {
 }
 
 // Directory returns the node's runtime location without creating it:
-// <base>/barn/<node>, where base is XDG_RUNTIME_DIR or the UID /tmp root.
+// <scoped-base>/barn/<node>, where scoped-base is isolated by BARN_HOME.
 func Directory(node string, uid int) (string, error) {
 	base, err := selectedBase(uid)
 	if err != nil {
@@ -139,7 +208,7 @@ func Ensure(directory string, uid int) error {
 	if filepath.Base(barnDir) != "barn" || !naming.ValidNodeName(filepath.Base(nodeDir)) {
 		return errors.New("runtime directory has an invalid managed layout")
 	}
-	allowBaseCreate := base == fallbackBase(uid)
+	allowBaseCreate := managedBase(base, uid)
 	if err := ensureOne(base, uid, allowBaseCreate); err != nil {
 		return err
 	}
@@ -163,7 +232,7 @@ func PruneEmptyParents(directory string, uid int) error {
 		return errors.New("runtime directory has an invalid managed layout")
 	}
 	candidates := []string{barnDir}
-	if base == fallbackBase(uid) {
+	if prunableBase(base, uid) {
 		candidates = append(candidates, base)
 	}
 	for _, path := range candidates {

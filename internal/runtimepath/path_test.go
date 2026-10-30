@@ -32,7 +32,7 @@ func TestXDGDirectoryAndEnsure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Dir(filepath.Dir(directory)) != root {
+	if filepath.Dir(filepath.Dir(filepath.Dir(directory))) != root {
 		t.Fatalf("runtime directory = %s", directory)
 	}
 	if err := Ensure(directory, os.Getuid()); err != nil {
@@ -129,12 +129,65 @@ func TestXDGDirectoryFollowsSafeAliasAndNormalizesPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(canonical, "barn", "meta")
+	want := filepath.Join(scopedBase(canonical, os.Getuid()), "barn", "meta")
 	if directory != want {
 		t.Fatalf("runtime directory = %q, want %q", directory, want)
 	}
 	if err := Ensure(directory, os.Getuid()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestXDGSeparatesBarnHomes(t *testing.T) {
+	root := shortRuntimeRoot(t)
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	firstRoot := filepath.Join(t.TempDir(), "barn-one")
+	secondRoot := filepath.Join(t.TempDir(), "barn-two")
+	t.Setenv("BARN_HOME", firstRoot)
+	first, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BARN_HOME", secondRoot)
+	second, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("different BARN_HOME values share XDG runtime path %q", first)
+	}
+}
+
+func TestEnsureAcceptsPreviousXDGNamespaceAfterBarnHomeChanges(t *testing.T) {
+	root := shortRuntimeRoot(t)
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	t.Setenv("BARN_HOME", filepath.Join(t.TempDir(), "barn-one"))
+	previous, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BARN_HOME", filepath.Join(t.TempDir(), "barn-two"))
+	if err := Ensure(previous, os.Getuid()); err != nil {
+		t.Fatalf("previous persisted runtime namespace was rejected: %v", err)
+	}
+}
+
+func TestFallbackExpandsBarnHomeBeforeHashing(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("BARN_HOME", "~/barn-test")
+	first, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	second, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("BARN_HOME=~/... changed with working directory: %q -> %q", first, second)
 	}
 }
 
