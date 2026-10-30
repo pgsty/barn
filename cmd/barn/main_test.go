@@ -774,7 +774,7 @@ func TestCompletions(t *testing.T) {
 		{args: []string{"__complete", "setup", ""}, want: []string{"meta", "dual", "trio", "full"}},
 		{args: []string{"__complete", "setup", "--mode", ""}, want: []string{"host", "shared"}},
 		{args: []string{"__complete", "image", ""}, want: []string{"list", "pull", "sync"}},
-		{args: []string{"__complete", "image", "pull", "u"}, want: []string{"u24", "u24:stable", "u24@20260911.0.0", "u24@20260801.0.0"}},
+		{args: []string{"__complete", "image", "pull", "u"}, want: []string{"u24", "u24:stable", "u24@20261017.0.1"}},
 		{args: []string{"__complete", "up", "--file", "../../tests/fixtures/private-two.yaml", ""}, want: []string{"meta", "node-1"}},
 	} {
 		var stdout, stderr bytes.Buffer

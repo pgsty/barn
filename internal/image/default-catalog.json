@@ -1,6 +1,6 @@
 {
   "schema": 3,
-  "revision": 2026093001,
+  "revision": 2026102802,
   "defaults": {
     "image": "u24",
     "channel": "stable",
@@ -15,29 +15,29 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260923.2610.1"
+        "stable": "20261026.2643.1"
       },
       "versions": {
-        "20260923.2610.1": {
+        "20261026.2643.1": {
           "status": "supported",
           "variants": {
             "amd64": {
-              "file": "images/d12-20260923.2610.1-amd64.qcow2",
-              "sha256": "00d96945c7b7b0f86d5f919658b0fe32829146851ce5f752f2fc50e907e894bc",
+              "file": "images/d12-20261026.2643.1-amd64.qcow2",
+              "sha256": "57b86ed2748fe41126ce9bdb48af5f289d9a10fb69e1bee4fb363c1649164dad",
               "format": "qcow2",
-              "artifact_size": 763166720,
+              "artifact_size": 758841344,
               "virtual_size": 3221225472,
               "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-amd64-20260923-2610.qcow2 sha256:30da13ad03a8713f3cf2b9b2830b4db892e2e7dca2572f9eb690f86ad4e8fe97; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261026-2643/debian-12-generic-amd64-20261026-2643.qcow2 sha256:b242aca2f6dd2fba72c856edf1d9b0df72a9cd093560535142f1e9c9c8128f80; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; recipe sha256:edc770da12cf01e4460b882ab07860232ada120f07d72486680ec07ce728adc3; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.1.0-1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             },
             "arm64": {
-              "file": "images/d12-20260923.2610.1-arm64.qcow2",
-              "sha256": "b7a91965bd9612d51c69396c2cb03b230707c69982b8286327844ce59f6cea00",
+              "file": "images/d12-20261026.2643.1-arm64.qcow2",
+              "sha256": "73bf46a766747d7647263c917065ae218f0334e60a78b92c64bc950cbf5cab76",
               "format": "qcow2",
-              "artifact_size": 724500480,
+              "artifact_size": 749142016,
               "virtual_size": 3221225472,
               "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-arm64-20260923-2610.qcow2 sha256:36af134bafc3e426e551f250deec7581e4352d473ba40be7d9fd905fb832d0ed; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261026-2643/debian-12-generic-arm64-20261026-2643.qcow2 sha256:a4e929bc5fa0cd4b26b8fd87576f7aef35e9d6ca5039d45460e4291ddcfdbe36; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; recipe sha256:2b490ec151e3891eaf15e56105b6da78ca9bbe7c4c722b84363ee260c40db598; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.1.0-1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             }
           }
         }
@@ -51,29 +51,29 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260914.2601.2"
+        "stable": "20261026.2643.1"
       },
       "versions": {
-        "20260914.2601.2": {
+        "20261026.2643.1": {
           "status": "supported",
           "variants": {
             "amd64": {
-              "file": "images/d13-20260914.2601.2-amd64.qcow2",
-              "sha256": "d7d9535bebb4e3052e67bf280142e55aabf8d62e4e2f42281a12532ac79374c2",
+              "file": "images/d13-20261026.2643.1-amd64.qcow2",
+              "sha256": "2ebcddcc3f2b5ad52f09d021c06b5fc23d984b78c5e9e2c1c94c37891fc0db48",
               "format": "qcow2",
-              "artifact_size": 589430784,
+              "artifact_size": 537919488,
               "virtual_size": 3221225472,
               "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-amd64-20260914-2601.qcow2 sha256:b6e3a4dac69b38d55a763b1752e8fd7bb12e3948672a79fee4ef13fa53839d2f; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:2e8e2ec801032229aed52b75c4086c9bd204b390092ee803fd642865fe5460a0; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-amd64-20261026-2643.qcow2 sha256:7740a80114c1b5e6456c65713c76f4006e8b00eb50d8a122924ba823b9959fc5; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:6a524fc862baf58087f018c5e65ed703bd644cbfb2c7efcb3db9f8757dda130b; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             },
             "arm64": {
-              "file": "images/d13-20260914.2601.2-arm64.qcow2",
-              "sha256": "400a1d2eb921cad7ecd7240762cafa03003771f8ec99a58826528512703d5079",
+              "file": "images/d13-20261026.2643.1-arm64.qcow2",
+              "sha256": "c3c2fb7b4ae5218f5c02423c0ca67ddd5ada65e9829f50e7f8f50d86aa6a5dba",
               "format": "qcow2",
-              "artifact_size": 604962816,
+              "artifact_size": 609026048,
               "virtual_size": 3221225472,
               "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-arm64-20260914-2601.qcow2 sha256:3fa2da19de8343bc144517d15bab29a90352482640d326939c9756af4f553f7b; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:99459a9920a72746b6cbcae529df30b2f7f82cd96ae0a2b9b14b21362e747398; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-arm64-20261026-2643.qcow2 sha256:b47770b9b9ed7b26034c0c706a1b3f5558010954ba7bc657a3b84272b260933f; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:7ebd6a46f8f80ae09ee6260ae5722437b6300319ecd612cc3b243df9760b720e; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             }
           }
         }
@@ -88,56 +88,6 @@
         "stable": "10.2.20260525.0"
       },
       "versions": {
-        "10.0.20250609.1": {
-          "status": "deprecated",
-          "variants": {
-            "amd64": {
-              "file": "images/el10-10.0.20250609.1-amd64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/10.0/images/x86_64/Rocky-10-GenericCloud-Base-10.0-20250609.1.x86_64.qcow2",
-              "sha256": "20e771c654724e002c32fb92a05fdfdd7ac878c192f50e2fc21f53e8f098b8f9",
-              "format": "qcow2",
-              "artifact_size": 520355840,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 10.0 GenericCloud Base 20250609.1; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            },
-            "arm64": {
-              "file": "images/el10-10.0.20250609.1-arm64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/10.0/images/aarch64/Rocky-10-GenericCloud-Base-10.0-20250609.1.aarch64.qcow2",
-              "sha256": "326264421955473a3576feff35076b7a7ef4bf2a14b5f6d238b7ec65c0426fbc",
-              "format": "qcow2",
-              "artifact_size": 468189184,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 10.0 GenericCloud Base 20250609.1; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            }
-          }
-        },
-        "10.1.20251116.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/el10-10.1.20251116.0-amd64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/10.1/images/x86_64/Rocky-10-GenericCloud-Base-10.1-20251116.0.x86_64.qcow2",
-              "sha256": "28628abf08a134c6f9e1eccbcac3f2898715919a6da294ae2c6cd66d6bc347ad",
-              "format": "qcow2",
-              "artifact_size": 575406080,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 10.1 GenericCloud Base 20251116.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            },
-            "arm64": {
-              "file": "images/el10-10.1.20251116.0-arm64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/10.1/images/aarch64/Rocky-10-GenericCloud-Base-10.1-20251116.0.aarch64.qcow2",
-              "sha256": "abc0023cf8fb415532138fa735a79bc254ba0d13f4d79b032a09431d438ee36d",
-              "format": "qcow2",
-              "artifact_size": 507248640,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 10.1 GenericCloud Base 20251116.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            }
-          }
-        },
         "10.2.20260525.0": {
           "status": "supported",
           "variants": {
@@ -202,29 +152,6 @@
         "stable": "8.10.20240528.3"
       },
       "versions": {
-        "8.10.20240528.2": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/el8-8.10.20240528.2-amd64.qcow2",
-              "sha256": "79356d5deb18bda78726340a888fe212071bea4e691d1d0231bf2bb7660fc3dd",
-              "format": "qcow2",
-              "artifact_size": 2081619968,
-              "virtual_size": 10737418240,
-              "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base-8.10-20240528.0.x86_64.qcow2 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; recipe sha256:e0882240ee40eb029c13abbfaafe9188aaa40e5fad6ab13a021d63fcabc79e0f; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-            },
-            "arm64": {
-              "file": "images/el8-8.10.20240528.2-arm64.qcow2",
-              "sha256": "048a5e6322ea21576cad7084b72c2c5d5677fb53cf75677db1712a460249d22f",
-              "format": "qcow2",
-              "artifact_size": 1941569536,
-              "virtual_size": 10737418240,
-              "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:dfc88170d5a387a8b35eb232ec52970fa88f6caef532e32aab6928fb78f89410; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; TCG UEFI (upstream 64 KiB ARM kernel) dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-            }
-          }
-        },
         "8.10.20240528.3": {
           "status": "supported",
           "variants": {
@@ -260,81 +187,6 @@
         "stable": "9.8.20260525.2"
       },
       "versions": {
-        "9.3.20231113.0": {
-          "status": "deprecated",
-          "variants": {
-            "amd64": {
-              "file": "images/el9-9.3.20231113.0-amd64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/9.3/images/x86_64/Rocky-9-GenericCloud-Base-9.3-20231113.0.x86_64.qcow2",
-              "sha256": "7713278c37f29b0341b0a841ca3ec5c3724df86b4d97e7ee4a2a85def9b2e651",
-              "format": "qcow2",
-              "artifact_size": 1083965440,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 9.3 GenericCloud Base 20231113.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            },
-            "arm64": {
-              "file": "images/el9-9.3.20231113.0-arm64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/9.3/images/aarch64/Rocky-9-GenericCloud-Base-9.3-20231113.0.aarch64.qcow2",
-              "sha256": "1948a5e00786dbf3230335339cf96491659e17444f5d00dabac0f095a7354cc1",
-              "format": "qcow2",
-              "artifact_size": 974323712,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 9.3 GenericCloud Base 20231113.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            }
-          }
-        },
-        "9.6.20250531.0": {
-          "status": "deprecated",
-          "variants": {
-            "amd64": {
-              "file": "images/el9-9.6.20250531.0-amd64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/9.6/images/x86_64/Rocky-9-GenericCloud-Base-9.6-20250531.0.x86_64.qcow2",
-              "sha256": "2c72815bb83cadccbede4704780e9b52033722db8a45c3fb02130aa380690a3d",
-              "format": "qcow2",
-              "artifact_size": 627507200,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 9.6 GenericCloud Base 20250531.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            },
-            "arm64": {
-              "file": "images/el9-9.6.20250531.0-arm64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/9.6/images/aarch64/Rocky-9-GenericCloud-Base-9.6-20250531.0.aarch64.qcow2",
-              "sha256": "3776b2c17cc011c28e2ab440c49dfba8d2be214d8b85df2b5edc97ebdeb30e4a",
-              "format": "qcow2",
-              "artifact_size": 524943360,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 9.6 GenericCloud Base 20250531.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            }
-          }
-        },
-        "9.7.20251123.2": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/el9-9.7.20251123.2-amd64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/9.7/images/x86_64/Rocky-9-GenericCloud-Base-9.7-20251123.2.x86_64.qcow2",
-              "sha256": "15d81d3434b298142b2fdd8fb54aef2662684db5c082cc191c3c79762ed6360c",
-              "format": "qcow2",
-              "artifact_size": 648806400,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 9.7 GenericCloud Base 20251123.2; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            },
-            "arm64": {
-              "file": "images/el9-9.7.20251123.2-arm64.qcow2",
-              "upstream": "https://dl.rockylinux.org/vault/rocky/9.7/images/aarch64/Rocky-9-GenericCloud-Base-9.7-20251123.2.aarch64.qcow2",
-              "sha256": "fc67069636d7c8afa5b71d1497f8c6628d026a0781d7ac743ec5f25995c72ee1",
-              "format": "qcow2",
-              "artifact_size": 529268736,
-              "virtual_size": 10737418240,
-              "source_user": "rocky",
-              "provenance": "Rocky Linux 9.7 GenericCloud Base 20251123.2; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-            }
-          }
-        },
         "9.8.20260525.2": {
           "status": "supported",
           "variants": {
@@ -368,81 +220,29 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260926.0.0"
+        "stable": "20261020.0.1"
       },
       "versions": {
-        "20260810.0.0": {
+        "20261020.0.1": {
           "status": "supported",
           "variants": {
             "amd64": {
-              "file": "images/u22-20260810.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/jammy/20260810/jammy-server-cloudimg-amd64.img",
-              "sha256": "6de0c42a98dc9a749917dfef34bf54e3595441bf67d39f103a61341560b3da8e",
+              "file": "images/u22-20261020.0.1-amd64.qcow2",
+              "sha256": "c321f1fee530ceabf505d4b7b06398527d7ace4acc5e8a0ce73f35d4e56511f1",
               "format": "qcow2",
-              "artifact_size": 734344192,
+              "artifact_size": 734920704,
               "virtual_size": 2361393152,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 22.04 dated cloud image 20260810; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261020/ubuntu-22.04-server-cloudimg-amd64.img sha256:2099e63da0b822ef8e05e3d596c1b402eaaae658fc08ab919cb8495bfcdc488b; recipe sha256:357f8a349d0601bee9940b9761850f12dc61a7468780633f351f2075f47f3bf6; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 5.13.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             },
             "arm64": {
-              "file": "images/u22-20260810.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/jammy/20260810/jammy-server-cloudimg-arm64.img",
-              "sha256": "b57a88a8d3b9f33d48f1b3d70a1aac7ae79760c9b507699d2601989eadac02b1",
+              "file": "images/u22-20261020.0.1-arm64.qcow2",
+              "sha256": "501de7321ba8b9e63dd930e6d2137b67d52ac722257c56c361979d9ba2946393",
               "format": "qcow2",
-              "artifact_size": 703484928,
+              "artifact_size": 705560576,
               "virtual_size": 2361393152,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 22.04 dated cloud image 20260810; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-            }
-          }
-        },
-        "20260913.0.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/u22-20260913.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/jammy/release-20260913/ubuntu-22.04-server-cloudimg-amd64.img",
-              "sha256": "9144540e8af7637d258b50dbabe82ce1aa6752c9574fedfb048270da0e087899",
-              "format": "qcow2",
-              "artifact_size": 735388672,
-              "virtual_size": 2361393152,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260913; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-            },
-            "arm64": {
-              "file": "images/u22-20260913.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/jammy/release-20260913/ubuntu-22.04-server-cloudimg-arm64.img",
-              "sha256": "ab5fcc80611a98bf999018045119d87b3a0e7c78f3b43b254b93d5c22bae3ff6",
-              "format": "qcow2",
-              "artifact_size": 704972800,
-              "virtual_size": 2361393152,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260913; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-            }
-          }
-        },
-        "20260926.0.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/u22-20260926.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-amd64.img",
-              "sha256": "0c9811a81e6329acacbb5ae4e701a7650f85cd3f19852cd159d79ab8357b210e",
-              "format": "qcow2",
-              "artifact_size": 735731200,
-              "virtual_size": 2361393152,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
-            },
-            "arm64": {
-              "file": "images/u22-20260926.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-arm64.img",
-              "sha256": "04f2ca6af841918df1fa1aaba485f2b5f3d451f90459e48c066bbd70ebed174f",
-              "format": "qcow2",
-              "artifact_size": 705299456,
-              "virtual_size": 2361393152,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 22.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261020/ubuntu-22.04-server-cloudimg-arm64.img sha256:e720ae083f93baae47ac9b76a096243fe1027f60998cf1127a47a74c880f64ed; recipe sha256:c6e2986c6678ba7a2e490e0f2de936837f6d06f651edec7dc411cc9edc09d3db; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 5.13.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             }
           }
         }
@@ -457,81 +257,29 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260926.0.0"
+        "stable": "20261017.0.1"
       },
       "versions": {
-        "20260801.0.0": {
+        "20261017.0.1": {
           "status": "supported",
           "variants": {
             "amd64": {
-              "file": "images/u24-20260801.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/noble/20260801/noble-server-cloudimg-amd64.img",
-              "sha256": "0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe",
+              "file": "images/u24-20261017.0.1-amd64.qcow2",
+              "sha256": "84c5d706bd6077cebd2738fcdc67bdc9e41e7f2c37f62b3b578f0c9448308937",
               "format": "qcow2",
-              "artifact_size": 624239616,
+              "artifact_size": 626393088,
               "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 24.04 dated cloud image 20260801; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img sha256:04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94; recipe sha256:1fb23864e5f4b6e530d095089f667db7c66ee7b8d1af4fa19964a67806885aee; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.6.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             },
             "arm64": {
-              "file": "images/u24-20260801.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/noble/20260801/noble-server-cloudimg-arm64.img",
-              "sha256": "aa6da05756e85ea6dde4836b841fecb10cfd1ba3bcea320189d9af945db70476",
+              "file": "images/u24-20261017.0.1-arm64.qcow2",
+              "sha256": "128cb37a18174c14f1976d752ce27cf9d284802efcb1fc0e730f0abb456cb06f",
               "format": "qcow2",
-              "artifact_size": 618417664,
+              "artifact_size": 621608960,
               "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 24.04 dated cloud image 20260801; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-            }
-          }
-        },
-        "20260911.0.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/u24-20260911.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/noble/release-20260911/ubuntu-24.04-server-cloudimg-amd64.img",
-              "sha256": "612b2c0cc1bc413a6cb8c38fd611794caf0f2b436c50013d8b3794db12ad7354",
-              "format": "qcow2",
-              "artifact_size": 625256960,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260911; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-            },
-            "arm64": {
-              "file": "images/u24-20260911.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/noble/release-20260911/ubuntu-24.04-server-cloudimg-arm64.img",
-              "sha256": "7b682958a67ff5de068e36de6af8b75fa645d296af5a70d6500527f6a33781db",
-              "format": "qcow2",
-              "artifact_size": 619621888,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260911; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-            }
-          }
-        },
-        "20260926.0.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/u24-20260926.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-amd64.img",
-              "sha256": "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2",
-              "format": "qcow2",
-              "artifact_size": 625612288,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
-            },
-            "arm64": {
-              "file": "images/u24-20260926.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img",
-              "sha256": "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55",
-              "format": "qcow2",
-              "artifact_size": 620224512,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 24.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-arm64.img sha256:50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e; recipe sha256:a9c12c7ff3ec8b3ab89d9769c30fe8f1470cfe1428eeb3be75750dd974ba9413; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.6.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             }
           }
         }
@@ -545,81 +293,29 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20260927.0.0"
+        "stable": "20261016.0.1"
       },
       "versions": {
-        "20260731.0.0": {
+        "20261016.0.1": {
           "status": "supported",
           "variants": {
             "amd64": {
-              "file": "images/u26-20260731.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/resolute/20260731/resolute-server-cloudimg-amd64.img",
-              "sha256": "9dc7c5363c0146a08ba0c9aa834d82c2c6dfbb1c471ad9a2f0aba1189e21be05",
+              "file": "images/u26-20261016.0.1-amd64.qcow2",
+              "sha256": "87982ec7e107dcd00367aaa5d15a1a08f8d2babb7e58cc3142fd168725b73c10",
               "format": "qcow2",
-              "artifact_size": 860447744,
+              "artifact_size": 864288768,
               "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 26.04 dated cloud image 20260731; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img sha256:5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5; recipe sha256:e61430b1f563ecd2ef39f9cd54a063c5ae4be5bd9df9127e43720fc73a1a9001; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.18.0-3 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             },
             "arm64": {
-              "file": "images/u26-20260731.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/resolute/20260731/resolute-server-cloudimg-arm64.img",
-              "sha256": "3e113fdd41f39e13729375173bb2ae793f87dc6db4294e5251ff2476971788ba",
+              "file": "images/u26-20261016.0.1-arm64.qcow2",
+              "sha256": "ac9634f0ff07d16531868200cef46cda087f3088d4433a5c6510d3e238b3f00f",
               "format": "qcow2",
-              "artifact_size": 940920832,
+              "artifact_size": 945618944,
               "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 26.04 dated cloud image 20260731; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-            }
-          }
-        },
-        "20260918.0.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/u26-20260918.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/resolute/release-20260918/ubuntu-26.04-server-cloudimg-amd64.img",
-              "sha256": "4908fb59ccd4e87ae4e8e973b7ef56f535448eacb24a87fd787270c0048987bc",
-              "format": "qcow2",
-              "artifact_size": 864411136,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260918; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-            },
-            "arm64": {
-              "file": "images/u26-20260918.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/resolute/release-20260918/ubuntu-26.04-server-cloudimg-arm64.img",
-              "sha256": "8dc812bc6356d0abf825d8029f25f1b71f02cb103e1d0cc5c17fbb2572322972",
-              "format": "qcow2",
-              "artifact_size": 944823296,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260918; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-            }
-          }
-        },
-        "20260927.0.0": {
-          "status": "supported",
-          "variants": {
-            "amd64": {
-              "file": "images/u26-20260927.0.0-amd64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img",
-              "sha256": "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2",
-              "format": "qcow2",
-              "artifact_size": 865115136,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260927; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
-            },
-            "arm64": {
-              "file": "images/u26-20260927.0.0-arm64.qcow2",
-              "upstream": "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-arm64.img",
-              "sha256": "63a93bd5a8d76e33b15ceb5daa3657bd79be804748051ab178e643b0f5da22e7",
-              "format": "qcow2",
-              "artifact_size": 945530880,
-              "virtual_size": 3758096384,
-              "source_user": "ubuntu",
-              "provenance": "Canonical Ubuntu Server 26.04 release cloud image 20260927; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+              "source_user": "dba",
+              "provenance": "Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-arm64.img sha256:8eb876c2ccc4b6ff89e4a65d511815923b285e04503ba465809bf587f763da24; recipe sha256:5abaa4329a7660c1648e7fd72a9696eeeb33538772a4416515fd5d81a88c4d65; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.18.0-3 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
             }
           }
         }

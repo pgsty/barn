@@ -230,11 +230,12 @@ func TestManifestRejectsTamperUnknownKeyAndEquivocation(t *testing.T) {
 	equivocationDir := t.TempDir()
 	equivocation := signedCatalog(t, equivocationDir, EmbeddedManifestVersion+1, key, func(catalog *Catalog) {
 		imageRecord := catalog.Images["u24"]
-		version := imageRecord.Versions["20260801.0.0"]
+		release := imageRecord.Channels["stable"]
+		version := imageRecord.Versions[release]
 		artifact := version.Variants["arm64"]
 		artifact.Provenance = "different bytes"
 		version.Variants["arm64"] = artifact
-		imageRecord.Versions["20260801.0.0"] = version
+		imageRecord.Versions[release] = version
 		catalog.Images["u24"] = imageRecord
 	})
 	if _, err := manager.Sync(context.Background(), equivocation, true); err == nil {

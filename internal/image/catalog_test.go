@@ -20,26 +20,15 @@ func TestEmbeddedCatalogRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry.SHA256 != "1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55" || entry.ArtifactSize != 620224512 || entry.VirtualSize != 3758096384 || catalog.Version != EmbeddedManifestVersion || catalog.Defaults.Image != "u24" || entry.Channel != "stable" {
+	if entry.SHA256 != "128cb37a18174c14f1976d752ce27cf9d284802efcb1fc0e730f0abb456cb06f" || entry.ArtifactSize != 621608960 || entry.VirtualSize != 3758096384 || catalog.Version != EmbeddedManifestVersion || catalog.Defaults.Image != "u24" || entry.Channel != "stable" {
 		t.Fatalf("entry/catalog = %#v %#v", entry, catalog)
 	}
-	if len(catalog.Images) != 9 || len(catalog.Entries()) != 41 {
+	if len(catalog.Images) != 9 || len(catalog.Entries()) != 17 {
 		t.Fatalf("embedded catalog matrix = %d images / %d entries", len(catalog.Images), len(catalog.Entries()))
 	}
 	for _, alias := range formalAliases {
 		record, ok := catalog.Images[alias]
-		wantVersions := 1
-		switch alias {
-		case "el8":
-			wantVersions = 2
-		case "u22", "u24", "u26":
-			wantVersions = 3
-		case "el9":
-			wantVersions = 4
-		case "el10":
-			wantVersions = 3
-		}
-		if !ok || len(record.Versions) != wantVersions || record.Channels["stable"] == "" {
+		if !ok || len(record.Versions) != 1 || record.Channels["stable"] == "" {
 			t.Errorf("catalog image %s = %#v", alias, record)
 			continue
 		}
@@ -67,12 +56,7 @@ func TestEmbeddedCatalogSupportPolicy(t *testing.T) {
 		{"d13", "arm64", "supported"},
 		{"el8", "amd64", "supported"},
 		{"el9@9.8", "arm64", "supported"},
-		{"el9@9.7", "amd64", "supported"},
-		{"el9@9.6", "arm64", "deprecated"},
-		{"el9@9.3", "amd64", "deprecated"},
 		{"el10@10.2", "arm64", "supported"},
-		{"el10@10.1", "amd64", "supported"},
-		{"el10@10.0", "arm64", "deprecated"},
 		{"el7", "amd64", "deprecated"},
 		{"u22", "arm64", "supported"},
 		{"u24", "amd64", "supported"},
@@ -126,11 +110,12 @@ func TestCatalogRejectsIncompleteArtifactAndMovingURL(t *testing.T) {
 			t.Parallel()
 			catalog := EmbeddedCatalog()
 			record := catalog.Images["u24"]
-			version := record.Versions["20260801.0.0"]
+			release := record.Channels["stable"]
+			version := record.Versions[release]
 			artifact := version.Variants["arm64"]
 			test.mutate(&artifact)
 			version.Variants["arm64"] = artifact
-			record.Versions["20260801.0.0"] = version
+			record.Versions[release] = version
 			catalog.Images["u24"] = record
 			if err := catalog.Validate(); err == nil {
 				t.Fatal("invalid catalog artifact unexpectedly accepted")

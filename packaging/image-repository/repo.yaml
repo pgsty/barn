@@ -1,282 +1,165 @@
 schema: 1
-revision: 2026093001
+revision: 2026102802
 defaults:
-  image: "u24"
-  channel: "stable"
-  arch: "native"
-  boot: "uefi"
+  image: u24
+  channel: stable
+  arch: native
+  boot: uefi
 images:
   d12:
-    aliases: ["debian12", "bookworm"]
-    boot: "uefi"
+    aliases:
+    - debian12
+    - bookworm
+    boot: uefi
     channels:
-      stable: "20260923.2610.1"
+      stable: 20261026.2643.1
     versions:
-      "20260923.2610.1":
-        status: "supported"
+      20261026.2643.1:
+        status: supported
         variants:
           amd64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-amd64-20260923-2610.qcow2 sha256:30da13ad03a8713f3cf2b9b2830b4db892e2e7dca2572f9eb690f86ad4e8fe97; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native KVM UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261026-2643/debian-12-generic-amd64-20261026-2643.qcow2 sha256:b242aca2f6dd2fba72c856edf1d9b0df72a9cd093560535142f1e9c9c8128f80; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; recipe sha256:edc770da12cf01e4460b882ab07860232ada120f07d72486680ec07ce728adc3; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.1.0-1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
           arm64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-arm64-20260923-2610.qcow2 sha256:36af134bafc3e426e551f250deec7581e4352d473ba40be7d9fd905fb832d0ed; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; xfsprogs 6.1.0-1 installed offline; en_US.UTF-8 generated with C.UTF-8 retained as the default; native HVF UEFI dual-NIC SSH, dba UID/GID 88, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261026-2643/debian-12-generic-arm64-20261026-2643.qcow2 sha256:a4e929bc5fa0cd4b26b8fd87576f7aef35e9d6ca5039d45460e4291ddcfdbe36; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; recipe sha256:2b490ec151e3891eaf15e56105b6da78ca9bbe7c4c722b84363ee260c40db598; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.1.0-1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
   d13:
-    aliases: ["debian13", "debian", "trixie"]
-    boot: "uefi"
+    aliases:
+    - debian13
+    - debian
+    - trixie
+    boot: uefi
     channels:
-      stable: "20260914.2601.2"
+      stable: 20261026.2643.1
     versions:
-      "20260914.2601.2":
-        status: "supported"
+      20261026.2643.1:
+        status: supported
         variants:
           amd64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-amd64-20260914-2601.qcow2 sha256:b6e3a4dac69b38d55a763b1752e8fd7bb12e3948672a79fee4ef13fa53839d2f; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:2e8e2ec801032229aed52b75c4086c9bd204b390092ee803fd642865fe5460a0; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-amd64-20261026-2643.qcow2 sha256:7740a80114c1b5e6456c65713c76f4006e8b00eb50d8a122924ba823b9959fc5; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:6a524fc862baf58087f018c5e65ed703bd644cbfb2c7efcb3db9f8757dda130b; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
           arm64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-arm64-20260914-2601.qcow2 sha256:3fa2da19de8343bc144517d15bab29a90352482640d326939c9756af4f553f7b; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:99459a9920a72746b6cbcae529df30b2f7f82cd96ae0a2b9b14b21362e747398; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-arm64-20261026-2643.qcow2 sha256:b47770b9b9ed7b26034c0c706a1b3f5558010954ba7bc657a3b84272b260933f; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:7ebd6a46f8f80ae09ee6260ae5722437b6300319ecd612cc3b243df9760b720e; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
   el10:
-    aliases: ["rocky10"]
-    boot: "uefi"
+    aliases:
+    - rocky10
+    boot: uefi
     channels:
-      stable: "10.2.20260525.0"
+      stable: 10.2.20260525.0
     versions:
-      "10.2.20260525.0":
-        status: "supported"
+      10.2.20260525.0:
+        status: supported
         variants:
           amd64:
-            upstream: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 10.2 GenericCloud Base 20260525.0; distribution-owned dated artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+            upstream: https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2
+            source_user: rocky
+            provenance: Rocky Linux 10.2 GenericCloud Base 20260525.0; distribution-owned dated artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24
           arm64:
-            upstream: "https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.2-20260525.0.aarch64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 10.2 GenericCloud Base 20260525.0; distribution-owned dated artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-      "10.1.20251116.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/10.1/images/x86_64/Rocky-10-GenericCloud-Base-10.1-20251116.0.x86_64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 10.1 GenericCloud Base 20251116.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-          arm64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/10.1/images/aarch64/Rocky-10-GenericCloud-Base-10.1-20251116.0.aarch64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 10.1 GenericCloud Base 20251116.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-      "10.0.20250609.1":
-        status: "deprecated"
-        variants:
-          amd64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/10.0/images/x86_64/Rocky-10-GenericCloud-Base-10.0-20250609.1.x86_64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 10.0 GenericCloud Base 20250609.1; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-          arm64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/10.0/images/aarch64/Rocky-10-GenericCloud-Base-10.0-20250609.1.aarch64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 10.0 GenericCloud Base 20250609.1; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
+            upstream: https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.2-20260525.0.aarch64.qcow2
+            source_user: rocky
+            provenance: Rocky Linux 10.2 GenericCloud Base 20260525.0; distribution-owned dated artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24
   el7:
-    aliases: ["c7", "centos7", "centos79"]
-    boot: "bios"
+    aliases:
+    - c7
+    - centos7
+    - centos79
+    boot: bios
     channels:
-      stable: "7.9.20221112.0"
+      stable: 7.9.20221112.0
     versions:
-      "7.9.20221112.0":
-        status: "deprecated"
+      7.9.20221112.0:
+        status: deprecated
         variants:
           amd64:
-            upstream: "https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-2211.qcow2"
-            source_user: "centos"
-            provenance: "CentOS Linux 7 GenericCloud 2211 archive; distribution-owned immutable artifact retained for EOL compatibility testing only; SHA-256, qcow2 metadata, MBR boot layout, and 4K XFS root verified 2026-08-28"
+            upstream: https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-2211.qcow2
+            source_user: centos
+            provenance: CentOS Linux 7 GenericCloud 2211 archive; distribution-owned immutable artifact retained for EOL compatibility testing only; SHA-256, qcow2 metadata, MBR boot layout, and 4K XFS root verified 2026-08-28
   el8:
-    aliases: ["rocky8"]
-    boot: "uefi"
+    aliases:
+    - rocky8
+    boot: uefi
     channels:
-      stable: "8.10.20240528.3"
+      stable: 8.10.20240528.3
     versions:
-      "8.10.20240528.3":
-        status: "supported"
+      8.10.20240528.3:
+        status: supported
         variants:
           amd64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base-8.10-20240528.0.x86_64.qcow2 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; recipe sha256:c306035a892ffc3be32487b8a9c938667b0f242eb069229834f1806a46055fcd; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected; SELinux labels completed and verified offline, pending autorelabel removed only after success; native KVM UEFI; two pristine first boots and full Barn lifecycle passed with the default 180-second guest readiness timeout; dba UID/GID 88, Python, cloud-init without warnings, chronyd, SELinux Enforcing, XFS data writes and direct repository HTTPS verified 2026-09-30; upstream is build provenance only"
+            source_user: dba
+            provenance: Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base-8.10-20240528.0.x86_64.qcow2 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; recipe sha256:c306035a892ffc3be32487b8a9c938667b0f242eb069229834f1806a46055fcd; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected; SELinux labels completed and verified offline, pending autorelabel removed only after success; native KVM UEFI; two pristine first boots and full Barn lifecycle passed with the default 180-second guest readiness timeout; dba UID/GID 88, Python, cloud-init without warnings, chronyd, SELinux Enforcing, XFS data writes and direct repository HTTPS verified 2026-09-30; upstream is build provenance only
           arm64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:2c1358ad54ed54b5524b8e5e887c77739cfecc87ea1fe234e4ca5e7d71ad6847; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected; SELinux labels completed and verified offline, pending autorelabel removed only after success; TCG UEFI first boot and disk-preserving restart passed; unchanged upstream 64 KiB kernel remains incompatible with Apple HVF; dba UID/GID 88, Python, cloud-init without warnings, chronyd, SELinux Enforcing, XFS data writes and direct repository HTTPS verified 2026-09-30; upstream is build provenance only"
-      "8.10.20240528.2":
-        status: "supported"
-        variants:
-          amd64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base-8.10-20240528.0.x86_64.qcow2 sha256:e56066c58606191e96184de9a9183a3af33c59bcbd8740d8b10ca054a7a89c14; package-lock sha256:9e479db7b3febc1c4c2cca6d456decb70a15f64309e70b0028a7a2405a1d1d8e; recipe sha256:e0882240ee40eb029c13abbfaafe9188aaa40e5fad6ab13a021d63fcabc79e0f; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-          arm64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:dfc88170d5a387a8b35eb232ec52970fa88f6caef532e32aab6928fb78f89410; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:58a74fd5575e2aeab8771da550cb415aaf8d711ca3a46f8a7aa396c3b09d14eb; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected offline; Barn guest paths and marker verified; legacy guest paths absent; TCG UEFI (upstream 64 KiB ARM kernel) dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-
+            source_user: dba
+            provenance: Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/8/images/aarch64/Rocky-8-GenericCloud-Base-8.10-20240528.0.aarch64.qcow2 sha256:946b5b9845aa5e3ed98f1bc6ee9873201712a2aef01b87731aed16857e0ca13f; package-lock sha256:9ab76f7d4d1ad72ea9751466f23ee0f27660126b2e760af6514a7544f8e9b241; recipe sha256:2c1358ad54ed54b5524b8e5e887c77739cfecc87ea1fe234e4ca5e7d71ad6847; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; rebuilt from unmodified upstream with offline normalization; Rocky cloud-init chrony defaults corrected; SELinux labels completed and verified offline, pending autorelabel removed only after success; TCG UEFI first boot and disk-preserving restart passed; unchanged upstream 64 KiB kernel remains incompatible with Apple HVF; dba UID/GID 88, Python, cloud-init without warnings, chronyd, SELinux Enforcing, XFS data writes and direct repository HTTPS verified 2026-09-30; upstream is build provenance only
   el9:
-    aliases: ["rocky9", "rocky"]
-    boot: "uefi"
+    aliases:
+    - rocky9
+    - rocky
+    boot: uefi
     channels:
-      stable: "9.8.20260525.2"
+      stable: 9.8.20260525.2
     versions:
-      "9.8.20260525.2":
-        status: "supported"
+      9.8.20260525.2:
+        status: supported
         variants:
           amd64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2 sha256:92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
+            source_user: dba
+            provenance: Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2 sha256:92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only
           arm64:
-            source_user: "dba"
-            provenance: "Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2 sha256:24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only"
-      "9.7.20251123.2":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/9.7/images/x86_64/Rocky-9-GenericCloud-Base-9.7-20251123.2.x86_64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 9.7 GenericCloud Base 20251123.2; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-          arm64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/9.7/images/aarch64/Rocky-9-GenericCloud-Base-9.7-20251123.2.aarch64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 9.7 GenericCloud Base 20251123.2; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-      "9.6.20250531.0":
-        status: "deprecated"
-        variants:
-          amd64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/9.6/images/x86_64/Rocky-9-GenericCloud-Base-9.6-20250531.0.x86_64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 9.6 GenericCloud Base 20250531.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-          arm64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/9.6/images/aarch64/Rocky-9-GenericCloud-Base-9.6-20250531.0.aarch64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 9.6 GenericCloud Base 20250531.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-      "9.3.20231113.0":
-        status: "deprecated"
-        variants:
-          amd64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/9.3/images/x86_64/Rocky-9-GenericCloud-Base-9.3-20231113.0.x86_64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 9.3 GenericCloud Base 20231113.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
-          arm64:
-            upstream: "https://dl.rockylinux.org/vault/rocky/9.3/images/aarch64/Rocky-9-GenericCloud-Base-9.3-20231113.0.aarch64.qcow2"
-            source_user: "rocky"
-            provenance: "Rocky Linux 9.3 GenericCloud Base 20231113.0; distribution-owned immutable vault artifact; upstream SHA-256, local bytes, and qcow2 metadata verified 2026-08-29"
+            source_user: dba
+            provenance: Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2 sha256:24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only
   u22:
-    aliases: ["ubuntu22", "ubuntu2204", "jammy"]
-    boot: "uefi"
+    aliases:
+    - ubuntu22
+    - ubuntu2204
+    - jammy
+    boot: uefi
     channels:
-      stable: "20260926.0.0"
+      stable: 20261020.0.1
     versions:
-      "20260926.0.0":
-        status: "supported"
+      20261020.0.1:
+        status: supported
         variants:
           amd64:
-            upstream: "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 22.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261020/ubuntu-22.04-server-cloudimg-amd64.img sha256:2099e63da0b822ef8e05e3d596c1b402eaaae658fc08ab919cb8495bfcdc488b; recipe sha256:357f8a349d0601bee9940b9761850f12dc61a7468780633f351f2075f47f3bf6; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 5.13.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
           arm64:
-            upstream: "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 22.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
-      "20260913.0.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://cloud-images.ubuntu.com/releases/jammy/release-20260913/ubuntu-22.04-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 22.04 release cloud image 20260913; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-          arm64:
-            upstream: "https://cloud-images.ubuntu.com/releases/jammy/release-20260913/ubuntu-22.04-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 22.04 release cloud image 20260913; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-      "20260810.0.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://cloud-images.ubuntu.com/jammy/20260810/jammy-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 22.04 dated cloud image 20260810; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-          arm64:
-            upstream: "https://cloud-images.ubuntu.com/jammy/20260810/jammy-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 22.04 dated cloud image 20260810; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261020/ubuntu-22.04-server-cloudimg-arm64.img sha256:e720ae083f93baae47ac9b76a096243fe1027f60998cf1127a47a74c880f64ed; recipe sha256:c6e2986c6678ba7a2e490e0f2de936837f6d06f651edec7dc411cc9edc09d3db; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 5.13.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
   u24:
-    aliases: ["ubuntu", "ubuntu24", "ubuntu2404", "noble"]
-    boot: "uefi"
+    aliases:
+    - ubuntu
+    - ubuntu24
+    - ubuntu2404
+    - noble
+    boot: uefi
     channels:
-      stable: "20260926.0.0"
+      stable: 20261017.0.1
     versions:
-      "20260926.0.0":
-        status: "supported"
+      20261017.0.1:
+        status: supported
         variants:
           amd64:
-            upstream: "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 24.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img sha256:04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94; recipe sha256:1fb23864e5f4b6e530d095089f667db7c66ee7b8d1af4fa19964a67806885aee; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.6.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
           arm64:
-            upstream: "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 24.04 release cloud image 20260926; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
-      "20260911.0.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://cloud-images.ubuntu.com/releases/noble/release-20260911/ubuntu-24.04-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 24.04 release cloud image 20260911; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-          arm64:
-            upstream: "https://cloud-images.ubuntu.com/releases/noble/release-20260911/ubuntu-24.04-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 24.04 release cloud image 20260911; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-      "20260801.0.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://cloud-images.ubuntu.com/noble/20260801/noble-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 24.04 dated cloud image 20260801; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-          arm64:
-            upstream: "https://cloud-images.ubuntu.com/noble/20260801/noble-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 24.04 dated cloud image 20260801; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-arm64.img sha256:50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e; recipe sha256:a9c12c7ff3ec8b3ab89d9769c30fe8f1470cfe1428eeb3be75750dd974ba9413; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.6.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
   u26:
-    aliases: ["ubuntu26", "ubuntu2604", "resolute"]
-    boot: "uefi"
+    aliases:
+    - ubuntu26
+    - ubuntu2604
+    - resolute
+    boot: uefi
     channels:
-      stable: "20260927.0.0"
+      stable: 20261016.0.1
     versions:
-      "20260927.0.0":
-        status: "supported"
+      20261016.0.1:
+        status: supported
         variants:
           amd64:
-            upstream: "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 26.04 release cloud image 20260927; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img sha256:5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5; recipe sha256:e61430b1f563ecd2ef39f9cd54a063c5ae4be5bd9df9127e43720fc73a1a9001; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.18.0-3 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
           arm64:
-            upstream: "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 26.04 release cloud image 20260927; unmodified distribution-owned dated artifact; full upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, default-locale, en_US locale, and XFS data-disk read/write smoke passed 2026-09-29"
-      "20260918.0.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://cloud-images.ubuntu.com/releases/resolute/release-20260918/ubuntu-26.04-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 26.04 release cloud image 20260918; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native KVM UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-          arm64:
-            upstream: "https://cloud-images.ubuntu.com/releases/resolute/release-20260918/ubuntu-26.04-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 26.04 release cloud image 20260918; unmodified distribution-owned dated artifact; upstream SHA-256, qcow2 structure, native HVF UEFI dual-NIC SSH, dba UID/GID 88, and Python smoke passed 2026-09-20"
-      "20260731.0.0":
-        status: "supported"
-        variants:
-          amd64:
-            upstream: "https://cloud-images.ubuntu.com/resolute/20260731/resolute-server-cloudimg-amd64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 26.04 dated cloud image 20260731; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
-          arm64:
-            upstream: "https://cloud-images.ubuntu.com/resolute/20260731/resolute-server-cloudimg-arm64.img"
-            source_user: "ubuntu"
-            provenance: "Canonical Ubuntu Server 26.04 dated cloud image 20260731; distribution-owned artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24"
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-arm64.img sha256:8eb876c2ccc4b6ff89e4a65d511815923b285e04503ba465809bf587f763da24; recipe sha256:5abaa4329a7660c1648e7fd72a9696eeeb33538772a4416515fd5d81a88c4d65; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.18.0-3 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
