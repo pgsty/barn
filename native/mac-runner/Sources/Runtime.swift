@@ -61,6 +61,7 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
     var endingSession = false
     var hideAfterFullScreen = false
     var shutdownProcess: Process?
+    var forcedStopTask: Task<Void, Never>?
     var clipboard: ClipboardSync?
 
     var name: String { input.name }
@@ -193,8 +194,13 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
     }
 
     func stop(force: Bool) async throws {
-        if vm.state == .stopped { finish(); return }
+        if vm.state == .stopped {
+            forcedStopTask?.cancel()
+            finish()
+            return
+        }
         if force {
+            forcedStopTask?.cancel()
             stopping = true
             try await vm.stop()
             finish()
@@ -203,6 +209,21 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
             stopping = true
             requestedShutdown = true
             progress("shutdown_requested", ["instance": instance])
+            scheduleForcedStop()
+        }
+    }
+
+    // The CLI normally waits for the same grace period. If it is interrupted
+    // after submitting the normal stop request, the runner must still finish
+    // the transition instead of keeping the machine permanently "stopping".
+    func scheduleForcedStop() {
+        forcedStopTask?.cancel()
+        forcedStopTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 120_000_000_000) }
+            catch { return }
+            guard let self, self.vm.state != .stopped else { return }
+            progress("shutdown_timeout", ["instance": self.instance])
+            try? await self.stop(force: true)
         }
     }
 
@@ -378,13 +399,7 @@ final class Runtime: NSObject, @preconcurrency VZVirtualMachineDelegate, NSWindo
         requestedShutdown = true
         stopping = true
         progress("shutdown_requested", ["instance": instance, "method": method])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
-            Task { @MainActor in
-                guard let self, self.vm.state != .stopped else { return }
-                progress("shutdown_timeout", ["instance": self.instance])
-                try? await self.stop(force: true)
-            }
-        }
+        scheduleForcedStop()
     }
 
     func showShutdownError(_ message: String) {

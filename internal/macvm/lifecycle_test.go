@@ -128,6 +128,32 @@ func TestDestroyRemovesOnlyTheMachine(t *testing.T) {
 	}
 }
 
+func TestRecreateChecksVMLimitBeforeDeletingMachine(t *testing.T) {
+	m := lifecycleManager(t)
+	old := testMachine(t, m, "dev", "10.10.30.0/24", true)
+	peer1 := testMachine(t, m, "mac1", "10.10.31.0/24", true)
+	peer2 := testMachine(t, m, "mac2", "10.10.32.0/24", true)
+	startFakeRuntime(t, m, old)
+	startFakeRuntime(t, m, peer1)
+	startFakeRuntime(t, m, peer2)
+
+	if _, err := m.Recreate(context.Background(), "dev", RecreateOptions{}); err == nil {
+		t.Fatal("recreate ignored the host VM limit")
+	} else if class, reason, _ := failure.Classify(err); class != failure.Resource || reason != "mac_vm_limit" {
+		t.Fatalf("recreate error = %v (%s, %s)", err, class, reason)
+	}
+	if _, err := m.Store.LoadMachine("dev"); err != nil {
+		t.Fatalf("old machine record was deleted: %v", err)
+	}
+	directory, err := m.Store.MachinePath("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatalf("old machine directory was deleted: %v", err)
+	}
+}
+
 func TestUpRefusesOptionsThatWouldNotApply(t *testing.T) {
 	m := lifecycleManager(t)
 	testMachine(t, m, "dev", "10.10.30.0/24", true)

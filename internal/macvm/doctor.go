@@ -34,6 +34,37 @@ func (report *DoctorReport) add(name string, err error, detail string) {
 	report.Checks = append(report.Checks, check)
 }
 
+// setupDiskRequirement estimates the largest additional space the next
+// default setup may need. A ready base needs no restore space, a cached
+// installer needs only the restore workspace, and an interrupted download
+// needs the remaining installer bytes plus that workspace.
+func (m *Manager) setupDiskRequirement(config *Config) (int64, string, error) {
+	if config != nil && config.DefaultBaseID != "" {
+		if base, err := m.Store.LoadBase(config.DefaultBaseID); err == nil && base.State == "ready" && m.validateBase(base) == nil {
+			return 0, "a verified base is ready; no restore space is required", nil
+		}
+	} else if base := m.readyBaseFor(DefaultIPSW().Build, DefaultDiskBytes); base != nil {
+		return 0, "a verified default base is ready; no restore space is required", nil
+	}
+
+	spec := DefaultIPSW()
+	images, err := m.Store.ImageList()
+	if err != nil {
+		return 0, "", err
+	}
+	for _, image := range images {
+		if image.Kind == "installer" && image.ID == spec.Build && image.State == "ready" && image.SizeBytes == spec.SizeBytes {
+			return macRestoreBytes, fmt.Sprintf("a cached installer is available; restore needs about %.1f GiB", float64(macRestoreBytes)/(1<<30)), nil
+		}
+	}
+	resume, err := m.Store.PartialBytes(spec)
+	if err != nil {
+		return 0, "", err
+	}
+	needed := spec.SizeBytes - resume + macRestoreBytes
+	return needed, fmt.Sprintf("no reusable base or installer; setup may need about %.1f GiB", float64(needed)/(1<<30)), nil
+}
+
 // Doctor checks the host, the Mac component, the data and every machine. It
 // changes nothing and starts nothing.
 func (m *Manager) Doctor(ctx context.Context) DoctorReport {
@@ -57,20 +88,31 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 		detail = "macOS " + version + " on Apple Silicon; " + detail
 	}
 	report.add("virtualization", err, detail)
-	free, err := availableBytes(m.Store.Root)
-	if err == nil && free < 40<<30 {
-		err = fmt.Errorf("%.1f GiB free; preparing macOS needs about 40 GiB", float64(free)/(1<<30))
+	config, configErr := m.Store.LoadConfig()
+	if errors.Is(configErr, os.ErrNotExist) {
+		config = nil
+		configErr = nil
 	}
-	report.add("disk", err, fmt.Sprintf("%.1f GiB free", float64(free)/(1<<30)))
-	config, err := m.Store.LoadConfig()
-	if errors.Is(err, os.ErrNotExist) {
+	free, freeErr := availableBytes(m.Store.Root)
+	needed, requirementDetail, requirementErr := m.setupDiskRequirement(config)
+	diskErr := errors.Join(freeErr, requirementErr)
+	if diskErr == nil && free < needed {
+		diskErr = fmt.Errorf("%.1f GiB free; the next macOS setup may need about %.1f GiB", float64(free)/(1<<30), float64(needed)/(1<<30))
+	}
+	diskDetail := fmt.Sprintf("%.1f GiB free", float64(free)/(1<<30))
+	if requirementDetail != "" {
+		diskDetail += "; " + requirementDetail
+	}
+	report.add("disk", diskErr, diskDetail)
+	if configErr != nil {
+		report.add("data", configErr, m.Store.Root)
+		return report
+	}
+	if config == nil {
 		report.add("data", nil, "no Mac machines yet; barn mac up creates the first")
 		return report
 	}
-	report.add("data", err, m.Store.Root)
-	if err != nil {
-		return report
-	}
+	report.add("data", nil, m.Store.Root)
 	if config.DefaultBaseID != "" {
 		base, err := m.Store.LoadBase(config.DefaultBaseID)
 		if err == nil {

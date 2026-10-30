@@ -946,6 +946,12 @@ func (m *Manager) Recreate(ctx context.Context, name string, options RecreateOpt
 	if err := m.checkNetworkFree(ctx, old); err != nil {
 		return outcome, err
 	}
+	// Recreate deletes the old overlay and identity below. Check the host VM
+	// quota while the old machine is already stopped, but before any destructive
+	// mutation, so a resource refusal leaves the old machine recoverable.
+	if err := m.checkVMLimit(ctx, name); err != nil {
+		return outcome, err
+	}
 	held, err := m.acquireState(ctx, "mac recreate "+name)
 	if err != nil {
 		return outcome, err

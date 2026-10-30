@@ -48,6 +48,11 @@ barn mac up --ipsw ~/Downloads/UniversalMac_27.0_26A428_Restore.ipsw
 barn mac setup                                     # prepare the base ahead of time
 ```
 
+`--no-wait` returns once the VM is running; it does not wait for SSH or claim
+that the guest is ready. On a first boot, provisioning continues in the
+background. Run `barn mac up NAME` again to wait for SSH and finish the first
+boot before using `mac ssh`, `mac exec` or `mac start`.
+
 A local IPSW on the same APFS volume is cloned into the cache without copying
 its blocks; on another volume it is verified and used where it is.
 
@@ -125,7 +130,8 @@ barn mac stop dev && barn mac configure dev --share data=/Volumes/Work/data --un
 
 A share must resolve to an existing host directory; directory symlinks are
 supported. It is read-write unless marked `:ro`. Barn never creates or deletes
-shared directories. macOS guests can
+shared directories and does not classify user-selected paths as sensitive.
+Choose `:ro` when the guest only needs to read the directory. macOS guests can
 serve stale file contents for a while after the host changes a file; use SSH
 to copy files with `scp` or `rsync` onto the guest's own disk when you need the latest bytes immediately.
 

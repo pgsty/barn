@@ -328,7 +328,11 @@ base, up first downloads the restore image from Apple after you confirm, and
 installs it once; later machines reuse it in seconds.
 
 Creation options apply only to a new machine. For an existing machine up only
-starts it, and refuses options that differ from its configuration.`,
+starts it, and refuses options that differ from its configuration.
+
+--no-wait returns once the VM is running without waiting for SSH. On a first
+boot, provisioning may still be in progress; run "barn mac up NAME" again to
+wait for SSH and finish initialization.`,
 		Example: `  barn mac up
   barn mac up dev --cpu 8 --memory 16G --share ~/src --share docs=~/Documents:ro
   barn mac up --ipsw ~/Downloads/UniversalMac_27.0_26A428_Restore.ipsw
@@ -360,7 +364,7 @@ starts it, and refuses options that differ from its configuration.`,
 	up.Flags().StringVar(&upOptions.Subnet, "subnet", "", "private /24 network for a new machine (default: the first free one)")
 	up.Flags().StringVar(&upOptions.Setup.IPSW, "ipsw", "", "install macOS from this restore image instead of downloading from Apple")
 	up.Flags().BoolVarP(&upYes, "yes", "y", false, "download macOS from Apple without asking (required without a terminal)")
-	up.Flags().BoolVarP(&upOptions.NoWait, "no-wait", "n", false, "return once the VM runs, without waiting for SSH")
+	up.Flags().BoolVarP(&upOptions.NoWait, "no-wait", "n", false, "return once the VM runs; first boot may still be initializing")
 	up.Flags().BoolVar(&upOptions.Window, "open", false, "show the desktop as soon as the VM runs")
 	_ = up.MarkFlagFilename("ipsw", "ipsw")
 	_ = up.MarkFlagDirname("share")

@@ -206,6 +206,10 @@ func TestMacHelpListsTheCommandGroups(t *testing.T) {
 			t.Errorf("help lacks %q", want)
 		}
 	}
+	code, stdout, _ = runMacCLI(t, "mac", "up", "--help")
+	if code != exitOK || !strings.Contains(stdout, "first boot") || !strings.Contains(stdout, "barn mac up NAME") {
+		t.Fatalf("up help lacks the no-wait first-boot guidance: %s", stdout)
+	}
 	if strings.Contains(stdout, "migrate") {
 		t.Error("help lists the removed development migration command")
 	}

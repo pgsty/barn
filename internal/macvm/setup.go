@@ -63,6 +63,8 @@ type setupPlan struct {
 	readyBase  *BaseImage
 }
 
+const macRestoreBytes int64 = 40 << 30
+
 func availableBytes(path string) (int64, error) {
 	for {
 		var stat unix.Statfs_t
@@ -292,11 +294,10 @@ func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Conf
 // of the local file, or a resumable download from Apple after consent.
 func (m *Manager) obtainInstaller(ctx context.Context, plan setupPlan, options SetupOptions, free int64) (*Installer, error) {
 	// Installing macOS grows a base to about 30 GiB before any machine exists.
-	const restoreBytes int64 = 40 << 30
 	progress := m.downloadProgress(plan.spec)
 	if plan.sourcePath != "" {
-		if free < restoreBytes {
-			return nil, lowSpace(free, restoreBytes)
+		if free < macRestoreBytes {
+			return nil, lowSpace(free, macRestoreBytes)
 		}
 		m.report("image-verify", "Checking the local macOS %s (%s) restore image", plan.spec.Version, plan.spec.Build)
 		return m.Store.ImportIPSW(ctx, plan.sourcePath, plan.spec, DownloadOptions{Progress: progress})
@@ -313,7 +314,7 @@ func (m *Manager) obtainInstaller(ctx context.Context, plan setupPlan, options S
 		return nil, err
 	}
 	download := DownloadPlan{Version: plan.spec.Version, Build: plan.spec.Build, URL: plan.spec.URL, SizeBytes: plan.spec.SizeBytes, ResumeBytes: resume, FreeBytes: free}
-	if needed := plan.spec.SizeBytes - resume + restoreBytes; free < needed {
+	if needed := plan.spec.SizeBytes - resume + macRestoreBytes; free < needed {
 		return nil, lowSpace(free, needed)
 	}
 	if options.Confirm != nil {
