@@ -121,7 +121,7 @@ class Barn < Formula
         system "/usr/bin/codesign", "--verify", "--strict", bin/"barn"
         system "/usr/bin/codesign", "--verify", "--strict", libexec/"barn-hosts-helper"
         helper_sha = Digest::SHA256.file(libexec/"barn-hosts-helper").hexdigest
-        assert (bin/"barn").binread.include?(helper_sha), "CLI does not match its signed hosts helper"
+        assert_match helper_sha, (bin/"barn").binread, "CLI does not match its signed hosts helper"
         system "/usr/bin/codesign", "--verify", "--deep", "--strict", app
         signature = shell_output("/usr/bin/codesign --display --verbose=2 #{app} 2>&1")
         assert_match "Authority=Developer ID Application:", signature
