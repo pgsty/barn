@@ -42,13 +42,63 @@ func privatePersistentIdentities(deploymentValue Deployment, resolved spec.Resol
 	return result, nil
 }
 
-func validatePrivatePersistentDesired(deploymentValue Deployment, resolved spec.Resolved) error {
+// privatePersistentDesiredIdentities includes retained disks owned by nodes
+// that were explicitly removed from the resolved spec. Those disks are still
+// Barn-owned and remain part of the validation set until explicitly deleted.
+// A retained disk belonging to a node that is still present must remain
+// declared by that node's persistent configuration.
+func privatePersistentDesiredIdentities(deploymentValue Deployment, resolved spec.Resolved) ([]persistent.Identity, error) {
 	desired, err := privatePersistentIdentities(deploymentValue, resolved)
+	if err != nil {
+		return nil, err
+	}
+	retained, err := persistent.Inventory(deploymentValue.Root)
+	if err != nil {
+		return nil, err
+	}
+	declaredNodes := make(map[string]struct{}, len(resolved.Nodes))
+	for _, node := range resolved.Nodes {
+		declaredNodes[node.Name] = struct{}{}
+	}
+	for _, record := range retained {
+		if _, declared := declaredNodes[record.Node]; declared {
+			continue
+		}
+		desired = append(desired, persistent.Identity{
+			Node: record.Node, Name: record.Name, Serial: record.Serial,
+			Size: record.Size, Mount: record.Mount, Filesystem: record.Filesystem,
+		})
+	}
+	return desired, nil
+}
+
+func validatePrivatePersistentDesired(deploymentValue Deployment, resolved spec.Resolved) error {
+	desired, err := privatePersistentDesiredIdentities(deploymentValue, resolved)
 	if err != nil {
 		return err
 	}
 	_, err = persistent.ValidateDesired(deploymentValue.Root, desired)
 	return err
+}
+
+func activePersistentDiskKeys(deploymentValue Deployment, resolved spec.Resolved) (map[string]struct{}, error) {
+	store := state.Store{Root: deploymentValue.Root}
+	result := make(map[string]struct{})
+	for _, definition := range resolved.Nodes {
+		node, err := store.ReadNode(definition.Name)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, disk := range node.DataDisks {
+			if disk.Persistent {
+				result[definition.Name+"\x00"+disk.Name] = struct{}{}
+			}
+		}
+	}
+	return result, nil
 }
 
 func privatePrepareDeployment(config PrepareConfig) Deployment {
@@ -136,7 +186,7 @@ func resolvePrivateDataDisk(ctx context.Context, config PrepareConfig, nodeDir s
 		return defaultPath, true, nil
 	}
 	deploymentValue := privatePrepareDeployment(config)
-	desired, err := privatePersistentIdentities(deploymentValue, config.Resolved)
+	desired, err := privatePersistentDesiredIdentities(deploymentValue, config.Resolved)
 	if err != nil {
 		return "", false, err
 	}

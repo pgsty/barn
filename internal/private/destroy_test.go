@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pgsty/barn/internal/persistent"
@@ -31,6 +32,13 @@ func TestPrivateDestroyRemovesOnlyNodesAndPreservesKeysStateCache(t *testing.T) 
 	deploymentValue := startConfig.Deployment
 	t.Setenv("BARN_HOME", deploymentValue.Root)
 	keysDir := writeDestroyKeyFixtures(t, deploymentValue.Root)
+	metaDir, err := deploymentValue.NodeDir("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metaDir, ".DS_Store"), []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	manager := Manager{BarnVersion: "test"}
 	result, err := manager.Destroy(context.Background())
 	if err != nil {
@@ -74,6 +82,23 @@ func TestPrivatePartialRecreateDestroyPreservesPeerState(t *testing.T) {
 	}
 	if _, err := store.ReadDeployment(); err != nil {
 		t.Fatalf("deployment state was removed: %v", err)
+	}
+}
+
+func TestPrivateDestroyingControlElectsRemainingPeer(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	deploymentValue := startConfig.Deployment
+	t.Setenv("BARN_HOME", deploymentValue.Root)
+	writeDestroyKeyFixtures(t, deploymentValue.Root)
+	if _, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).DestroyNodes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stateValue, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stateValue.Resolved.Nodes) != 1 || stateValue.Resolved.Nodes[0].Name != "node-1" || !stateValue.Resolved.Nodes[0].Control {
+		t.Fatalf("remaining control node = %#v", stateValue.Resolved.Nodes)
 	}
 }
 
@@ -200,6 +225,51 @@ func TestPrivatePersistentValidationAllowsUncreatedDesiredDisk(t *testing.T) {
 	identities, err := validatePrivatePersistentState(startConfig.Deployment, deploymentState, []state.NodeState{meta})
 	if err != nil || len(identities) != 1 || identities[0].Node != deploymentState.Resolved.Nodes[1].Name {
 		t.Fatalf("uncreated desired persistent disk = %#v, %v", identities, err)
+	}
+}
+
+func TestPrivatePersistentValidationAllowsRetainedRemovedNode(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	deploymentValue := startConfig.Deployment
+	t.Setenv("BARN_HOME", deploymentValue.Root)
+	store := state.Store{Root: deploymentValue.Root}
+	markFixtureDiskPersistent(t, store)
+	writeDestroyKeyFixtures(t, deploymentValue.Root)
+	if _, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).DestroyNodes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stateValue, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivatePersistentDesired(deploymentValue, stateValue.Resolved); err != nil {
+		t.Fatalf("retained disk on removed node rejected: %v", err)
+	}
+}
+
+func TestPrivateRecreateAllowsAddingUncreatedPersistentDisk(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	store := state.Store{Root: startConfig.Deployment.Root}
+	stateValue, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := cloneResolved(stateValue.Resolved)
+	requested.Nodes[0].Disks = append(requested.Nodes[0].Disks, spec.Disk{Name: "extra", Size: 4 * spec.GiB, Mount: "/extra", Filesystem: "ext4", Persistent: true})
+	if err := validatePrivateRecreatePersistent(startConfig.Deployment, stateValue.Resolved, requested); err != nil {
+		t.Fatalf("new uncreated persistent disk rejected: %v", err)
+	}
+}
+
+func TestPrivateRecreateRejectsRemovingActivePersistentDisk(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	deploymentValue := startConfig.Deployment
+	store := state.Store{Root: deploymentValue.Root}
+	stateValue, _ := markFixtureDiskPersistent(t, store)
+	requested := cloneResolved(stateValue.Resolved)
+	requested.Nodes[0].Disks[0].Persistent = false
+	if err := validatePrivateRecreatePersistent(deploymentValue, stateValue.Resolved, requested); err == nil || !strings.Contains(err.Error(), "active persistent disk") {
+		t.Fatalf("active persistent disk removal accepted: %v", err)
 	}
 }
 

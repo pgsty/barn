@@ -115,7 +115,7 @@ func describeChanges(current, desired spec.Resolved, selected map[string]struct{
 		add(prefix+"CPU", old.CPUs, node.CPUs)
 		add(prefix+"memory (MiB)", old.Memory>>20, node.Memory>>20)
 		add(prefix+"root disk (GiB)", old.RootDisk/spec.GiB, node.RootDisk/spec.GiB)
-		add(prefix+"image", old.Image, node.Image)
+		add(prefix+"image", effectiveNodeImage(current, old), effectiveNodeImage(desired, node))
 		add(prefix+"address", old.Address, node.Address)
 		add(prefix+"control node", old.Control, node.Control)
 		for _, item := range []struct {
@@ -131,6 +131,13 @@ func describeChanges(current, desired spec.Resolved, selected map[string]struct{
 		}
 	}
 	return changes
+}
+
+func effectiveNodeImage(resolved spec.Resolved, node spec.Node) string {
+	if node.Image != "" {
+		return node.Image
+	}
+	return resolved.Image
 }
 
 func equalResolvedEnvelope(first, second spec.Resolved) bool {

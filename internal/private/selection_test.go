@@ -75,6 +75,26 @@ func TestSelectionRetainsOmittedPeersAndExcludesUnselectedAdditions(t *testing.T
 	}
 }
 
+func TestSelectionPreservesDesiredNodeOrder(t *testing.T) {
+	current := diffFixtureResolved()
+	current.Nodes = append(current.Nodes, spec.Node{Name: "node-2", Address: "10.10.10.12", CPUs: 1, Memory: spec.GiB, RootDisk: spec.GiB})
+	desired := cloneResolved(current)
+	desired.Nodes = []spec.Node{desired.Nodes[2], desired.Nodes[0], desired.Nodes[1]}
+
+	merged, err := applyNodeSelection(current, desired, []string{"meta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"node-2", "meta", "node-1"}
+	got := make([]string, 0, len(merged.Nodes))
+	for _, node := range merged.Nodes {
+		got = append(got, node.Name)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merged order = %v, want %v", got, want)
+	}
+}
+
 func TestSelectionChecksConflictsAgainstAppliedPeers(t *testing.T) {
 	current := diffFixtureResolved()
 	for _, change := range []string{"address", "control", "alias", "network"} {

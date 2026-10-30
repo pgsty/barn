@@ -39,14 +39,12 @@ func (m *Manager) resolveBootImages(ctx context.Context, profile platform.Profil
 	lookedUp := make(map[string]image.Entry)
 	boot := ""
 	for _, definition := range requested.Nodes {
-		alias := definition.Image
-		if alias == "" {
-			alias = requested.Image
-		}
+		alias := effectiveNodeImage(requested, definition)
 		var entry image.Entry
 		previous, exists := applied[definition.Name]
 		_, create := createSet[definition.Name]
-		if exists && !create && sameResolvedNode(previous, definition) {
+		previousImage := effectiveNodeImage(persisted.Resolved, previous)
+		if exists && !create && previousImage == alias && sameResolvedNode(previous, definition) {
 			node, readErr := store.ReadNode(definition.Name)
 			if readErr != nil && !missingPath(readErr) {
 				return nil, "", readErr

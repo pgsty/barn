@@ -48,6 +48,32 @@ func retiredImageFixture(t *testing.T, pinned bool) (StartConfig, spec.Resolved,
 	return fixture, applied.Resolved, nodes
 }
 
+func TestChangedDefaultImageDoesNotReuseCommittedInheritedImage(t *testing.T) {
+	_, resolved, _ := retiredImageFixture(t, false)
+	resolved.Image = "d13"
+	profile, err := platform.Resolve("darwin", "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookedUp := false
+	manager := Manager{
+		LookupImage: func(_ context.Context, alias, arch string) (image.Entry, error) {
+			lookedUp = true
+			if alias != "d13" {
+				t.Fatalf("looked up image %q", alias)
+			}
+			return image.Entry{Alias: alias, Release: "current", Arch: arch, Boot: "uefi"}, nil
+		},
+		ResolveImage: func(context.Context, string, string) (image.Entry, string, image.Metadata, error) {
+			return image.Entry{}, "", image.Metadata{}, errors.New("unexpected image download")
+		},
+	}
+	entries, boot, err := manager.resolveBootImages(context.Background(), profile, resolved, nil)
+	if err != nil || boot != "uefi" || entries["meta"].Alias != "d13" || !lookedUp {
+		t.Fatalf("resolved inherited image = %#v boot=%q lookedUp=%v err=%v", entries["meta"], boot, lookedUp, err)
+	}
+}
+
 func assertCatalogOperationsPreserveFiles(t *testing.T, fixture StartConfig, nodes []state.NodeState) func() {
 	t.Helper()
 	paths := []string{filepath.Join(fixture.Deployment.Root, "state.json"), filepath.Join(fixture.Deployment.Root, "base.qcow2")}

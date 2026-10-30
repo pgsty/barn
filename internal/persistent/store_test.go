@@ -34,6 +34,11 @@ func TestPreserveValidateAndExplicitDelete(t *testing.T) {
 	if _, err := os.Lstat(source); !os.IsNotExist(err) {
 		t.Fatalf("node-local source remains: %v", err)
 	}
+	for _, directory := range []string{root, filepath.Join(root, "disks", "meta"), filepath.Dir(record.Path)} {
+		if err := os.WriteFile(filepath.Join(directory, ".DS_Store"), []byte("finder"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	found, err := ValidateDesired(root, []Identity{identity})
 	if err != nil || found[key(identity.Node, identity.Name)].Path != record.Path {
 		t.Fatalf("validated = %#v, %v", found, err)

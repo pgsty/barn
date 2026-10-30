@@ -70,6 +70,19 @@ func TestDiffResolvedClassifiesNodeChanges(t *testing.T) {
 	}
 }
 
+func TestDescribeChangesUsesEffectiveInheritedImage(t *testing.T) {
+	current := diffFixtureResolved()
+	desired := cloneResolved(current)
+	desired.Nodes[0].Image = "d13:stable"
+	changes := describeChanges(current, desired, map[string]struct{}{"meta": {}})
+	for _, change := range changes {
+		if change == "meta image: u24 -> d13:stable" {
+			return
+		}
+	}
+	t.Fatalf("effective image change missing from %v", changes)
+}
+
 func diffTestDeployment(t *testing.T) Deployment {
 	t.Helper()
 	root := t.TempDir()

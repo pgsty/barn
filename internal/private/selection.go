@@ -20,19 +20,34 @@ func applyNodeSelection(current, desired spec.Resolved, selectors []string) (spe
 	selectedSet := nodeNameSet(selected)
 	merged := cloneResolved(desired)
 	merged.Nodes = nil
+	currentByName := make(map[string]spec.Node, len(current.Nodes))
 	for _, node := range current.Nodes {
-		if _, replace := selectedSet[node.Name]; replace {
+		currentByName[node.Name] = node
+	}
+	seenDesired := make(map[string]struct{}, len(desired.Nodes))
+	for _, node := range desired.Nodes {
+		seenDesired[node.Name] = struct{}{}
+		if _, include := selectedSet[node.Name]; include {
+			merged.Nodes = append(merged.Nodes, cloneNode(node))
+			continue
+		}
+		if peer, exists := currentByName[node.Name]; exists {
+			if !equalResolvedEnvelope(current, desired) {
+				return spec.Resolved{}, fmt.Errorf("%w: deployment-level settings changed; select all existing nodes to apply them", ErrRecreateRequired)
+			}
+			merged.Nodes = append(merged.Nodes, cloneNode(peer))
+		}
+	}
+	// An explicit selection never turns an inventory omission into an implicit
+	// destroy. Keep omitted applied peers after the desired inventory order.
+	for _, node := range current.Nodes {
+		if _, seen := seenDesired[node.Name]; seen {
 			continue
 		}
 		if !equalResolvedEnvelope(current, desired) {
 			return spec.Resolved{}, fmt.Errorf("%w: deployment-level settings changed; select all existing nodes to apply them", ErrRecreateRequired)
 		}
 		merged.Nodes = append(merged.Nodes, cloneNode(node))
-	}
-	for _, node := range desired.Nodes {
-		if _, include := selectedSet[node.Name]; include {
-			merged.Nodes = append(merged.Nodes, cloneNode(node))
-		}
 	}
 	if err := validateResolved(merged); err != nil {
 		return spec.Resolved{}, fmt.Errorf("selected changes conflict with applied peers: %w", err)

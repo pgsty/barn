@@ -188,6 +188,40 @@ func sameIdentity(record Record, expected Identity) bool {
 	return record.Node == expected.Node && record.Name == expected.Name && record.Serial == expected.Serial && record.Size == expected.Size && record.Mount == expected.Mount
 }
 
+const finderMetadataName = ".DS_Store"
+
+func validateFinderMetadata(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("Finder metadata is not a regular non-symlink file: %s", path)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("Finder metadata is not owned by the current user: %s", path)
+	}
+	return nil
+}
+
+func removeFinderMetadata(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() != finderMetadataName {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		if err := validateFinderMetadata(path); err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Inventory performs a complete fail-closed walk of the retained-disk store.
 // An unexpected entry anywhere in the tree makes the whole store unusable.
 func Inventory(deploymentRoot string) ([]Record, error) {
@@ -206,6 +240,12 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 	}
 	records := make([]Record, 0)
 	for _, nodeEntry := range nodes {
+		if nodeEntry.Name() == finderMetadataName {
+			if err := validateFinderMetadata(filepath.Join(root, nodeEntry.Name())); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if !naming.ValidNodeName(nodeEntry.Name()) {
 			return nil, fmt.Errorf("persistent disk store has unexpected node entry %q", nodeEntry.Name())
 		}
@@ -221,6 +261,12 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 			return nil, fmt.Errorf("persistent disk node directory is unexpectedly empty: %s", nodeDir)
 		}
 		for _, diskEntry := range disks {
+			if diskEntry.Name() == finderMetadataName {
+				if err := validateFinderMetadata(filepath.Join(nodeDir, diskEntry.Name())); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			if !naming.ValidNodeName(diskEntry.Name()) {
 				return nil, fmt.Errorf("persistent disk store has unexpected disk entry %q", diskEntry.Name())
 			}
@@ -232,7 +278,17 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 			if err != nil {
 				return nil, err
 			}
-			if len(entries) != 2 || entries[0].Name() != diskFileName || entries[1].Name() != markerName {
+			filtered := entries[:0]
+			for _, entry := range entries {
+				if entry.Name() == finderMetadataName {
+					if err := validateFinderMetadata(filepath.Join(diskDir, entry.Name())); err != nil {
+						return nil, err
+					}
+					continue
+				}
+				filtered = append(filtered, entry)
+			}
+			if len(filtered) != 2 || filtered[0].Name() != diskFileName || filtered[1].Name() != markerName {
 				return nil, fmt.Errorf("persistent disk directory contains unexpected artifacts: %s", diskDir)
 			}
 			record, err := decodeMarker(filepath.Join(diskDir, markerName))
@@ -409,6 +465,9 @@ func DeleteAll(deploymentRoot string) ([]Record, error) {
 		if err := os.Remove(filepath.Join(directory, markerName)); err != nil {
 			return nil, err
 		}
+		if err := removeFinderMetadata(directory); err != nil {
+			return nil, err
+		}
 		if err := os.Remove(directory); err != nil {
 			return nil, err
 		}
@@ -419,14 +478,29 @@ func DeleteAll(deploymentRoot string) ([]Record, error) {
 		return nil, err
 	}
 	for _, node := range nodes {
+		if node.Name() == finderMetadataName {
+			continue
+		}
 		nodeDir := filepath.Join(root, node.Name())
 		entries, readErr := os.ReadDir(nodeDir)
 		if readErr != nil || len(entries) != 0 {
+			if readErr != nil {
+				return nil, fmt.Errorf("persistent node directory changed during deletion: %s", nodeDir)
+			}
+		}
+		if err := removeFinderMetadata(nodeDir); err != nil {
+			return nil, err
+		}
+		entries, err = os.ReadDir(nodeDir)
+		if err != nil || len(entries) != 0 {
 			return nil, fmt.Errorf("persistent node directory changed during deletion: %s", nodeDir)
 		}
 		if err := os.Remove(nodeDir); err != nil {
 			return nil, err
 		}
+	}
+	if err := removeFinderMetadata(root); err != nil {
+		return nil, err
 	}
 	if err := os.Remove(root); err != nil {
 		return nil, err

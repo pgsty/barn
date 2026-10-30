@@ -72,6 +72,13 @@ func privateNodeTargets(deploymentValue Deployment, node state.NodeState) (strin
 	}
 	for _, entry := range entries {
 		path := filepath.Join(nodeDir, entry.Name())
+		if entry.Name() == ".DS_Store" {
+			if err := ownedRegularWithin(nodeDir, path); err != nil {
+				return "", nil, err
+			}
+			expected[path] = struct{}{}
+			continue
+		}
 		if _, ok := expected[path]; !ok {
 			return "", nil, fmt.Errorf("will not destroy: unexpected file %s in the node directory", path)
 		}
@@ -84,6 +91,12 @@ func privateNodeTargets(deploymentValue Deployment, node state.NodeState) (strin
 		if path != "" {
 			ordered = append(ordered, path)
 		}
+	}
+	finderMetadata := filepath.Join(nodeDir, ".DS_Store")
+	if _, err := os.Lstat(finderMetadata); err == nil {
+		ordered = append(ordered, finderMetadata)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", nil, err
 	}
 	for _, disk := range node.DataDisks {
 		if !disk.Persistent {
@@ -297,6 +310,15 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 				remaining.Nodes = append(remaining.Nodes, definition)
 			}
 		}
+		if len(remaining.Nodes) != 0 {
+			hasControl := false
+			for _, definition := range remaining.Nodes {
+				hasControl = hasControl || definition.Control
+			}
+			if !hasControl {
+				remaining.Nodes[0].Control = true
+			}
+		}
 		remainingHash, hashErr := spec.Hash(remaining)
 		if hashErr != nil {
 			return Status{}, hashErr
@@ -356,23 +378,34 @@ func validatePrivateRecreatePersistent(deploymentValue Deployment, current, requ
 	if err != nil {
 		return err
 	}
-	if len(currentIdentities) != len(requestedIdentities) {
-		return errors.New("recreate desired configuration changes the persistent disk set")
-	}
 	wanted := make(map[string]persistent.Identity, len(requestedIdentities))
 	for _, identityValue := range requestedIdentities {
 		wanted[identityValue.Node+"\x00"+identityValue.Name] = identityValue
+	}
+	active, err := activePersistentDiskKeys(deploymentValue, current)
+	if err != nil {
+		return err
 	}
 	for _, identityValue := range currentIdentities {
 		candidate, ok := wanted[identityValue.Node+"\x00"+identityValue.Name]
 		// "auto" keeps whatever the retained disk was formatted with, so it is
 		// compatible with any concrete filesystem on the other side.
 		sameFilesystem := candidate.Filesystem == identityValue.Filesystem || candidate.Filesystem == "auto" || identityValue.Filesystem == "auto"
-		if !ok || candidate.Serial != identityValue.Serial || candidate.Size != identityValue.Size || candidate.Mount != identityValue.Mount || !sameFilesystem {
+		if !ok {
+			if _, exists := active[identityValue.Node+"\x00"+identityValue.Name]; exists {
+				return fmt.Errorf("recreate desired configuration removes active persistent disk %s/%s; destroy it explicitly before recreate", identityValue.Node, identityValue.Name)
+			}
+			continue
+		}
+		if candidate.Serial != identityValue.Serial || candidate.Size != identityValue.Size || candidate.Mount != identityValue.Mount || !sameFilesystem {
 			return fmt.Errorf("recreate desired configuration is incompatible with persistent disk %s/%s", identityValue.Node, identityValue.Name)
 		}
 	}
-	_, err = persistent.ValidateDesired(deploymentValue.Root, requestedIdentities)
+	validated, err := privatePersistentDesiredIdentities(deploymentValue, requested)
+	if err != nil {
+		return err
+	}
+	_, err = persistent.ValidateDesired(deploymentValue.Root, validated)
 	return err
 }
 

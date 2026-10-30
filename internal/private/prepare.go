@@ -247,7 +247,7 @@ func PrepareNode(ctx context.Context, config PrepareConfig, name string) (NodeAr
 	if sshPort == 0 {
 		return NodeArtifacts{}, fmt.Errorf("node %s has no management SSH port", name)
 	}
-	persistentIdentities, err := privatePersistentIdentities(privatePrepareDeployment(config), config.Resolved)
+	persistentIdentities, err := privatePersistentDesiredIdentities(privatePrepareDeployment(config), config.Resolved)
 	if err != nil {
 		return NodeArtifacts{}, err
 	}
