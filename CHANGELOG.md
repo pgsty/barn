@@ -8,6 +8,11 @@ Notable user-visible changes. This project follows
 
 ### Fixed
 
+- Accept symlinked parent directories of `BARN_HOME` for Mac commands, including
+  roots that do not exist yet, while retaining checks on Mac state paths.
+- Keep existing Linux nodes plannable and reloadable after their pinned image
+  release leaves the active catalog. Plans report committed image versions;
+  new and recreated nodes still resolve their images before any existing VM stops.
 - Allow `init` and `setup` through directory symlinks. Inventories, provision
   scripts, imported images, shared folders, and owned SSH directories may also
   be reached through symlinks. Existing output files still require `--force`;

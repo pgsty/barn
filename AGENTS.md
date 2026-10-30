@@ -9,3 +9,10 @@
 - 暂存、提交前检查新增文件的大小、类型和 staged 文件列表，只加入本次需要的源文件；不得用强制添加绕过忽略规则。优先保留来源清单、校验值及可复现的下载/构建方法。
 - 对二进制素材、数据集或生成文件是否应纳入版本控制拿不准时，先问用户，再暂存或提交；确需例外时也先取得用户明确指示。
 - 本规则不授权删除已有文件、stash、恢复快照或改写 Git 历史。忽略规则不会清除已存在的 Git 对象，历史清理需要单独明确范围。
+
+## 正式发布前的镜像目录门禁
+
+- 每一次正式发布 Barn 之前，必须从官方镜像仓库取得最新的签名 `catalog.json`，先验证签名，再同步到 `internal/image/default-catalog.json`。
+- 同步时必须同时更新 `internal/image/catalog.go` 中的 `EmbeddedManifestVersion` 和 `internal/image/manifest.go` 中的内置目录时间；如果仓库源文件发生变化，也同步 `packaging/image-repository/repo.yaml`。
+- 发布前必须检查内置目录的 revision、默认镜像和每个 stable artifact 的路径、架构、摘要、大小与官方仓库一致；至少运行镜像目录相关测试，并用全新的临时 `BARN_HOME` 执行一次 `barn update` 验证远程目录可以签名校验并激活。
+- 目录检查通过后才能构建和发布正式版本；不能让正式版本继续携带已经从官方仓库下线的 artifact 引用。
