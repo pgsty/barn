@@ -23,36 +23,6 @@ func canonicalIfExisting(path string) string {
 	return abs
 }
 
-// canonicalWithMissing resolves every existing ancestor and then restores the
-// not-yet-created suffix, so a symlinked parent of a missing data root is
-// still inspected.
-func canonicalWithMissing(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	probe := abs
-	missing := make([]string, 0)
-	for {
-		canonical, evalErr := filepath.EvalSymlinks(probe)
-		if evalErr == nil {
-			for index := len(missing) - 1; index >= 0; index-- {
-				canonical = filepath.Join(canonical, missing[index])
-			}
-			return canonical, nil
-		}
-		if !errors.Is(evalErr, os.ErrNotExist) {
-			return "", evalErr
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			return "", evalErr
-		}
-		missing = append(missing, filepath.Base(probe))
-		probe = parent
-	}
-}
-
 func unsafeRoot(root, home string) bool {
 	clean := filepath.Clean(root)
 	for _, unsafe := range []string{"/", filepath.Clean(home)} {
@@ -81,7 +51,7 @@ func ResolveDataRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	comparisonRoot, err := canonicalWithMissing(root)
+	comparisonRoot, err := fsutil.CanonicalPath(root)
 	if err != nil {
 		return "", err
 	}
@@ -101,8 +71,8 @@ func ResolveDataRoot() (string, error) {
 			return "", fmt.Errorf("barn data root is not a directory: %s", root)
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
-		// A missing final entry is fine; setup will create it. The canonical
-		// parent returned by canonicalWithMissing still protects root checks.
+		// A missing final entry is fine; setup will create it. Its canonical
+		// parent still protects root checks.
 	} else {
 		return "", err
 	}

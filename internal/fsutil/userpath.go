@@ -26,6 +26,35 @@ func UserPath(path, directory string) (string, error) {
 	return filepath.Abs(path)
 }
 
+// CanonicalPath resolves existing directory aliases and preserves any missing
+// suffix without creating it. Callers still validate the selected object's type.
+func CanonicalPath(path string) (string, error) {
+	abs, err := UserPath(path, "")
+	if err != nil {
+		return "", err
+	}
+	probe := abs
+	missing := make([]string, 0)
+	for {
+		canonical, evalErr := filepath.EvalSymlinks(probe)
+		if evalErr == nil {
+			for index := len(missing) - 1; index >= 0; index-- {
+				canonical = filepath.Join(canonical, missing[index])
+			}
+			return canonical, nil
+		}
+		if !errors.Is(evalErr, os.ErrNotExist) {
+			return "", evalErr
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", evalErr
+		}
+		missing = append(missing, filepath.Base(probe))
+		probe = parent
+	}
+}
+
 // ResolveParent follows directory aliases while leaving the final entry alone:
 // creating a file must not replace an existing file or follow its symlink.
 func ResolveParent(path string) (string, error) {

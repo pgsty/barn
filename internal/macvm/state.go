@@ -113,18 +113,11 @@ func NewStore(barnHome string) (*Store, error) {
 	if barnHome == "" {
 		return nil, errors.New("barn home must be specified")
 	}
-	absolute, err := filepath.Abs(barnHome)
+	// Resolve aliases only through BARN_HOME. Barn-owned paths below it must
+	// still be real directories/files, checked by noSymlinks and Store.Path.
+	absolute, err := fsutil.CanonicalPath(barnHome)
 	if err != nil {
 		return nil, err
-	}
-	// macOS exposes /tmp and /var through system symlinks. Canonicalize only
-	// these well-known ancestors; symlinks inside the selected home stay errors.
-	for _, systemPath := range []string{"/tmp", "/var"} {
-		if strings.HasPrefix(absolute, systemPath+"/") {
-			if resolved, err := filepath.EvalSymlinks(systemPath); err == nil {
-				absolute = filepath.Join(resolved, strings.TrimPrefix(absolute, systemPath+"/"))
-			}
-		}
 	}
 	s := &Store{Root: filepath.Join(absolute, "mac")}
 	if err := noSymlinks(s.Root); err != nil {

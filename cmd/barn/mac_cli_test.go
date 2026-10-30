@@ -61,6 +61,28 @@ func TestMacListIsReadOnlyAndIgnoresTheInventory(t *testing.T) {
 	}
 }
 
+func TestMacListAcceptsSymlinkedDataRootParents(t *testing.T) {
+	root := macTestHome(t)
+	parent := filepath.Dir(root)
+	alias := filepath.Join(parent, "alias")
+	if err := os.Symlink(parent, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(alias, "home"), "./alias/home", "~/alias/home"} {
+		t.Setenv("HOME", parent)
+		t.Setenv("BARN_HOME", path)
+		for _, args := range [][]string{{"--json", "mac", "list"}, {"--json", "image", "list"}} {
+			code, stdout, stderr := runMacCLI(t, args...)
+			if code != exitOK || !json.Valid([]byte(stdout)) {
+				t.Fatalf("BARN_HOME=%q %v: code=%d stdout=%s stderr=%s", path, args, code, stdout, stderr)
+			}
+		}
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only command created the data root: %v", err)
+	}
+}
+
 func TestMacUsageErrors(t *testing.T) {
 	macTestHome(t)
 	for _, args := range [][]string{

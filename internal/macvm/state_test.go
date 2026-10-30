@@ -39,6 +39,83 @@ func TestReadEmptyStoreCreatesNothing(t *testing.T) {
 	}
 }
 
+func TestStoreFollowsUserSelectedDirectoryAliases(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical := filepath.Join(parent, "physical")
+	if err := os.MkdirAll(filepath.Join(physical, "existing"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(parent, "alias")
+	if err := os.Symlink(physical, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(parent)
+	t.Setenv("HOME", parent)
+	for _, test := range []struct{ name, path, target string }{
+		{"physical", physical, physical},
+		{"final-link", alias, physical},
+		{"parent-link", filepath.Join(alias, "existing"), filepath.Join(physical, "existing")},
+		{"missing-suffix", filepath.Join(alias, "missing", "barn"), filepath.Join(physical, "missing", "barn")},
+		{"relative", "alias/relative", filepath.Join(physical, "relative")},
+		{"home-relative", "~/alias/home-relative", filepath.Join(physical, "home-relative")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, err := NewStore(test.path)
+			if err != nil || s.Root != filepath.Join(test.target, "mac") {
+				t.Fatalf("store = %#v, %v", s, err)
+			}
+			if _, err := s.ListMachines(); err != nil {
+				t.Fatal(err)
+			}
+			// The first two spellings intentionally address the same store.
+			if test.name != "final-link" {
+				if _, err := os.Stat(s.Root); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("read created a store: %v", err)
+				}
+			}
+			if err := s.SavePassword("mac1", "test-password"); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := NewStore(test.target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if password, err := reopened.Password("mac1"); err != nil || password != "test-password" {
+				t.Fatalf("physical store read = %q, %v", password, err)
+			}
+		})
+	}
+}
+
+func TestStoreStillRejectsOwnedSymlinksThroughHomeAlias(t *testing.T) {
+	for _, component := range []string{"mac", "mac/slots", "mac/config.json"} {
+		t.Run(component, func(t *testing.T) {
+			physical := t.TempDir()
+			alias := filepath.Join(t.TempDir(), "alias")
+			if err := os.Symlink(physical, alias); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(physical, component)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(t.TempDir(), path); err != nil {
+				t.Fatal(err)
+			}
+			s, err := NewStore(alias)
+			if err == nil {
+				_, err = s.Path(strings.TrimPrefix(component, "mac/"))
+			}
+			if err == nil || !strings.Contains(err.Error(), "symlink") {
+				t.Fatalf("owned symlink accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestMachineRoundTripAndIdentityIsImmutable(t *testing.T) {
 	m, _ := testManager(t)
 	machine := testMachine(t, m, "dev", "10.10.30.0/24", true)
