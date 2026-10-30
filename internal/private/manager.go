@@ -74,7 +74,7 @@ func diffResolved(persisted, desired spec.Resolved, hasState func(string) bool) 
 		switch {
 		case !stateful:
 			diff.Create = append(diff.Create, node.Name)
-		case sameResolvedNode(current, node):
+		case sameEffectiveResolvedNode(persisted, current, desired, node):
 			diff.Unchanged = append(diff.Unchanged, node.Name)
 		default:
 			diff.Changed = append(diff.Changed, node.Name)
@@ -107,7 +107,7 @@ func describeChanges(current, desired spec.Resolved, selected map[string]struct{
 	}
 	for _, node := range desired.Nodes {
 		old, exists := before[node.Name]
-		if _, include := selected[node.Name]; !exists || !include || sameResolvedNode(old, node) {
+		if _, include := selected[node.Name]; !exists || !include || sameEffectiveResolvedNode(current, old, desired, node) {
 			continue
 		}
 		old, node = alignAutoFilesystems(old, node)
@@ -138,6 +138,12 @@ func effectiveNodeImage(resolved spec.Resolved, node spec.Node) string {
 		return node.Image
 	}
 	return resolved.Image
+}
+
+func sameEffectiveResolvedNode(first spec.Resolved, firstNode spec.Node, second spec.Resolved, secondNode spec.Node) bool {
+	firstNode.Image = effectiveNodeImage(first, firstNode)
+	secondNode.Image = effectiveNodeImage(second, secondNode)
+	return sameResolvedNode(firstNode, secondNode)
 }
 
 func equalResolvedEnvelope(first, second spec.Resolved) bool {

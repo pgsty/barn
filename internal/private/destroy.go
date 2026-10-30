@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/pgsty/barn/internal/failure"
@@ -29,6 +30,10 @@ func ownedRegularWithin(root, path string) error {
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("destroy target is unsafe: %s", path)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("destroy target is not owned by the current user: %s", path)
 	}
 	return nil
 }
@@ -393,7 +398,7 @@ func validatePrivateRecreatePersistent(deploymentValue Deployment, current, requ
 		sameFilesystem := candidate.Filesystem == identityValue.Filesystem || candidate.Filesystem == "auto" || identityValue.Filesystem == "auto"
 		if !ok {
 			if _, exists := active[identityValue.Node+"\x00"+identityValue.Name]; exists {
-				return fmt.Errorf("recreate desired configuration removes active persistent disk %s/%s; destroy it explicitly before recreate", identityValue.Node, identityValue.Name)
+				return fmt.Errorf("recreate desired configuration removes active persistent disk %s/%s; remove it with full-deployment `barn destroy --force --delete-persistent` or `barn purge` before recreate", identityValue.Node, identityValue.Name)
 			}
 			continue
 		}

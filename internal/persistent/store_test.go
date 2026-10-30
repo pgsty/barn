@@ -108,6 +108,23 @@ func TestInventoryFailsClosedOnSymlinkAndUnexpectedArtifact(t *testing.T) {
 	})
 }
 
+func TestInventoryRejectsNodeDirectoryContainingOnlyFinderMetadata(t *testing.T) {
+	root := t.TempDir()
+	nodeDir := filepath.Join(root, "disks", "meta")
+	if err := os.MkdirAll(nodeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "disks", ".DS_Store"), []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeDir, ".DS_Store"), []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Inventory(root); err == nil {
+		t.Fatal("empty Finder-only node directory was accepted")
+	}
+}
+
 func TestPreserveRejectsForeignHardLinkedSource(t *testing.T) {
 	t.Parallel()
 	root, identity, source := persistentFixture(t)

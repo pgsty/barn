@@ -3,6 +3,7 @@ package private
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,50 @@ func TestDescribeChangesUsesEffectiveInheritedImage(t *testing.T) {
 		}
 	}
 	t.Fatalf("effective image change missing from %v", changes)
+}
+
+func TestDiffResolvedUsesEffectiveInheritedImages(t *testing.T) {
+	current := diffFixtureResolved()
+	desired := cloneResolved(current)
+	desired.Image = "d13:stable"
+
+	diff := diffResolved(current, desired, func(string) bool { return true })
+	if len(diff.Changed) != 2 || len(diff.Unchanged) != 0 {
+		t.Fatalf("default image change was not applied to every node: %#v", diff)
+	}
+	changes := describeChanges(current, desired, map[string]struct{}{"meta": {}, "node-1": {}})
+	for _, node := range []string{"meta", "node-1"} {
+		found := false
+		for _, change := range changes {
+			if change == node+" image: u24 -> d13:stable" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("effective default image change missing for %s: %v", node, changes)
+		}
+	}
+}
+
+func TestDiffResolvedTreatsExplicitImageEqualToNewDefaultAsUnchanged(t *testing.T) {
+	current := diffFixtureResolved()
+	current.Nodes[0].Image = "d13:stable"
+	current.Nodes[1].Image = "d13:stable"
+	desired := cloneResolved(current)
+	desired.Image = "d13:stable"
+	desired.Nodes[0].Image = ""
+
+	diff := diffResolved(current, desired, func(string) bool { return true })
+	if len(diff.Changed) != 0 || len(diff.Unchanged) != 2 {
+		t.Fatalf("equal effective images were classified as changed: %#v", diff)
+	}
+	changes := describeChanges(current, desired, map[string]struct{}{"meta": {}})
+	for _, change := range changes {
+		if strings.HasPrefix(change, "meta image:") {
+			t.Fatalf("equal effective image produced a node change: %v", changes)
+		}
+	}
 }
 
 func diffTestDeployment(t *testing.T) Deployment {

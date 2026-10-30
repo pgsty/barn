@@ -257,9 +257,7 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(disks) == 0 {
-			return nil, fmt.Errorf("persistent disk node directory is unexpectedly empty: %s", nodeDir)
-		}
+		diskCount := 0
 		for _, diskEntry := range disks {
 			if diskEntry.Name() == finderMetadataName {
 				if err := validateFinderMetadata(filepath.Join(nodeDir, diskEntry.Name())); err != nil {
@@ -267,6 +265,7 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 				}
 				continue
 			}
+			diskCount++
 			if !naming.ValidNodeName(diskEntry.Name()) {
 				return nil, fmt.Errorf("persistent disk store has unexpected disk entry %q", diskEntry.Name())
 			}
@@ -302,6 +301,9 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 				return nil, err
 			}
 			records = append(records, record)
+		}
+		if diskCount == 0 {
+			return nil, fmt.Errorf("persistent disk node directory is unexpectedly empty: %s", nodeDir)
 		}
 	}
 	sort.Slice(records, func(i, j int) bool {

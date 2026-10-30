@@ -310,7 +310,7 @@ func TestRenderShareSupportsSpacesUnicodeAndShellCharacters(t *testing.T) {
 
 func TestGeneratedPathEscapingRoundTripsThroughBash(t *testing.T) {
 	t.Parallel()
-	value := "/src path/it's\\ready"
+	value := "/src path/it's\\ready\\040"
 	shellCommand := "value=" + shellQuote(value) + "\nprintf '%s' \"$value\""
 	command := exec.Command("bash", "-c", shellCommand)
 	output, err := command.Output()

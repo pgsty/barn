@@ -239,8 +239,15 @@ func (m Manager) DeletePersistent(ctx context.Context) (_ []persistent.Record, r
 	}()
 	nodesDir := filepath.Join(deploymentValue.Root, "nodes")
 	entries, err := os.ReadDir(nodesDir)
-	if err == nil && len(entries) != 0 {
-		return nil, errors.New("will not delete persistent disks while node files remain")
+	if err == nil {
+		for _, entry := range entries {
+			if entry.Name() != ".DS_Store" {
+				return nil, errors.New("will not delete persistent disks while node files remain")
+			}
+			if err := ownedRegularWithin(nodesDir, filepath.Join(nodesDir, entry.Name())); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err

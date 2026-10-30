@@ -44,7 +44,7 @@ func (m *Manager) resolveBootImages(ctx context.Context, profile platform.Profil
 		previous, exists := applied[definition.Name]
 		_, create := createSet[definition.Name]
 		previousImage := effectiveNodeImage(persisted.Resolved, previous)
-		if exists && !create && previousImage == alias && sameResolvedNode(previous, definition) {
+		if exists && !create && previousImage == alias && sameEffectiveResolvedNode(persisted.Resolved, previous, requested, definition) {
 			node, readErr := store.ReadNode(definition.Name)
 			if readErr != nil && !missingPath(readErr) {
 				return nil, "", readErr

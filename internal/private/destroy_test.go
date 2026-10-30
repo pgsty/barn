@@ -291,3 +291,21 @@ func TestPrivatePersistentDeleteRequiresDestroyedNodes(t *testing.T) {
 		t.Fatalf("explicit persistent deletion = %#v, %v", deleted, err)
 	}
 }
+
+func TestPrivatePersistentDeleteIgnoresFinderMetadataInNodesRoot(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	deploymentValue := startConfig.Deployment
+	t.Setenv("BARN_HOME", deploymentValue.Root)
+	_, _ = markFixtureDiskPersistent(t, state.Store{Root: deploymentValue.Root})
+	writeDestroyKeyFixtures(t, deploymentValue.Root)
+	if _, err := (Manager{BarnVersion: "test"}).Destroy(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deploymentValue.Root, "nodes", ".DS_Store"), []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := (Manager{BarnVersion: "test"}).DeletePersistent(context.Background())
+	if err != nil || len(deleted) != 1 {
+		t.Fatalf("Finder metadata blocked persistent deletion: %#v, %v", deleted, err)
+	}
+}

@@ -51,6 +51,31 @@ func TestSelectedRecreateAllowsPeerDriftAndStillPreflights(t *testing.T) {
 	}
 }
 
+func TestSelectedRecreateRejectsEnvelopeDriftBeforeDestroy(t *testing.T) {
+	fixture, nodes := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	store := state.Store{Root: fixture.Deployment.Root}
+	current, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := cloneResolved(current.Resolved)
+	requested.SSHUser = "operator"
+	manager := planFixtureManager(t)
+	manager.Nodes = []string{"meta"}
+	if _, err := manager.RecreateResolved(context.Background(), requested); err == nil || !strings.Contains(err.Error(), "select all existing nodes") {
+		t.Fatalf("selected envelope recreate was accepted: %v", err)
+	}
+	for _, node := range nodes {
+		if _, err := os.Stat(node.RootDisk); err != nil {
+			t.Fatalf("node %s was mutated before envelope validation: %v", node.Node, err)
+		}
+		if _, err := store.ReadNode(node.Node); err != nil {
+			t.Fatalf("node %s state was mutated before envelope validation: %v", node.Node, err)
+		}
+	}
+}
+
 func TestDestroyAndStopReadStateOnlyAfterAcquiringLock(t *testing.T) {
 	fixture, _ := preparedStartFixture(t)
 	t.Setenv("BARN_HOME", fixture.Deployment.Root)
