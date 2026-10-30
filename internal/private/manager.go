@@ -782,21 +782,6 @@ func (m Manager) resolveBases(ctx context.Context, profile platform.Profile, val
 	return bases, boot, nil
 }
 
-func (m Manager) resolveBootMode(ctx context.Context, profile platform.Profile, value spec.Resolved) (string, error) {
-	boot := ""
-	for _, alias := range aliases(value) {
-		entry, err := m.lookupOneImage(ctx, alias, profile.Arch)
-		if err != nil {
-			return "", err
-		}
-		boot, err = mergeBootMode(profile, boot, alias, entry.Boot)
-		if err != nil {
-			return "", err
-		}
-	}
-	return boot, nil
-}
-
 type runtimeDecision struct {
 	Profile platform.Profile
 	Reason  string
@@ -1375,10 +1360,7 @@ func (m *Manager) preflightBoot(ctx context.Context, requested spec.Resolved, cr
 	if err != nil {
 		return runtimeDecision{}, "", err
 	}
-	if err := m.ensureImageSession(); err != nil {
-		return runtimeDecision{}, "", err
-	}
-	boot, err := m.resolveBootMode(ctx, runtime.Profile, requested)
+	_, boot, err := m.resolveBootImages(ctx, runtime.Profile, requested, creating)
 	if err != nil {
 		return runtimeDecision{}, "", err
 	}
@@ -1610,10 +1592,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	if err != nil {
 		return Status{}, err
 	}
-	if err := m.ensureImageSession(); err != nil {
-		return Status{}, err
-	}
-	boot, err := m.resolveBootMode(ctx, runtime.Profile, runtimeRequested)
+	_, boot, err := m.resolveBootImages(ctx, runtime.Profile, runtimeRequested, createNodes)
 	if err != nil {
 		return Status{}, err
 	}
@@ -2038,12 +2017,10 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	if err != nil {
 		return LifecyclePlan{}, err
 	}
-	// Planning is a local catalog/spec comparison. Host checks and downloads
-	// belong to up, so users can review a lab before installing QEMU/networking.
-	if err := m.ensureImageSession(); err != nil {
-		return LifecyclePlan{}, err
-	}
-	if _, err := m.resolveBootMode(ctx, runtime.Profile, runtimeRequested); err != nil {
+	// Planning compares local state/specs and looks up only new/replaced
+	// images. Host checks and downloads belong to up.
+	images, _, err := m.resolveBootImages(ctx, runtime.Profile, runtimeRequested, nil)
+	if err != nil {
 		return LifecyclePlan{}, err
 	}
 	hash, err := spec.Hash(requested)
@@ -2052,12 +2029,14 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	}
 	selectedSet := nodeNameSet(selected)
 	result := LifecyclePlan{Schema: 1, Action: "create", SpecHash: hash, Nodes: append([]string(nil), selected...), Create: append([]string(nil), selected...)}
-	for _, alias := range aliases(selectedRequested) {
-		entry, err := m.lookupOneImage(ctx, alias, runtime.Profile.Arch)
-		if err != nil {
-			return LifecyclePlan{}, err
+	seenImages := make(map[string]struct{})
+	for _, node := range selectedRequested.Nodes {
+		entry := images[node.Name]
+		label := entry.Alias + "@" + entry.Release + "/" + entry.Arch
+		if _, seen := seenImages[label]; !seen {
+			result.Images = append(result.Images, label)
+			seenImages[label] = struct{}{}
 		}
-		result.Images = append(result.Images, entry.Alias+"@"+entry.Release+"/"+entry.Arch)
 	}
 	for _, node := range selectedRequested.Nodes {
 		result.CPUs += node.CPUs

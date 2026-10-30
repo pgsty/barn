@@ -41,7 +41,7 @@ func TestLifecycleCatalogSessionNeverTouchesTheRepository(t *testing.T) {
 	}}
 	profile := platform.Profile{Arch: "arm64", RequiresUEFI: true}
 	for attempt := 0; attempt < 2; attempt++ {
-		boot, err := manager.resolveBootMode(context.Background(), profile, resolved)
+		_, boot, err := manager.resolveBootImages(context.Background(), profile, resolved, nil)
 		if err != nil || boot != "uefi" {
 			t.Fatalf("resolve boot attempt %d = %q, %v", attempt+1, boot, err)
 		}
