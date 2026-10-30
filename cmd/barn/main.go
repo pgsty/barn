@@ -840,7 +840,10 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	}()
 	deploymentState, err := (state.Store{Root: deployment.Root}).ReadDeployment()
 	if err != nil {
-		return commandOutcome{}, newConflictError(fmt.Errorf("provision requires an existing running deployment: %w", err))
+		if errors.Is(err, os.ErrNotExist) {
+			return commandOutcome{}, newConflictError(fmt.Errorf("provision requires an existing running deployment: %w", err))
+		}
+		return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("read deployment state for provision: %w", err))
 	}
 	resolved := deploymentState.Resolved
 
@@ -1701,7 +1704,7 @@ func runSSHConfig(parent context.Context, options sshConfigOptions, nodes []stri
 	}
 	resolved, resolveErr := currentDeploymentResolved()
 	if resolveErr != nil {
-		return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
+		return commandOutcome{}, deploymentReadError(resolveErr)
 	}
 	if resolved.Network != "private" {
 		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
@@ -1877,7 +1880,7 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 	defer cancel()
 	resolved, resolveErr := currentDeploymentResolved()
 	if resolveErr != nil && (options.Source != "events" || !errors.Is(resolveErr, os.ErrNotExist)) {
-		return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
+		return commandOutcome{}, deploymentReadError(resolveErr)
 	}
 	if resolveErr == nil && resolved.Network != "private" {
 		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))

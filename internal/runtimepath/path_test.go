@@ -55,6 +55,43 @@ func TestXDGDirectoryAndEnsure(t *testing.T) {
 	}
 }
 
+func TestFallbackSeparatesBarnHomes(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	firstRoot := filepath.Join(t.TempDir(), "barn-one")
+	secondRoot := filepath.Join(t.TempDir(), "barn-two")
+	t.Setenv("BARN_HOME", firstRoot)
+	first, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(first, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := PruneEmptyParents(first, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BARN_HOME", secondRoot)
+	second, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("different BARN_HOME values share runtime path %q", first)
+	}
+	if err := Ensure(second, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(second); err != nil {
+		t.Fatal(err)
+	}
+	if err := PruneEmptyParents(second, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRejectsUnsafeXDGAndWrongIdentity(t *testing.T) {
 	root := shortRuntimeRoot(t)
 	if err := os.Chmod(root, 0o755); err != nil {

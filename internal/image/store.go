@@ -280,7 +280,7 @@ func (s Store) ValidateCached(ctx context.Context, entry Entry) (string, Metadat
 		return "", Metadata{}, fmt.Errorf("%w: local image digest mismatch: got %s want %s", ErrIntegrity, actual, entry.SHA256)
 	}
 	if entry.ArtifactSize > 0 && size != entry.ArtifactSize {
-		return "", Metadata{}, fmt.Errorf("local image size mismatch: got %d want %d", size, entry.ArtifactSize)
+		return "", Metadata{}, fmt.Errorf("%w: local image size mismatch: got %d want %d", ErrIntegrity, size, entry.ArtifactSize)
 	}
 	imageInfo, err := s.manager().Inspect(ctx, pathname)
 	if err != nil {
@@ -290,7 +290,7 @@ func (s Store) ValidateCached(ctx context.Context, entry Entry) (string, Metadat
 		return "", Metadata{}, err
 	}
 	if entry.VirtualSize > 0 && imageInfo.VirtualSize != entry.VirtualSize {
-		return "", Metadata{}, fmt.Errorf("local image virtual size mismatch: got %d want %d", imageInfo.VirtualSize, entry.VirtualSize)
+		return "", Metadata{}, fmt.Errorf("%w: local image virtual size mismatch: got %d want %d", ErrIntegrity, imageInfo.VirtualSize, entry.VirtualSize)
 	}
 	metadata := Metadata{Schema: MetadataSchema, Digest: actual, Format: "qcow2", VirtualSize: imageInfo.VirtualSize, ArtifactSize: size, Source: "local:" + pathname, ImportedAt: info.ModTime().UTC()}
 	return pathname, metadata, nil
@@ -305,7 +305,7 @@ func (s Store) publish(ctx context.Context, tempPath string, entry Entry, source
 		return "", Metadata{}, err
 	}
 	if actual != entry.SHA256 || size != artifactSize || (entry.ArtifactSize > 0 && size != entry.ArtifactSize) {
-		return "", Metadata{}, errors.New("copied or downloaded image digest/size does not match catalog")
+		return "", Metadata{}, fmt.Errorf("%w: copied or downloaded image digest/size does not match catalog", ErrIntegrity)
 	}
 	imageInfo, err := s.manager().Inspect(ctx, tempPath)
 	if err != nil {
@@ -315,7 +315,7 @@ func (s Store) publish(ctx context.Context, tempPath string, entry Entry, source
 		return "", Metadata{}, err
 	}
 	if entry.VirtualSize > 0 && imageInfo.VirtualSize != entry.VirtualSize {
-		return "", Metadata{}, errors.New("copied or downloaded image virtual size does not match catalog")
+		return "", Metadata{}, fmt.Errorf("%w: copied or downloaded image virtual size does not match catalog", ErrIntegrity)
 	}
 	if err := os.Chmod(tempPath, 0o444); err != nil {
 		return "", Metadata{}, err

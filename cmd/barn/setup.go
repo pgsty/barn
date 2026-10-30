@@ -18,6 +18,7 @@ import (
 	"github.com/pgsty/barn/internal/doctor"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/hostconfig"
 	"github.com/pgsty/barn/internal/identity"
 	"github.com/pgsty/barn/internal/image"
@@ -117,7 +118,7 @@ func (options setupCLIOptions) arguments(profileName string) []string {
 }
 
 func loadSetupFile(path string) (config.File, spec.Resolved, error) {
-	absolute, err := filepath.Abs(path)
+	absolute, err := fsutil.UserPath(path, "")
 	if err != nil {
 		return config.File{}, spec.Resolved{}, err
 	}
@@ -214,7 +215,7 @@ func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelect
 		return setupSelection{}, failure.New(failure.Usage, errors.New("--cidr cannot change the network of an existing inventory; edit its addresses instead"))
 	}
 	if filePath != "" {
-		absolute, err := filepath.Abs(filePath)
+		absolute, err := fsutil.UserPath(filePath, "")
 		if err != nil {
 			return setupSelection{}, err
 		}

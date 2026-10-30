@@ -5,13 +5,16 @@
 package runtimepath
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/pgsty/barn/internal/naming"
 	"os"
 	"path/filepath"
 	"runtime"
 	"syscall"
+
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/naming"
 )
 
 func fallbackBase(uid int) string {
@@ -19,7 +22,19 @@ func fallbackBase(uid int) string {
 	if runtime.GOOS == "darwin" {
 		root = "/private/tmp"
 	}
-	return filepath.Join(root, fmt.Sprintf("barn-%d", uid))
+	scope := os.Getenv("BARN_HOME")
+	if scope == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			scope = filepath.Join(home, ".barn")
+		}
+	}
+	if canonical, err := fsutil.CanonicalPath(scope); err == nil {
+		scope = canonical
+	} else if absolute, err := filepath.Abs(scope); err == nil {
+		scope = absolute
+	}
+	digest := sha256.Sum256([]byte(scope))
+	return filepath.Join(root, fmt.Sprintf("barn-%d-%x", uid, digest[:8]))
 }
 
 func ownerUID(info os.FileInfo) (int, bool) {

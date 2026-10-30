@@ -140,3 +140,19 @@ func TestConfigSizeErrorShowsFileLineValueAndExample(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSetupFileExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, "lab.yml")
+	data, err := config.Template("meta", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadSetupFile("~/lab.yml"); err != nil {
+		t.Fatalf("loadSetupFile did not expand home: %v", err)
+	}
+}

@@ -41,7 +41,7 @@ func TestCorruptDeploymentIsNotReportedAsAbsent(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"status", "stop", "ssh"} {
+	for _, command := range []string{"status", "stop", "ssh", "logs", "ssh-config"} {
 		var out, errOut bytes.Buffer
 		if code := run([]string{command, "--json"}, &out, &errOut); code != exitIntegrity {
 			t.Fatalf("%s: code %d %s %s", command, code, out.String(), errOut.String())
@@ -49,6 +49,14 @@ func TestCorruptDeploymentIsNotReportedAsAbsent(t *testing.T) {
 		if strings.Contains(out.String(), "no deployment") || !strings.Contains(out.String(), "state.json") {
 			t.Fatalf("%s hides state corruption: %s", command, out.String())
 		}
+	}
+	script := filepath.Join(root, "provision.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrue\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"provision", "--script", script, "--json"}, &out, &errOut); code != exitIntegrity {
+		t.Fatalf("provision: code %d %s %s", code, out.String(), errOut.String())
 	}
 }
 

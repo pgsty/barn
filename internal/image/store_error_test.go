@@ -2,6 +2,9 @@ package image
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -47,5 +50,24 @@ func TestValidateCachedDigestMismatchHasFactualError(t *testing.T) {
 	_, _, err := (Store{DataRoot: dataRoot}).ValidateCached(context.Background(), entry)
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch") || strings.Contains(err.Error(), "%!w") || strings.Contains(err.Error(), "<nil>") {
 		t.Fatalf("digest mismatch error = %v", err)
+	}
+}
+
+func TestValidateCachedSizeMismatchIsIntegrityError(t *testing.T) {
+	t.Parallel()
+	dataRoot := t.TempDir()
+	data := []byte("valid bytes")
+	digest := sha256.Sum256(data)
+	pathname := filepath.Join(dataRoot, "images", "u24", "fixture.qcow2")
+	if err := os.MkdirAll(filepath.Dir(pathname), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathname, data, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{CacheFile: "u24/fixture.qcow2", SHA256: hex.EncodeToString(digest[:]), Format: "qcow2", ArtifactSize: int64(len(data) + 1)}
+	_, _, err := (Store{DataRoot: dataRoot}).ValidateCached(context.Background(), entry)
+	if !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("size mismatch error = %v", err)
 	}
 }
