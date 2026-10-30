@@ -123,8 +123,9 @@ barn mac start dev
 barn mac stop dev && barn mac configure dev --share data=/Volumes/Work/data --unshare docs
 ```
 
-A share is a real host directory (not a symlink), read-write unless marked
-`:ro`. Barn never creates or deletes shared directories. macOS guests can
+A share must resolve to an existing host directory; directory symlinks are
+supported. It is read-write unless marked `:ro`. Barn never creates or deletes
+shared directories. macOS guests can
 serve stale file contents for a while after the host changes a file; use SSH
 to copy files with `scp` or `rsync` onto the guest's own disk when you need the latest bytes immediately.
 

@@ -94,6 +94,41 @@ func TestIntegrationImportRejectsBacking(t *testing.T) {
 	}
 }
 
+func TestIntegrationImportAliasesAndSameBasename(t *testing.T) {
+	t.Parallel()
+	store := testImageStore(t)
+	first := filepath.Join(t.TempDir(), "开发 image.qcow2")
+	second := filepath.Join(t.TempDir(), filepath.Base(first))
+	for _, path := range []string{first, second} {
+		makeQCOW2(t, path, "")
+	}
+	if output, err := exec.Command(store.QEMUImg, "resize", second, "128M").CombinedOutput(); err != nil {
+		t.Fatalf("resize: %v: %s", err, output)
+	}
+	link := filepath.Join(t.TempDir(), "local image")
+	if err := os.Symlink(first, link); err != nil {
+		t.Fatal(err)
+	}
+	firstPath, firstMeta, err := store.Import(context.Background(), link, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPath, secondMeta, err := store.Import(context.Background(), second, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstPath == secondPath || firstMeta.Digest == secondMeta.Digest || secondMeta.VirtualSize != 128<<20 {
+		t.Fatalf("same-basename imports collided: %s %s", firstPath, secondPath)
+	}
+	duplicate, _, err := store.Import(context.Background(), first, "")
+	if err != nil || duplicate != firstPath {
+		t.Fatalf("content deduplication: %s, %v", duplicate, err)
+	}
+	if _, _, err := store.Import(context.Background(), second, firstMeta.Digest); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("wrong digest was accepted: %v", err)
+	}
+}
+
 func TestIntegrationHTTPSPull(t *testing.T) {
 	t.Parallel()
 	store := testImageStore(t)

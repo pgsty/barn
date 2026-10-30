@@ -85,9 +85,6 @@ func configurationWarnings(resolved spec.Resolved) []string {
 				warnings = append(warnings, fmt.Sprintf("node %s exposes host TCP %s:%d beyond loopback; this may make guest port %d reachable from other machines", node.Name, forward.Bind, forward.Host, forward.Guest))
 			}
 		}
-		if len(node.Shares) != 0 && runtime.GOOS == "darwin" {
-			warnings = append(warnings, fmt.Sprintf("node %s sets vm_shares, which QEMU cannot open on macOS; the node will not start until vm_shares is removed", node.Name))
-		}
 	}
 	return warnings
 }
@@ -808,11 +805,11 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	if options.ScriptPath == "" {
 		return commandOutcome{}, newUsageError(errors.New("--script is required"))
 	}
-	if options.Parallelism < 1 || options.Parallelism > provision.MaxParallelism {
-		return commandOutcome{}, newUsageError(fmt.Errorf("provision parallelism must be 1..%d", provision.MaxParallelism))
+	if options.Parallelism < 1 {
+		return commandOutcome{}, newUsageError(errors.New("provision parallelism must be positive"))
 	}
-	if options.Timeout <= 0 || options.Timeout > 24*time.Hour {
-		return commandOutcome{}, newUsageError(errors.New("provision timeout must be greater than zero and no more than 24h"))
+	if options.Timeout <= 0 {
+		return commandOutcome{}, newUsageError(errors.New("provision timeout must be greater than zero"))
 	}
 	script, err := provision.LoadScript(options.ScriptPath)
 	if err != nil {
@@ -2081,12 +2078,9 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 		target = filepath.Join(cwd, "barn.yml")
 	}
-	target, err = filepath.Abs(target)
+	target, err = fsutil.EnsureParent(target)
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
-	}
-	if info, statErr := os.Stat(filepath.Dir(target)); statErr != nil || !info.IsDir() {
-		return commandOutcome{}, newUsageError(fmt.Errorf("directory %s does not exist", filepath.Dir(target)))
 	}
 	if options.Force {
 		err = fsutil.AtomicWrite(target, data, 0o600)
@@ -2224,7 +2218,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return nil
 		}}, nil
 	case "repo-scan", "repo-build", "repo-verify":
-		root, err := filepath.Abs(options.Path)
+		root, err := fsutil.UserPath(options.Path, "")
 		if err != nil {
 			return commandOutcome{}, newUsageError(err)
 		}

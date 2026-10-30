@@ -543,7 +543,7 @@ func TestCobraRejectsInvalidTypedOptionsBeforeOperations(t *testing.T) {
 	}{
 		{arguments: []string{"setup", "--mode", "bogus"}, want: "--mode must be one of"},
 		{arguments: []string{"logs", "--source", "bogus"}, want: "--source must be one of"},
-		{arguments: []string{"provision", "--script", "missing.sh", "--parallel", "0"}, want: "--parallel must be between"},
+		{arguments: []string{"provision", "--script", "missing.sh", "--parallel", "0"}, want: "--parallel must be positive"},
 		{arguments: []string{"ssh-config", "--name", "bad/name"}, want: "invalid SSH config name"},
 		{arguments: []string{"ssh-config", "--remove", "meta"}, want: "does not accept node selectors"},
 		{arguments: []string{"image", "import", "missing.qcow2", "--name", "local-x", "--boot", "bad", "--source-user", "dba"}, want: "--boot must be one of"},

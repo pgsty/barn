@@ -1,6 +1,7 @@
 package qemu
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -149,6 +150,9 @@ func TestBuildHostSharesUseAnchoredFDsAndColdPlugRootBus(t *testing.T) {
 	} {
 		config := testConfig(t, test.goos, test.arch)
 		config.Shares = []Share{{Tag: "barn-0123456789abcdefabcd", Readonly: true}, {Tag: "barn-fedcba9876543210fedc"}}
+		for i := 2; i < 16; i++ {
+			config.Shares = append(config.Shares, Share{Tag: fmt.Sprintf("barn-source-%d", i)})
+		}
 		invocation, err := Build(config)
 		if err != nil {
 			t.Fatal(err)
@@ -163,7 +167,7 @@ func TestBuildHostSharesUseAnchoredFDsAndColdPlugRootBus(t *testing.T) {
 				t.Errorf("%s/%s invocation missing %q:\n%s", test.goos, test.arch, want, joined)
 			}
 		}
-		if strings.Contains(joined, "pcie-root-port") || len(invocation.ShareFiles()) != 2 || invocation.ShareFiles()[0].FD != 3 || invocation.ShareFiles()[1].FD != 4 {
+		if strings.Contains(joined, "pcie-root-port") || len(invocation.ShareFiles()) != len(config.Shares) || invocation.ShareFiles()[0].FD != 3 || invocation.ShareFiles()[15].FD != 18 || !strings.Contains(joined, "mount_tag=barn-source-15") {
 			t.Fatalf("unsafe or inconsistent share topology: %#v\n%s", invocation.InheritedFiles, joined)
 		}
 	}

@@ -248,9 +248,6 @@ func validate(config Config) error {
 			}
 		}
 	}
-	if len(config.Shares) > 8 {
-		return errors.New("QEMU supports at most 8 host shares per node")
-	}
 	if len(config.Shares) != 0 && config.Profile.Machine != "q35" && config.Profile.Machine != "virt" {
 		return fmt.Errorf("QEMU host shares require the non-hotpluggable pcie.0 root bus, not machine %q", config.Profile.Machine)
 	}

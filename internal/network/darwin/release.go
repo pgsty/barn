@@ -86,6 +86,24 @@ func fileDigest(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+func canonicalArchivePath(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("socket_vmnet archive path is empty")
+	}
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(canonical)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("socket_vmnet archive must be a regular file")
+	}
+	return canonical, nil
+}
+
 type ArchiveInfo struct {
 	SocketSize int64
 	ClientSize int64
@@ -167,6 +185,14 @@ func inspectArchive(reader io.Reader) (ArchiveInfo, error) {
 // VerifyArchive uses the embedded per-architecture digest before inspecting
 // any tar metadata. The upstream SHA256SUMS file is not consulted.
 func VerifyArchive(archivePath, arch string) (ArchiveInfo, error) {
+	canonical, err := canonicalArchivePath(archivePath)
+	if err != nil {
+		return ArchiveInfo{}, err
+	}
+	return verifyArchiveFile(canonical, arch)
+}
+
+func verifyArchiveFile(archivePath, arch string) (ArchiveInfo, error) {
 	release, err := PinnedRelease(arch)
 	if err != nil {
 		return ArchiveInfo{}, err
@@ -375,17 +401,21 @@ func StageVerifiedLocalBinaries(binaries LocalBinaries, stagingDir, socketSHA, c
 // user-owned staging directory. Privileged code must install and re-verify the
 // bytes in a root-owned destination before launching them.
 func ExtractVerifiedBinaries(archivePath, arch, stagingDir string) error {
-	if _, err := VerifyArchive(archivePath, arch); err != nil {
+	canonical, err := canonicalArchivePath(archivePath)
+	if err != nil {
+		return err
+	}
+	if _, err := verifyArchiveFile(canonical, arch); err != nil {
 		return err
 	}
 	if err := emptyStagingDir(stagingDir); err != nil {
 		return err
 	}
 	release, _ := PinnedRelease(arch)
-	if err := extractOne(archivePath, "opt/socket_vmnet/bin/socket_vmnet", filepath.Join(stagingDir, "socket_vmnet"), release.SocketSHA256); err != nil {
+	if err := extractOne(canonical, "opt/socket_vmnet/bin/socket_vmnet", filepath.Join(stagingDir, "socket_vmnet"), release.SocketSHA256); err != nil {
 		return err
 	}
-	if err := extractOne(archivePath, "opt/socket_vmnet/bin/socket_vmnet_client", filepath.Join(stagingDir, "socket_vmnet_client"), release.ClientSHA256); err != nil {
+	if err := extractOne(canonical, "opt/socket_vmnet/bin/socket_vmnet_client", filepath.Join(stagingDir, "socket_vmnet_client"), release.ClientSHA256); err != nil {
 		return err
 	}
 	return nil

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -434,9 +435,15 @@ func (host inventoryHost) lookupStringList(key string) ([]string, bool, error) {
 }
 
 func diskNameForPath(path string) (string, error) {
+	if !safeDiskMount(path) {
+		return "", fmt.Errorf("disk mount %q %s", path, unsafeGuestPathReason(path))
+	}
 	name := strings.ReplaceAll(strings.Trim(path, "/"), "/", "-")
 	if !derivedDiskName.MatchString(name) {
-		return "", fmt.Errorf("disk mount %q does not derive a safe disk identity; use a short lowercase path such as /data", path)
+		// Keep existing simple names stable; other paths get a short identity
+		// independent of the characters and length of the mountpoint.
+		digest := sha256.Sum256([]byte(path))
+		name = fmt.Sprintf("disk-%x", digest[:10])
 	}
 	return name, nil
 }
@@ -488,6 +495,11 @@ func (host inventoryHost) lookupDisks() ([]DiskConfig, bool, error) {
 		if path == "" {
 			return nil, true, fmt.Errorf("host %s vm_disks entry requires an absolute path", host.address)
 		}
+		cleanedPath, ok := normalizeGuestPath(path)
+		if !ok {
+			return nil, true, fmt.Errorf("host %s: disk mount %q %s", host.address, path, unsafeGuestPathReason(path))
+		}
+		path = cleanedPath
 		name, nameErr := diskNameForPath(path)
 		if nameErr != nil {
 			return nil, true, fmt.Errorf("host %s: %w", host.address, nameErr)
@@ -623,9 +635,8 @@ func collectHosts(group *yaml.Node, origin string, depth int, inherited []varSou
 	}
 	for _, entry := range hostEntries {
 		address := entry[0].Value
-		if parsed, parseErr := netip.ParseAddr(address); parseErr != nil || !parsed.Is4() {
-			return fmt.Errorf("%s host key %q must be an IPv4 address", origin, address)
-		}
+		// Address validation belongs to inventoryCIDR, after inherited vm_skip
+		// has been resolved. External hosts may use ordinary Ansible names.
 		hostVars, err := varsOf(entry[1], origin+" host "+address)
 		if err != nil {
 			return err
@@ -733,6 +744,10 @@ func inventoryDocument(data []byte) (yaml.Node, error) {
 // ParseInventory reads a Pigsty-compatible inventory document and returns the
 // equivalent internal configuration.
 func ParseInventory(data []byte) (File, error) {
+	return parseInventory(data, "")
+}
+
+func parseInventory(data []byte, directory string) (File, error) {
 	if len(data) > maxInventoryBytes {
 		return File{}, errors.New("inventory exceeds the 4 MiB limit")
 	}
@@ -803,10 +818,11 @@ func ParseInventory(data []byte) (File, error) {
 	}
 
 	file := File{
-		Version: 1,
-		Name:    InventoryDeploymentName,
-		Arch:    "native",
-		Network: NetworkConfig{Mode: "private", CIDR: layout.CIDR(), HostAddress: layout.HostAddress(), DHCPEnd: layout.DHCPEnd()},
+		directory: directory,
+		Version:   1,
+		Name:      InventoryDeploymentName,
+		Arch:      "native",
+		Network:   NetworkConfig{Mode: "private", CIDR: layout.CIDR(), HostAddress: layout.HostAddress(), DHCPEnd: layout.DHCPEnd()},
 	}
 
 	sshUser := ""

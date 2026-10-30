@@ -27,8 +27,12 @@ import (
 )
 
 const (
-	MetadataSchema        = 1
-	MaxArtifactSize int64 = 8 << 30
+	MetadataSchema = 1
+	// Reserve one byte for overflow detection in bounded reads. Image capacity
+	// is otherwise governed by the actual file or the catalog's declared size.
+	MaxArtifactSize int64 = 1<<63 - 2
+	// Legacy entries without a declared size still need a finite network bound.
+	maxUnspecifiedArtifactSize int64 = 8 << 30
 )
 
 // ErrIntegrity identifies image bytes that fail verification.
@@ -224,12 +228,12 @@ func digestFileWithProgress(pathname string, reporter activity.Reporter, event a
 	}()
 	hash := sha256.New()
 	event.TotalBytes = info.Size()
-	written, err := copyWithProgress(hash, handle, MaxArtifactSize+1, reporter, event)
+	written, err := copyWithProgress(hash, handle, info.Size()+1, reporter, event)
 	if err != nil {
 		return "", written, err
 	}
-	if written > MaxArtifactSize {
-		return "", written, errors.New("image exceeded size limit while hashing")
+	if written != info.Size() {
+		return "", written, errors.New("image size changed while hashing")
 	}
 	return hex.EncodeToString(hash.Sum(nil)), written, nil
 }
@@ -331,12 +335,16 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	if err := s.validate(); err != nil {
 		return "", Metadata{}, err
 	}
-	absSource, err := filepath.Abs(source)
+	absSource, err := fsutil.UserPath(source, "")
 	if err != nil {
 		return "", Metadata{}, err
 	}
 	if _, err := os.Lstat(absSource); errors.Is(err, os.ErrNotExist) {
 		return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("no such file: %s", absSource))
+	}
+	absSource, err = filepath.EvalSymlinks(absSource)
+	if err != nil {
+		return "", Metadata{}, fmt.Errorf("resolve image %s: %w", source, err)
 	}
 	digest, sourceSize, err := digestFile(absSource)
 	if err != nil {
@@ -348,11 +356,9 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	if !qcow2File(absSource) {
 		return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("%s is not a qcow2 image", absSource))
 	}
-	basename := filepath.Base(absSource)
-	if !localImageFilename.MatchString(basename) {
-		return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("%s: image file names may use letters, digits and ._+- and must end in .qcow2 or .img", basename))
-	}
-	entry := Entry{Alias: "local", Release: "local-" + digest[:12], CacheFile: "local/" + basename, SHA256: digest, Format: "qcow2", ArtifactSize: sourceSize}
+	// The source name is presentation, not identity: independently built images
+	// often share a basename, and the user's filename need not be a cache key.
+	entry := Entry{Alias: "local", Release: "local-" + digest[:12], CacheFile: "local/" + digest + ".qcow2", SHA256: digest, Format: "qcow2", ArtifactSize: sourceSize}
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	imageLock, err := lock.Acquire(lockContext, s.lockPath(), false)
@@ -369,15 +375,11 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	target, _ := s.Path(entry)
 	if _, err := os.Lstat(target); err == nil {
 		pathname, metadata, err := s.ValidateCached(ctx, entry)
-		if errors.Is(err, ErrIntegrity) {
-			// The cache is keyed by basename: a different file with the same name.
-			return "", Metadata{}, failure.New(failure.Usage, fmt.Errorf("the image cache already holds a different %s", entry.CacheFile)).Because("image_name_taken").Then("rename the file to import it alongside, or remove the old one with barn image prune --yes")
-		}
 		return pathname, metadata, err
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", Metadata{}, err
 	}
-	tempPath, copied, err := fsutil.CopyToTemp(absSource, directory, ".import-*.partial", 0o600, MaxArtifactSize)
+	tempPath, copied, err := fsutil.CopyToTemp(absSource, directory, ".import-*.partial", 0o600, sourceSize)
 	if err != nil {
 		return "", Metadata{}, err
 	}
@@ -579,7 +581,11 @@ func (s Store) stageHTTP(ctx context.Context, source, directory string, entry En
 		displaySource = displayActivitySource(response.Request.URL.String())
 	}
 	remaining := entry.ArtifactSize - resumeFrom
-	if response.ContentLength > MaxArtifactSize || (entry.ArtifactSize > 0 && response.ContentLength >= 0 && response.ContentLength != remaining) {
+	limit := entry.ArtifactSize
+	if limit <= 0 {
+		limit = maxUnspecifiedArtifactSize
+	}
+	if response.ContentLength > limit || (entry.ArtifactSize > 0 && response.ContentLength >= 0 && response.ContentLength != remaining) {
 		poisoned = true
 		return "", resumeFrom, errors.New("download Content-Length differs from catalog policy")
 	}
@@ -589,7 +595,7 @@ func (s Store) stageHTTP(ctx context.Context, source, directory string, entry En
 		total = resumeFrom + response.ContentLength
 	}
 	body := &stallReader{reader: response.Body, timer: watchdog, timeout: imageStallTimeout}
-	received, err := copyWithProgress(handle, body, MaxArtifactSize+1-resumeFrom, s.Progress, activity.Event{
+	received, err := copyWithProgress(handle, body, limit+1-resumeFrom, s.Progress, activity.Event{
 		Phase:        "image-download",
 		Message:      fmt.Sprintf("Downloading image %s %s (%s)", entry.Alias, entry.Release, entry.Arch),
 		Source:       displaySource,
@@ -600,7 +606,7 @@ func (s Store) stageHTTP(ctx context.Context, source, directory string, entry En
 	if err != nil {
 		return "", written, fmt.Errorf("download image: %w", stallAwareError(downloadContext, err))
 	}
-	if written > MaxArtifactSize || (response.ContentLength >= 0 && received != response.ContentLength) || (entry.ArtifactSize > 0 && written != entry.ArtifactSize) {
+	if written > limit || (response.ContentLength >= 0 && received != response.ContentLength) || (entry.ArtifactSize > 0 && written != entry.ArtifactSize) {
 		poisoned = true
 		return "", written, errors.New("downloaded image size differs from catalog policy")
 	}
@@ -683,7 +689,15 @@ func (s Store) stageSource(ctx context.Context, source, directory string, entry 
 	s.Progress.Report(activity.Event{
 		Phase: "image-copy", Message: fmt.Sprintf("Copying image %s %s (%s) from the local repository", entry.Alias, entry.Release, entry.Arch), Source: source,
 	})
-	tempPath, copied, err := fsutil.CopyToTemp(source, directory, ".repository-*.partial", 0o600, MaxArtifactSize)
+	limit := entry.ArtifactSize
+	if limit <= 0 {
+		info, err := os.Stat(source)
+		if err != nil {
+			return "", 0, err
+		}
+		limit = info.Size()
+	}
+	tempPath, copied, err := fsutil.CopyToTemp(source, directory, ".repository-*.partial", 0o600, limit)
 	if err == nil {
 		s.Progress.Report(activity.Event{
 			Phase: "image-copy", Message: fmt.Sprintf("Copied image %s %s (%s) from the local repository", entry.Alias, entry.Release, entry.Arch), Source: source,

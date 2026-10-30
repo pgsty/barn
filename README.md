@@ -36,8 +36,8 @@
 
 Barn creates local virtual machines for development and testing:
 
-- **Linux labs on macOS and Linux.** Describe up to 20 nodes in one
-  Ansible-compatible YAML inventory. Barn starts QEMU VMs with fixed IPs,
+- **Linux labs on macOS and Linux.** Describe nodes in one Ansible-compatible
+  YAML inventory. Barn starts QEMU VMs with fixed IPs,
   SSH access, and test data disks. Use the same inventory with
   [Pigsty](https://github.com/pgsty/pigsty) to deploy PostgreSQL and other services.
 - **macOS machines on Apple Silicon.** `barn mac` creates named macOS 27 VMs
@@ -155,6 +155,31 @@ Barn keeps one Linux deployment per user under `~/.barn`. Changing directories
 does not create another lab. Removing a host from YAML does not delete its VM;
 destruction is explicit. Repeating `up` keeps healthy VMs running and retries
 unfinished setup. `--json` and `--yaml` provide structured output for scripts.
+
+Node selectors apply changes independently: after editing two nodes, run
+`barn plan node-1` and `barn recreate node-1`, then repeat for the other node.
+Unselected nodes keep their applied configuration, even if omitted from YAML.
+Deployment-wide changes such as the network or SSH user require all affected
+nodes to be selected together.
+
+For Linux guest source sharing, `vm_shares` accepts relative host paths beside
+the inventory file, `~/`, and directory symlinks on Linux and macOS hosts:
+
+```yaml
+vm_shares:
+  - {host: ./src, guest: /src, readonly: false}
+```
+
+The directory must exist and be accessible to the Barn user. Several guests may
+share it, including writers. Shares default to read-only; writable shares also
+need guest filesystem permissions. The guest kernel must support 9p. A symlinked
+inventory resolves relative sources beside its target file.
+
+Common size spellings such as `8G`, `512m`, and `4gib` work in inventories;
+`GB` retains its decimal meaning. Node counts follow the available subnet
+addresses, and provisioning accepts any positive `--parallel` and `--timeout`.
+Local and catalog images with known sizes can exceed 8 GiB, with size and digest
+checks applied to the actual image. These changes are currently **Unreleased**.
 
 **Use disposable test data.** Recreate replaces root and non-persistent disks.
 During guest recovery, Barn may also reset an unrecognized or confirmed damaged

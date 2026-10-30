@@ -25,6 +25,13 @@ Open an issue before a large change so we can agree on the shape first.
 
 ## Test-lab recovery
 
+Barn is a development tool for compilation and testing. Accept ordinary user
+paths, including symlinks, spaces, and inventory-relative share sources. Check
+the resolved object's type and actual access instead of imposing ownership or
+path-spelling rules on read inputs and shared source trees. Multiple guests may
+read or write the same tree; users choose the workflow and coordinate writes.
+Explicit node operations apply only selected changes and retain applied peers.
+
 Optimize ordinary failures for a usable lab. Keep management SSH and instance
 identity as the readiness boundary; retry unfinished guest setup through `up`,
 without a separate repair command. Healthy stages and running VMs stay intact.
@@ -75,14 +82,14 @@ nFPM, and Syft at the pinned versions.
 
 Catalog maintenance stays separate from the user-facing `barn repo` command.
 `tools/catalogexport` writes the exact catalog embedded in the current source;
-the destination must be an absolute path that does not exist. `tools/catalogsign`
+the destination may be relative or use `~/`, and must not exist. `tools/catalogsign`
 manages Minisign keys and signatures accepted by the runtime. Its password is
 read only from inherited `CATALOGSIGN_PASSWORD` (empty is allowed), never from a
 command-line argument. Production private keys never enter this repository or
 CI; they stay on the repository host.
 
 ```bash
-make catalog-export CATALOG_OUTPUT=/absolute/new/catalog.json
+make catalog-export CATALOG_OUTPUT=./out/catalog.json
 make catalog-keygen CATALOG_KEY_DIR=/absolute/private CATALOG_KEY_NAME=barn-catalog-next
 make catalog-sign CATALOG_KEY=/absolute/private/barn-catalog-next.key CATALOG_FILE=/absolute/catalog.json
 make catalog-verify CATALOG_PUBLIC_KEY=/absolute/private/barn-catalog-next.pub CATALOG_FILE=/absolute/catalog.json
@@ -158,8 +165,10 @@ The code aims to read as one voice. Match what is already there.
 - **Errors follow one shape.** See [Errors](#errors).
 - **No map iteration reaching output.** Sort keys. Identical input must produce
   identical output and identical errors.
-- **Fail closed.** When identity, ownership, or a digest cannot be proven,
-  refuse rather than proceed.
+- **Protect concrete boundaries.** Verify digests, process identity before
+  signalling, and ownership of Barn-managed state and private keys. Preserve
+  no-overwrite and explicit-destruction rules. Do not apply these ownership
+  requirements to ordinary user-selected input files or shared source trees.
 - **No compatibility shims for formats that were never released.** Barn reads
   exactly one catalog schema and one inventory format.
 

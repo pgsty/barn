@@ -75,6 +75,37 @@ func TestOSRunnerPassesExtraFileAsFD3(t *testing.T) {
 	}
 }
 
+func TestOSRunnerPassesMoreThanSixteenExtraFiles(t *testing.T) {
+	t.Parallel()
+	catPath, err := exec.LookPath("cat")
+	if err != nil {
+		t.Skip("cat executable unavailable")
+	}
+	files := make([]*os.File, 17)
+	for index := range files {
+		file, createErr := os.CreateTemp(t.TempDir(), "fd-input-")
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		files[index] = file
+	}
+	t.Cleanup(func() {
+		for _, file := range files {
+			_ = file.Close()
+		}
+	})
+	if _, err := files[len(files)-1].WriteString("unbounded\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := files[len(files)-1].Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (OSRunner{Timeout: 5 * time.Second}).RunWithExtraFiles(context.Background(), catPath, files, "/dev/fd/19")
+	if err != nil || string(result.Stdout) != "unbounded\n" {
+		t.Fatalf("extra files result=%q, err=%v", result.Stdout, err)
+	}
+}
+
 func TestCommandErrorNamesProgramAndLastStderrLine(t *testing.T) {
 	t.Parallel()
 	_, err := (OSRunner{}).Run(context.Background(), "/bin/sh", "-c", "printf 'first\\n\\033[31msecond\\tline\\033[0m\\n' >&2; exit 100")

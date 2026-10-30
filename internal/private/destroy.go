@@ -391,6 +391,10 @@ func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) 
 	if err != nil || deploymentState.Resolved.Network != "private" {
 		return Status{}, errors.New("the deployment has no valid state")
 	}
+	requested, err = applyNodeSelection(deploymentState.Resolved, requested, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
 	if err := validatePrivateRecreatePersistent(deploymentValue, deploymentState.Resolved, requested); err != nil {
 		return Status{}, err
 	}
@@ -402,32 +406,15 @@ func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) 
 	if err != nil {
 		return Status{}, err
 	}
-	if len(selected) != len(deploymentState.Resolved.Nodes) {
-		// Remaining peer drift would prevent Up after the selected disks are gone.
-		store := state.Store{Root: deploymentValue.Root}
-		hasState := func(name string) bool {
-			_, readErr := store.ReadNode(name)
-			return readErr == nil
-		}
-		diff := diffResolved(deploymentState.Resolved, materializeExistingForwardPorts(requested, deploymentState.Resolved), hasState)
-		if err := refuseUnselectedDrift(diff, selected); err != nil {
-			return Status{}, err
-		}
+	runtimeRequested, err := selectedOperationResolved(state.Store{Root: deploymentValue.Root}, requested, requestedSelection, len(m.Nodes) != 0)
+	if err != nil {
+		return Status{}, err
 	}
-	runtime, qemuPath, err := m.preflightBoot(ctx, requested, requestedSelection)
+	_, qemuPath, err := m.preflightBoot(ctx, runtimeRequested, requestedSelection)
 	if err != nil {
 		return Status{}, err
 	}
 	destroyManager := m
-	if len(m.Nodes) != 0 {
-		drifted, driftErr := runtimeDriftNodes(state.Store{Root: deploymentValue.Root}, requested, runtime.Profile)
-		if driftErr != nil {
-			return Status{}, driftErr
-		}
-		if len(drifted) != 0 {
-			return Status{}, fmt.Errorf("%w: runtime changes require whole-deployment recreate without node selectors", ErrRecreateRequired)
-		}
-	}
 	if err := selectedShareSources(deploymentValue, requested, requestedSelection); err != nil {
 		return Status{}, err
 	}

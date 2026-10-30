@@ -15,6 +15,11 @@ import (
 // Only an untouched built-in default in a fresh deployment is eligible. An
 // explicit -f, custom inventory, or any existing node keeps its chosen network.
 func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
+	// A linked inventory is user-managed input, even when its bytes match a
+	// built-in template. Reuse it without rebasing its target automatically.
+	if info, err := os.Lstat(selection.ConfigPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return selection
+	}
 	root, err := state.ResolveDataRoot()
 	if err != nil {
 		return selection
@@ -41,6 +46,11 @@ func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
 }
 
 func publishSetupConfig(selection setupSelection) error {
+	target, err := fsutil.ResolveParent(selection.ConfigPath)
+	if err != nil {
+		return err
+	}
+	selection.ConfigPath = target
 	if len(selection.OriginalConfig) == 0 {
 		return fsutil.AtomicCreate(selection.ConfigPath, selection.ConfigData, 0600)
 	}

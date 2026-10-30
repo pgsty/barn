@@ -1352,24 +1352,6 @@ func refuseDrift(diff resolvedDiff) error {
 	return nil
 }
 
-func refuseUnselectedDrift(diff resolvedDiff, selected []string) error {
-	if diff.EnvelopeChanged || len(diff.Removed) != 0 {
-		return refuseDrift(diff)
-	}
-	selectedSet := nodeNameSet(selected)
-	peers := make([]string, 0)
-	for _, name := range diff.Changed {
-		if _, replacing := selectedSet[name]; !replacing {
-			peers = append(peers, name)
-		}
-	}
-	if len(peers) != 0 {
-		together := append(append([]string(nil), selected...), peers...)
-		return fmt.Errorf("%w: unselected node(s) %s also changed; select them together with `barn recreate %s`, or revert their changes", ErrRecreateRequired, strings.Join(peers, ", "), strings.Join(together, " "))
-	}
-	return nil
-}
-
 // preflightBoot resolves startup dependencies before reload/recreate stops a VM.
 // Only new/replaced nodes need image downloads; existing disks remain usable offline.
 func (m *Manager) preflightBoot(ctx context.Context, requested spec.Resolved, creating []string) (runtimeDecision, string, error) {
@@ -1432,7 +1414,15 @@ func (m Manager) Reload(ctx context.Context, requested spec.Resolved) (Status, e
 	if err != nil || persisted.Resolved.Network != "private" {
 		return Status{}, errors.New("the deployment has no valid state")
 	}
+	requested, err = applyNodeSelection(persisted.Resolved, requested, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
 	selected, err := selectedNodeNames(requested, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
+	runtimeRequested, err := selectedOperationResolved(store, requested, selected, len(m.Nodes) != 0)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1449,11 +1439,11 @@ func (m Manager) Reload(ctx context.Context, requested spec.Resolved) (Status, e
 			creating = append(creating, name)
 		}
 	}
-	runtime, qemuPath, err := m.preflightBoot(ctx, requested, creating)
+	runtime, qemuPath, err := m.preflightBoot(ctx, runtimeRequested, creating)
 	if err != nil {
 		return Status{}, err
 	}
-	if drifted, err := runtimeDriftNodes(store, requested, runtime.Profile); err != nil {
+	if drifted, err := runtimeDriftNodes(store, resolvedNodeSelection(requested, selected), runtime.Profile); err != nil {
 		return Status{}, err
 	} else if len(drifted) != 0 {
 		return Status{}, fmt.Errorf("%w: existing node runtime differs for %s", ErrRecreateRequired, strings.Join(drifted, ", "))
@@ -1523,6 +1513,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	createNodes := []string(nil)
 	hadExistingState := false
 	startExistingAfterCreate := false
+	runtimeRequested := requested
 	if existing, openErr := m.openDeployment(false); openErr == nil {
 		persisted, err := (state.Store{Root: existing.Root}).ReadDeployment()
 		if missingPath(err) {
@@ -1531,8 +1522,16 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 			return Status{}, err
 		} else {
 			hadExistingState = true
+			requested, err = applyNodeSelection(persisted.Resolved, requested, m.Nodes)
+			if err != nil {
+				return Status{}, err
+			}
 			requested = materializeExistingForwardPorts(requested, persisted.Resolved)
 			store := state.Store{Root: existing.Root}
+			runtimeRequested, err = selectedOperationResolved(store, requested, selected, len(m.Nodes) != 0)
+			if err != nil {
+				return Status{}, err
+			}
 			hasState := func(name string) bool {
 				_, readErr := store.ReadNode(name)
 				return readErr == nil
@@ -1584,16 +1583,19 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	}
 	if !hadExistingState {
 		createNodes = append([]string(nil), selected...)
+		if len(m.Nodes) != 0 {
+			runtimeRequested = resolvedNodeSelection(requested, selected)
+		}
 	}
 	if err := m.ensureSSHAddressesUnused(nodesWithoutCommittedState(selectedRequested.Nodes)); err != nil {
 		return Status{}, err
 	}
-	runtime, err := selectRuntime(hostProfile, requested)
+	runtime, err := selectRuntime(hostProfile, runtimeRequested)
 	if err != nil {
 		return Status{}, err
 	}
 	if hadExistingState && reusableDeployment != nil {
-		drifted, driftErr := runtimeDriftNodes(state.Store{Root: reusableDeployment.Root}, requested, runtime.Profile)
+		drifted, driftErr := runtimeDriftNodes(state.Store{Root: reusableDeployment.Root}, resolvedNodeSelection(requested, selected), runtime.Profile)
 		if driftErr != nil {
 			return Status{}, driftErr
 		}
@@ -1611,7 +1613,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	if err := m.ensureImageSession(); err != nil {
 		return Status{}, err
 	}
-	boot, err := m.resolveBootMode(ctx, runtime.Profile, requested)
+	boot, err := m.resolveBootMode(ctx, runtime.Profile, runtimeRequested)
 	if err != nil {
 		return Status{}, err
 	}
@@ -1999,12 +2001,40 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	if err != nil {
 		return LifecyclePlan{}, err
 	}
+	deploymentValue, err := m.openDeployment(false)
+	if err != nil && !missingPath(err) {
+		return LifecyclePlan{}, err
+	}
+	var deploymentState state.DeploymentState
+	var blocked string
+	if err == nil {
+		deploymentState, err = (state.Store{Root: deploymentValue.Root}).ReadDeployment()
+		if err != nil && !missingPath(err) {
+			return LifecyclePlan{}, err
+		}
+		if err == nil {
+			effective, selectionErr := applyNodeSelection(deploymentState.Resolved, requested, m.Nodes)
+			if selectionErr != nil {
+				blocked = selectionErr.Error()
+			} else {
+				requested = effective
+			}
+			requested = materializeExistingForwardPorts(requested, deploymentState.Resolved)
+		}
+	}
 	selectedRequested := resolvedNodeSelection(requested, selected)
+	runtimeRequested := selectedRequested
+	if deploymentState.Schema != 0 && len(m.Nodes) != 0 {
+		runtimeRequested, err = selectedOperationResolved(state.Store{Root: deploymentValue.Root}, requested, selected, true)
+		if err != nil {
+			return LifecyclePlan{}, err
+		}
+	}
 	profile, err := m.nativeProfile()
 	if err != nil {
 		return LifecyclePlan{}, err
 	}
-	runtime, err := selectRuntime(profile, requested)
+	runtime, err := selectRuntime(profile, runtimeRequested)
 	if err != nil {
 		return LifecyclePlan{}, err
 	}
@@ -2013,7 +2043,7 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	if err := m.ensureImageSession(); err != nil {
 		return LifecyclePlan{}, err
 	}
-	if _, err := m.resolveBootMode(ctx, runtime.Profile, requested); err != nil {
+	if _, err := m.resolveBootMode(ctx, runtime.Profile, runtimeRequested); err != nil {
 		return LifecyclePlan{}, err
 	}
 	hash, err := spec.Hash(requested)
@@ -2037,26 +2067,10 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 			result.Storage += disk.Size
 		}
 	}
-	deploymentValue, err := m.openDeployment(false)
-	if missingPath(err) {
+	result.Blocked = blocked
+	if deploymentState.Schema == 0 {
 		return result, nil
 	}
-	if err != nil {
-		return LifecyclePlan{}, err
-	}
-	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
-	if missingPath(err) {
-		return result, nil
-	}
-	if err != nil {
-		return LifecyclePlan{}, err
-	}
-	requested = materializeExistingForwardPorts(requested, deploymentState.Resolved)
-	hash, err = spec.Hash(requested)
-	if err != nil {
-		return LifecyclePlan{}, err
-	}
-	result.SpecHash = hash
 	store := state.Store{Root: deploymentValue.Root}
 	hasState := func(name string) bool {
 		_, readErr := store.ReadNode(name)
@@ -2064,11 +2078,6 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	}
 	diff := diffResolved(deploymentState.Resolved, requested, hasState)
 	result.Changes = describeChanges(deploymentState.Resolved, requested, selectedSet)
-	if len(m.Nodes) != 0 {
-		if err := refuseUnselectedDrift(diff, selected); err != nil {
-			result.Blocked = err.Error()
-		}
-	}
 	if len(m.Nodes) == 0 {
 		result.Create = append([]string(nil), diff.Create...)
 		result.Recreate = append([]string(nil), diff.Changed...)
@@ -2078,12 +2087,9 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 		result.Recreate = selectedNodeList(diff.Changed, selectedSet)
 		result.Missing = selectedNodeList(diff.Removed, selectedSet)
 	}
-	runtimeDrift, err := runtimeDriftNodes(store, requested, runtime.Profile)
+	runtimeDrift, err := runtimeDriftNodes(store, resolvedNodeSelection(requested, selected), runtime.Profile)
 	if err != nil {
 		return LifecyclePlan{}, err
-	}
-	if len(runtimeDrift) != 0 && len(m.Nodes) != 0 {
-		return LifecyclePlan{}, fmt.Errorf("%w: runtime changes require whole-deployment plan without node selectors", ErrRecreateRequired)
 	}
 	switch {
 	case diff.EnvelopeChanged:

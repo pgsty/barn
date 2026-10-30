@@ -31,7 +31,7 @@ before any mutation and requests privilege only at the first privileged step.`,
 	}
 	command.Flags().StringVarP(&options.FilePath, "file", "f", "", "inventory to prepare (cannot be combined with a template)")
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "generated template network as a canonical RFC1918 IPv4 /24")
-	command.Flags().StringVarP(&options.Repo, "repo", "r", "", "image repository URL or absolute directory, also used for socket_vmnet; overrides --mirror and $BARN_REPO")
+	command.Flags().StringVarP(&options.Repo, "repo", "r", "", "image repository URL or local directory, also used for socket_vmnet; overrides --mirror and $BARN_REPO")
 	command.Flags().BoolVar(&options.Mirror, "mirror", false, mirrorFlagHelp)
 	command.Flags().StringVarP(&options.Mode, "mode", "m", options.Mode, "macOS fixed-IP network backend: host or shared")
 	command.Flags().BoolVarP(&options.DryRun, "dry-run", "d", false, "show the resolved setup plan without changing anything")

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
 )
@@ -13,8 +12,8 @@ import (
 // Logs returns the last lines of a machine's runtime log: startup, network,
 // shutdown and Apple Virtualization errors. It holds no guest secrets.
 func (m *Manager) Logs(name string, lines int) (string, error) {
-	if lines < 1 || lines > 10000 {
-		return "", failure.New(failure.Usage, errors.New("the line count must be between 1 and 10000"))
+	if lines < 1 {
+		return "", failure.New(failure.Usage, errors.New("the line count must be positive"))
 	}
 	if _, err := m.Machine(name); err != nil {
 		return "", err
@@ -37,26 +36,41 @@ func (m *Manager) Logs(name string, lines int) (string, error) {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	const maxBytes int64 = 1 << 20
-	truncated := info.Size() > maxBytes
-	if truncated {
-		if _, err = f.Seek(-maxBytes, io.SeekEnd); err != nil {
+	return tailLog(f, info.Size(), lines)
+}
+
+// Scan backward in fixed chunks, then read only the requested suffix. The
+// default tail stays cheap even for a large log, without silently clipping
+// an explicitly requested line count or a long diagnostic line.
+func tailLog(reader io.ReaderAt, size int64, lines int) (string, error) {
+	buffer := make([]byte, 32<<10)
+	start := int64(0)
+scan:
+	for end := size; end > 0; {
+		offset := max(int64(0), end-int64(len(buffer)))
+		n, err := reader.ReadAt(buffer[:end-offset], offset)
+		if err != nil && !errors.Is(err, io.EOF) {
 			return "", err
 		}
+		for i := n - 1; i >= 0; i-- {
+			position := offset + int64(i)
+			if buffer[i] != '\n' || position == size-1 {
+				continue
+			}
+			lines--
+			if lines == 0 {
+				start = position + 1
+				break scan
+			}
+		}
+		end = offset
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxBytes))
-	if err != nil {
+	data, err := io.ReadAll(io.NewSectionReader(reader, start, size-start))
+	if err != nil || len(data) == 0 {
 		return "", err
 	}
-	if len(data) == 0 {
-		return "", nil
+	if data[len(data)-1] != '\n' {
+		data = append(data, '\n')
 	}
-	parts := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-	if truncated && len(parts) > 1 {
-		parts = parts[1:]
-	}
-	if len(parts) > lines {
-		parts = parts[len(parts)-lines:]
-	}
-	return strings.Join(parts, "\n") + "\n", nil
+	return string(data), nil
 }

@@ -152,7 +152,7 @@ func generatedSetupProfile(name, cidr, target string) (setupSelection, error) {
 func resolvedHash(value spec.Resolved) (string, error) { return spec.Hash(value) }
 
 func reconcileGeneratedTarget(selection setupSelection) (setupSelection, error) {
-	info, err := os.Lstat(selection.ConfigPath)
+	info, err := os.Stat(selection.ConfigPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return selection, nil
 	}
@@ -190,7 +190,7 @@ func reconcileGeneratedTarget(selection setupSelection) (setupSelection, error) 
 func discoverSetupConfig(cwd string) (string, error) {
 	for _, name := range config.DiscoveryNames {
 		candidate := filepath.Join(cwd, name)
-		info, err := os.Lstat(candidate)
+		info, err := os.Stat(candidate)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

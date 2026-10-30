@@ -31,17 +31,13 @@ func ownerUID(info os.FileInfo) (int, bool) {
 }
 
 func validateOwnedDirectory(path string, uid int) error {
-	info, err := os.Lstat(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	owner, ok := ownerUID(info)
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 || !ok || owner != uid {
-		return fmt.Errorf("runtime parent must be a real owner-%d mode-0700 directory: %s", uid, path)
-	}
-	canonical, err := filepath.EvalSymlinks(path)
-	if err != nil || canonical != path {
-		return fmt.Errorf("runtime parent must have a canonical non-symlink path: %s", path)
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ok || owner != uid {
+		return fmt.Errorf("runtime parent must be an owner-%d mode-0700 directory: %s", uid, path)
 	}
 	return nil
 }
@@ -51,13 +47,18 @@ func selectedBase(uid int) (string, error) {
 		return "", errors.New("runtime UID is invalid")
 	}
 	if configured := os.Getenv("XDG_RUNTIME_DIR"); configured != "" {
-		if !filepath.IsAbs(configured) || filepath.Clean(configured) != configured {
-			return "", errors.New("XDG_RUNTIME_DIR must be a clean absolute path")
+		if !filepath.IsAbs(configured) {
+			return "", errors.New("XDG_RUNTIME_DIR must be an absolute path")
 		}
+		configured = filepath.Clean(configured)
 		if err := validateOwnedDirectory(configured, uid); err != nil {
 			return "", err
 		}
-		return configured, nil
+		canonical, err := filepath.EvalSymlinks(configured)
+		if err != nil {
+			return "", err
+		}
+		return canonical, nil
 	}
 	return fallbackBase(uid), nil
 }

@@ -21,6 +21,8 @@ func TestParseShare(t *testing.T) {
 		"/tmp/a=b/c":           {Name: "c", Path: "/tmp/a=b/c"},
 		"work=/tmp/x/../src/":  {Name: "work", Path: "/tmp/src"},
 		"My.Data=/tmp/my data": {Name: "My.Data", Path: "/tmp/my data"},
+		"/tmp/源码 files/$build": {Name: "$build", Path: "/tmp/源码 files/$build"},
+		"源码 files=/tmp/src":    {Name: "源码 files", Path: "/tmp/src"},
 	}
 	for spec, expected := range cases {
 		share, err := ParseShare(spec)
@@ -28,14 +30,14 @@ func TestParseShare(t *testing.T) {
 			t.Errorf("%q: got %+v %v, want %+v", spec, share, err, expected)
 		}
 	}
-	for _, spec := range []string{"", ":ro", "bad name=/tmp/x", "=/tmp/x"} {
+	for _, spec := range []string{"", ":ro", "=/tmp/x", "bad\nname=/tmp/x"} {
 		if _, err := ParseShare(spec); err == nil {
 			t.Errorf("accepted %q", spec)
 		}
 	}
 }
 
-func TestShareSourceMustBeARealDirectory(t *testing.T) {
+func TestShareSourceMustResolveToDirectory(t *testing.T) {
 	dir := t.TempDir()
 	if err := checkShareSource(Share{Name: "ok", Path: dir}); err != nil {
 		t.Fatal(err)
@@ -48,7 +50,10 @@ func TestShareSourceMustBeARealDirectory(t *testing.T) {
 	if err := os.Symlink(dir, link); err != nil {
 		t.Fatal(err)
 	}
-	for path, message := range map[string]string{file: "not a directory", link: "symlink", filepath.Join(dir, "missing"): "does not exist"} {
+	if err := checkShareSource(Share{Name: "link", Path: link}); err != nil {
+		t.Fatal(err)
+	}
+	for path, message := range map[string]string{file: "not a directory", filepath.Join(dir, "missing"): "does not exist"} {
 		if err := checkShareSource(Share{Name: "x", Path: path}); err == nil || !strings.Contains(err.Error(), message) {
 			t.Errorf("%s: %v", path, err)
 		}
@@ -68,10 +73,10 @@ func TestMergeShares(t *testing.T) {
 		t.Fatal("removing an unknown share succeeded")
 	}
 	var many []Share
-	for i := 0; i <= maxShares; i++ {
+	for i := 0; i < 16; i++ {
 		many = append(many, Share{Name: "s" + string(rune('a'+i)), Path: "/x"})
 	}
-	if _, err := mergeShares(nil, many, nil); err == nil {
-		t.Fatal("too many shares accepted")
+	if shares, err := mergeShares(nil, many, nil); err != nil || len(shares) != len(many) {
+		t.Fatalf("multiple source trees rejected: %d shares, %v", len(shares), err)
 	}
 }

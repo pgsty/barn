@@ -213,22 +213,30 @@ func TestShareStructuralPathValidation(t *testing.T) {
 	valid := func() File {
 		return File{Version: 1, Name: "quick", Network: NetworkConfig{Mode: "private"}, Nodes: []NodeConfig{{Name: "meta", Address: "10.10.10.10", Shares: []ShareConfig{{Host: "/srv/pigsty", Guest: "/src"}}}}}
 	}
-	for _, host := range []string{"relative", "/", "/srv/../srv/pigsty", "/srv/pigsty\x00bad", "/srv/pigsty\nbad", "/srv/pigsty\rbad"} {
+	for _, host := range []string{"", "/", "/srv/pigsty\x00bad", "/srv/pigsty\nbad", "/srv/pigsty\rbad"} {
 		file := valid()
 		file.Nodes[0].Shares[0].Host = host
 		if err := file.Validate(); err == nil {
 			t.Errorf("unsafe share host %q accepted", host)
 		}
 	}
-	for _, guest := range []string{"relative", "/", "/src/../src", "/src//nested", "/proc/src", "/usr/local/src", "/var", "/var/lib", "/var/lib/barn/src", "/home", "/home/dba", "/home/dba/.ssh", "/home/dba/.ssh/cache", "/src code", "/src:code"} {
+	for _, guest := range []string{"relative", "/", "/proc/src", "/usr/local/src", "/var", "/var/lib", "/var/lib/barn/src", "/home", "/home/dba", "/home/dba/.ssh", "/home/dba/.ssh/cache", "/src\tcode", "/src\ncode"} {
 		file := valid()
 		file.Nodes[0].Shares[0].Guest = guest
 		if err := file.Validate(); err == nil {
 			t.Errorf("unsafe share guest %q accepted", guest)
 		}
 	}
+	normalized := valid()
+	normalized.Nodes[0].Shares[0].Guest = "/src//nested/../code"
+	if err := normalized.Validate(); err != nil {
+		t.Fatalf("normalizable guest path was rejected: %v", err)
+	}
+	if got := normalized.Nodes[0].Shares[0].Guest; got != "/src/code" {
+		t.Fatalf("guest path was not normalized: %q", got)
+	}
 	allowed := valid()
-	allowed.Nodes[0].Shares[0].Guest = "/home/dba/work"
+	allowed.Nodes[0].Shares[0].Guest = "/home/dba/源码 files/$build"
 	if err := allowed.Validate(); err != nil {
 		t.Fatalf("non-overlapping SSH-user work path was rejected: %v", err)
 	}
@@ -240,14 +248,12 @@ func TestShareStructuralPathValidation(t *testing.T) {
 	}
 }
 
-func TestShareOverlapAndLimitValidation(t *testing.T) {
+func TestShareOverlapValidationAllowsManySources(t *testing.T) {
 	t.Parallel()
 	base := func(shares []ShareConfig, disks []DiskConfig) File {
 		return File{Version: 1, Name: "quick", Network: NetworkConfig{Mode: "private"}, Nodes: []NodeConfig{{Name: "meta", Address: "10.10.10.10", Shares: shares, Disks: disks}}}
 	}
 	tests := []File{
-		base([]ShareConfig{{Host: "/srv/a", Guest: "/src-a"}, {Host: "/srv/a", Guest: "/src-b"}}, nil),
-		base([]ShareConfig{{Host: "/srv/a", Guest: "/src-a"}, {Host: "/srv/a/nested", Guest: "/src-b"}}, nil),
 		base([]ShareConfig{{Host: "/srv/a", Guest: "/src"}, {Host: "/srv/b", Guest: "/src"}}, nil),
 		base([]ShareConfig{{Host: "/srv/a", Guest: "/src"}, {Host: "/srv/b", Guest: "/src/nested"}}, nil),
 		base([]ShareConfig{{Host: "/srv/a", Guest: "/data/src"}}, []DiskConfig{{Name: "data", Size: Size(spec.GiB), Mount: "/data"}}),
@@ -258,17 +264,13 @@ func TestShareOverlapAndLimitValidation(t *testing.T) {
 			t.Errorf("overlapping share configuration %d accepted: %#v", index, file.Nodes[0])
 		}
 	}
-	tooMany := make([]ShareConfig, spec.MaxSharesPerNode+1)
-	for index := range tooMany {
-		tooMany[index] = ShareConfig{Host: fmt.Sprintf("/srv/share-%d", index), Guest: fmt.Sprintf("/src-%d", index)}
+	shares := make([]ShareConfig, 16)
+	for index := range shares {
+		shares[index] = ShareConfig{Host: fmt.Sprintf("/srv/share-%d", index), Guest: fmt.Sprintf("/src-%d", index)}
 	}
-	atLimit := base(tooMany[:spec.MaxSharesPerNode], nil)
-	if err := atLimit.Validate(); err != nil {
-		t.Fatalf("exactly %d node shares were rejected: %v", spec.MaxSharesPerNode, err)
-	}
-	tooManyFile := base(tooMany, nil)
-	if err := tooManyFile.Validate(); err == nil {
-		t.Fatalf("more than %d node shares accepted", spec.MaxSharesPerNode)
+	many := base(shares, nil)
+	if err := many.Validate(); err != nil {
+		t.Fatalf("independent source trees rejected: %v", err)
 	}
 }
 
@@ -305,7 +307,7 @@ func TestSameReadonlyHostShareIsAllowedAcrossFourNodes(t *testing.T) {
 	}
 }
 
-func TestCrossNodeOverlappingHostRejectsAnyReadWriteShare(t *testing.T) {
+func TestCrossNodeOverlappingHostAllowsReadWriteShares(t *testing.T) {
 	t.Parallel()
 	readWrite := false
 	for _, secondHost := range []string{"/srv/pigsty", "/srv/pigsty/nested", "/srv"} {
@@ -316,8 +318,8 @@ func TestCrossNodeOverlappingHostRejectsAnyReadWriteShare(t *testing.T) {
 				{Name: "node-1", Address: "10.10.10.11", Shares: []ShareConfig{{Host: secondHost, Guest: "/src", Readonly: &readWrite}}},
 			},
 		}
-		if err := file.Validate(); err == nil {
-			t.Errorf("cross-node RO/RW overlap with %q accepted", secondHost)
+		if err := file.Validate(); err != nil {
+			t.Errorf("cross-node RO/RW overlap with %q: %v", secondHost, err)
 		}
 	}
 	reversed := File{
@@ -327,8 +329,8 @@ func TestCrossNodeOverlappingHostRejectsAnyReadWriteShare(t *testing.T) {
 			{Name: "node-1", Address: "10.10.10.11", Shares: []ShareConfig{{Host: "/srv/pigsty/nested", Guest: "/src"}}},
 		},
 	}
-	if err := reversed.Validate(); err == nil {
-		t.Fatal("cross-node RW/RO overlap was accepted when the RW share appeared first")
+	if err := reversed.Validate(); err != nil {
+		t.Fatalf("cross-node RW/RO overlap: %v", err)
 	}
 }
 

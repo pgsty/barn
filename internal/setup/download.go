@@ -17,6 +17,7 @@ import (
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/image"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	"github.com/pgsty/barn/internal/webclient"
 )
@@ -46,18 +47,19 @@ func defaultHTTPClient() *http.Client {
 	})
 }
 
-func ensureCacheDirectory(path string) error {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return errors.New("setup cache directory must be a clean absolute path")
+func ensureCacheDirectory(path string) (string, error) {
+	absolute, err := fsutil.UserPath(path, "")
+	if err != nil {
+		return "", err
 	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
+	if err := os.MkdirAll(absolute, 0o700); err != nil {
+		return "", err
 	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("setup cache is not a real directory: %s", path)
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
 	}
-	return os.Chmod(path, 0o700)
+	return canonical, os.Chmod(canonical, 0o700)
 }
 
 func DefaultCacheDirectory() (string, error) {
@@ -109,6 +111,9 @@ func SocketVMNetCached(arch string) bool {
 		return false
 	}
 	target := filepath.Join(cacheDirectory, release.SHA256+"-"+release.ArchiveName)
+	if info, err := os.Lstat(target); err != nil || !info.Mode().IsRegular() {
+		return false
+	}
 	_, err = darwinnet.VerifyArchive(target, arch)
 	return err == nil
 }
@@ -139,6 +144,13 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 	if parsed, parseErr := url.Parse(release.URL); parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return DownloadResult{}, errors.New("embedded socket_vmnet URL is invalid")
 	}
+	if sources.Repo != "" {
+		normalized, normalizeErr := image.NormalizeRepository(sources.Repo)
+		if normalizeErr != nil {
+			return DownloadResult{}, fmt.Errorf("resolve socket_vmnet repository: %w", normalizeErr)
+		}
+		sources.Repo = normalized
+	}
 	if cacheDirectory == "" {
 		defaultDirectory, err := DefaultCacheDirectory()
 		if err != nil {
@@ -146,11 +158,17 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 		}
 		cacheDirectory = defaultDirectory
 	}
-	if err := ensureCacheDirectory(cacheDirectory); err != nil {
+	cacheDirectory, err := ensureCacheDirectory(cacheDirectory)
+	if err != nil {
 		return DownloadResult{}, err
 	}
 	target := filepath.Join(cacheDirectory, release.SHA256+"-"+release.ArchiveName)
 	result := DownloadResult{Path: target, URL: release.URL, SHA256: release.SHA256}
+	if info, statErr := os.Lstat(target); statErr == nil && !info.Mode().IsRegular() {
+		return result, fmt.Errorf("cached socket_vmnet archive is not a regular non-symlink file: %s", target)
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return result, statErr
+	}
 	if verifyErr := verify(target, arch); verifyErr == nil {
 		return result, nil
 	} else if info, statErr := os.Lstat(target); statErr == nil {
@@ -165,16 +183,21 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 	}
 	// 1. Explicit local archive: user intent, so a mismatch is an error.
 	if sources.Archive != "" {
-		if !filepath.IsAbs(sources.Archive) {
-			return result, errors.New("BARN_VMNET_ARCHIVE must be an absolute path")
+		archivePath, pathErr := fsutil.UserPath(sources.Archive, "")
+		if pathErr != nil {
+			return result, fmt.Errorf("resolve BARN_VMNET_ARCHIVE: %w", pathErr)
 		}
-		if err := verify(sources.Archive, arch); err != nil {
-			return result, failure.New(failure.Integrity, fmt.Errorf("BARN_VMNET_ARCHIVE %s does not match the pinned socket_vmnet v%s archive: %w", sources.Archive, release.Version, err))
+		archivePath, pathErr = filepath.EvalSymlinks(archivePath)
+		if pathErr != nil {
+			return result, fmt.Errorf("resolve BARN_VMNET_ARCHIVE: %w", pathErr)
 		}
-		if err := publishVerifiedCopy(sources.Archive, cacheDirectory, target, arch, verify); err != nil {
+		if err := verify(archivePath, arch); err != nil {
+			return result, failure.New(failure.Integrity, fmt.Errorf("BARN_VMNET_ARCHIVE %s does not match the pinned socket_vmnet v%s archive: %w", archivePath, release.Version, err))
+		}
+		if err := publishVerifiedCopy(archivePath, cacheDirectory, target, arch, verify); err != nil {
 			return result, err
 		}
-		result.URL = "file://" + sources.Archive
+		result.URL = "file://" + archivePath
 		result.Downloaded = true
 		return result, nil
 	}
@@ -184,10 +207,14 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 		if filepath.IsAbs(sources.Repo) {
 			candidate := filepath.Join(sources.Repo, "socket_vmnet", release.ArchiveName)
 			if _, statErr := os.Lstat(candidate); statErr == nil {
-				if err := verify(candidate, arch); err != nil {
+				canonical, resolveErr := filepath.EvalSymlinks(candidate)
+				if resolveErr != nil {
+					return result, fmt.Errorf("resolve repository socket_vmnet archive: %w", resolveErr)
+				}
+				if err := verify(canonical, arch); err != nil {
 					return result, failure.New(failure.Integrity, fmt.Errorf("repository copy %s does not match the pinned socket_vmnet v%s archive: %w", candidate, release.Version, err))
 				}
-				if err := publishVerifiedCopy(candidate, cacheDirectory, target, arch, verify); err != nil {
+				if err := publishVerifiedCopy(canonical, cacheDirectory, target, arch, verify); err != nil {
 					return result, err
 				}
 				result.URL = "file://" + candidate

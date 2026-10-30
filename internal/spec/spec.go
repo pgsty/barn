@@ -85,8 +85,6 @@ func ValidFormattedFilesystem(value string) bool {
 	return value == "xfs" || value == "ext4"
 }
 
-const MaxSharesPerNode = 8
-
 type Share struct {
 	Host     string `json:"host"`
 	Guest    string `json:"guest"`

@@ -65,6 +65,39 @@ func TestInstallIdempotentAndRemovePreservesUserConfig(t *testing.T) {
 	}
 }
 
+func TestInstallThroughLinkedHomeAndSSHDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	home, sshDir := filepath.Join(root, "real-home"), filepath.Join(root, "dotfiles")
+	for _, path := range []string{home, sshDir} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linkedHome := filepath.Join(root, "home")
+	for link, target := range map[string]string{linkedHome: home, filepath.Join(home, ".ssh"): sshDir} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entry := Entry{Name: "lab", Node: "meta", User: "dba", Host: "127.0.0.1", Port: 2222, Identity: filepath.Join(home, "key"), HostKeyAlias: "barn-fixture-meta", KnownHosts: filepath.Join(home, "known")}
+	if _, err := Install(linkedHome, entry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(sshDir, "lab_config")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Remove(linkedHome, "lab"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sshDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(linkedHome, entry); err == nil {
+		t.Fatal("world-writable SSH directory accepted through link")
+	}
+}
+
 func TestInstallAndRemoveRefuseUnownedFragment(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

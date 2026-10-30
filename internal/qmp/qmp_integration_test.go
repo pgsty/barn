@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -55,24 +56,25 @@ func TestIntegrationRealQEMUHandshakeIdentityAndQuit(t *testing.T) {
 		}
 	}()
 
+	client := Client{Timeout: 2 * time.Second}
+	var name Name
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if _, err := os.Stat(socket); err == nil {
+		// bind creates the socket before QEMU starts listening. Wait for a
+		// real handshake instead of treating the directory entry as readiness.
+		name, err = client.QueryName(ctx, socket)
+		if err == nil {
 			break
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("stat QMP socket: %v", err)
+		}
+		if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) {
+			t.Fatalf("query-name: %v", err)
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("QMP socket did not appear: %s", stderr.String())
+			t.Fatalf("QMP did not become ready: %v", err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	client := Client{Timeout: 2 * time.Second}
-	name, err := client.QueryName(ctx, socket)
-	if err != nil {
-		t.Fatalf("query-name: %v", err)
-	}
 	if name.Name != "barn-qmp-test" {
 		t.Fatalf("query-name = %#v", name)
 	}

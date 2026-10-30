@@ -10,7 +10,6 @@ import (
 
 	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/failure"
-	"github.com/pgsty/barn/internal/hostshare"
 	privatevm "github.com/pgsty/barn/internal/private"
 	"github.com/pgsty/barn/internal/state"
 )
@@ -218,12 +217,6 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	for _, failure := range failures {
 		message := strings.Join(strings.Fields(failure.Error), " ")
 		groups[message] = append(groups[message], failure.Node)
-		if failure.Reason == hostshare.ReasonUnsupportedOnDarwin {
-			// This host capability needs a configuration/host change. Repeating
-			// up cannot recover it, and recreating a healthy root disk is not a
-			// routine retry. Keep the explicit limitation, without either hint.
-			continue
-		}
 		if failure.Stage == "bootstrap" {
 			bootstrap = append(bootstrap, failure.Node)
 		} else if failure.Stage == "guest-setup" {

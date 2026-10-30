@@ -60,6 +60,21 @@ func TestDownloadSocketVMNetReleasePublishesVerifiedCache(t *testing.T) {
 	if second.Downloaded || second.Path != result.Path {
 		t.Fatalf("cached result = %#v", second)
 	}
+	outside := filepath.Join(t.TempDir(), "outside.tar.gz")
+	if err := os.WriteFile(outside, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(result.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, result.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := downloadSocketVMNetRelease(context.Background(), release, "arm64", filepath.Dir(result.Path), doerFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("unsafe cache attempted a network request")
+	}), Sources{}, verify); err == nil || !strings.Contains(err.Error(), "not a regular") {
+		t.Fatalf("symlink cache entry = %v", err)
+	}
 }
 
 func TestDownloadSocketVMNetReleaseRejectsPlainHTTP(t *testing.T) {
@@ -132,7 +147,8 @@ func TestDownloadSocketVMNetLocalArchiveSourceSkipsNetwork(t *testing.T) {
 		return nil, errors.New("local archive source attempted a network request")
 	})
 	result, err := downloadSocketVMNetRelease(context.Background(), release, "arm64", t.TempDir(), deny, Sources{Archive: archive}, contentVerifier(content))
-	if err != nil || !result.Downloaded || result.URL != "file://"+archive {
+	canonical, resolveErr := filepath.EvalSymlinks(archive)
+	if err != nil || resolveErr != nil || !result.Downloaded || result.URL != "file://"+canonical {
 		t.Fatalf("archive source result = %#v, %v", result, err)
 	}
 	if data, readErr := os.ReadFile(result.Path); readErr != nil || string(data) != content {
@@ -145,6 +161,48 @@ func TestDownloadSocketVMNetLocalArchiveSourceSkipsNetwork(t *testing.T) {
 	}
 	if _, err := downloadSocketVMNetRelease(context.Background(), release, "arm64", t.TempDir(), deny, Sources{Archive: archive}, contentVerifier(content)); err == nil {
 		t.Fatal("tampered explicit archive accepted")
+	}
+}
+
+func TestDownloadSocketVMNetLocalArchiveAcceptsRelativeSymlink(t *testing.T) {
+	const content = "local archive fixture"
+	root := t.TempDir()
+	archive := filepath.Join(root, "socket_vmnet-test.tar.gz")
+	if err := os.WriteFile(archive, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "archive-alias.tar.gz")
+	if err := os.Symlink(archive, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	result, err := downloadSocketVMNetRelease(context.Background(), sourcesFixtureRelease("https://upstream.invalid/socket_vmnet-test.tar.gz"), "arm64", t.TempDir(), doerFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network request unexpectedly used")
+	}), Sources{Archive: "archive-alias.tar.gz"}, contentVerifier(content))
+	if err != nil || !result.Downloaded || !strings.HasPrefix(result.URL, "file://") {
+		t.Fatalf("relative symlink archive = %#v, %v", result, err)
+	}
+}
+
+func TestDownloadSocketVMNetCacheDirectoryFollowsFinalSymlink(t *testing.T) {
+	const content = "cache alias fixture"
+	root := t.TempDir()
+	realCache := filepath.Join(root, "real-cache")
+	if err := os.Mkdir(realCache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "cache-alias")
+	if err := os.Symlink(realCache, alias); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(root, "socket_vmnet-test.tar.gz")
+	if err := os.WriteFile(archive, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := downloadSocketVMNetRelease(context.Background(), sourcesFixtureRelease("https://upstream.invalid/socket_vmnet-test.tar.gz"), "arm64", alias, nil, Sources{Archive: archive}, contentVerifier(content))
+	canonical, resolveErr := filepath.EvalSymlinks(realCache)
+	if err != nil || resolveErr != nil || filepath.Dir(result.Path) != canonical {
+		t.Fatalf("cache alias result = %#v, %v", result, err)
 	}
 }
 
@@ -180,5 +238,24 @@ func TestDownloadSocketVMNetRepositoryDirectoryMirror(t *testing.T) {
 	empty := t.TempDir()
 	if _, err := downloadSocketVMNetRelease(context.Background(), release, "arm64", t.TempDir(), deny, Sources{Repo: empty}, contentVerifier(content)); err == nil || !strings.Contains(err.Error(), "network request") {
 		t.Fatalf("empty repo fall-through error = %v", err)
+	}
+}
+
+func TestDownloadSocketVMNetRepositoryAcceptsRelativeDirectory(t *testing.T) {
+	const content = "relative repository fixture"
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "socket_vmnet"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "socket_vmnet", "socket_vmnet-test.tar.gz"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	result, err := downloadSocketVMNetRelease(context.Background(), sourcesFixtureRelease("https://upstream.invalid/socket_vmnet-test.tar.gz"), "arm64", "cache", doerFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("relative repository attempted a network request")
+	}), Sources{Repo: "repo"}, contentVerifier(content))
+	if err != nil || !result.Downloaded || !strings.HasPrefix(result.URL, "file://") {
+		t.Fatalf("relative repository result = %#v, %v", result, err)
 	}
 }

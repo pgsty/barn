@@ -189,7 +189,10 @@ func (s Store) repairCachePermissions(ctx context.Context, entry Entry) error {
 		return errors.New("cache permission repair requires an owned, unshared regular file")
 	}
 	hash := sha256.New()
-	size, err := copyWithProgress(hash, handle, MaxArtifactSize+1, s.Progress, activity.Event{Phase: "image-verify", Message: "Checking cache permissions and image bytes", TotalBytes: opened.Size()})
+	if opened.Size() > MaxArtifactSize {
+		return errors.New("cached image size exceeds supported byte counter range")
+	}
+	size, err := copyWithProgress(hash, handle, opened.Size()+1, s.Progress, activity.Event{Phase: "image-verify", Message: "Checking cache permissions and image bytes", TotalBytes: opened.Size()})
 	if err != nil {
 		return err
 	}

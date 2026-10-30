@@ -218,13 +218,29 @@ func TestPrivatePlanTreatsEmptyDataRootWithoutStateAsCreate(t *testing.T) {
 	}
 }
 
+func TestPrivateSelectedPlanIgnoresUnselectedNewImage(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("BARN_HOME", root)
+	resolved := singlePrivateResolved()
+	resolved.Nodes = append(resolved.Nodes, spec.Node{
+		Name: "future", Address: "10.10.10.11", Image: "missing-unselected-image",
+		CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB,
+	})
+	manager := planFixtureManager(t)
+	manager.Nodes = []string{"meta"}
+	plan, err := manager.Plan(context.Background(), resolved)
+	if err != nil || plan.Action != "create" || len(plan.Nodes) != 1 || plan.Nodes[0] != "meta" || len(plan.Images) != 1 {
+		t.Fatalf("selected plan = %#v, %v", plan, err)
+	}
+}
+
 func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("BARN_HOME", root)
 	resolved := singlePrivateResolved()
 	resolved.Nodes = append(resolved.Nodes,
 		spec.Node{Name: "node-1", Address: "10.10.10.11", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB},
-		spec.Node{Name: "node-2", Address: "10.10.10.12", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB},
+		spec.Node{Name: "node-2", Address: "10.10.10.12", Image: "missing-unselected-image", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB},
 	)
 	hash, err := spec.Hash(resolved)
 	if err != nil {
@@ -251,6 +267,20 @@ func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 	plan, err := manager.Plan(context.Background(), resolved)
 	if err != nil || plan.Action != "converge" || strings.Join(plan.Nodes, ",") != "node-1" || strings.Join(plan.Create, ",") != "node-1" || len(plan.Recreate) != 0 || len(plan.Missing) != 0 {
 		t.Fatalf("selected partial plan = %#v, %v", plan, err)
+	}
+	imageStage := errors.New("fixture reached selected image download")
+	manager.LookPath = func(name string) (string, error) { return "/fixture/" + name, nil }
+	manager.ResolveImage = func(context.Context, string, string) (image.Entry, string, image.Metadata, error) {
+		return image.Entry{}, "", image.Metadata{}, imageStage
+	}
+	if _, err := manager.Up(context.Background(), resolved); !errors.Is(err, imageStage) {
+		t.Fatalf("selected up blocked by an unprepared peer: %v", err)
+	}
+	if _, err := manager.Reload(context.Background(), resolved); !errors.Is(err, imageStage) {
+		t.Fatalf("selected reload blocked by an unprepared peer: %v", err)
+	}
+	if _, err := manager.RecreateResolved(context.Background(), resolved); !errors.Is(err, imageStage) {
+		t.Fatalf("selected recreate blocked by an unprepared peer: %v", err)
 	}
 }
 

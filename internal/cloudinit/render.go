@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -75,7 +76,6 @@ var (
 	shareTagPattern = regexp.MustCompile(`^barn-[0-9a-f]{20}$`)
 	hashPattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	userPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	mountPattern    = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
 )
 
 func mountPathsOverlap(left, right string) bool {
@@ -92,11 +92,11 @@ func reservedMount(path string) bool {
 }
 
 func safeMount(path string) bool {
-	return mountPattern.MatchString(path) && filepath.IsAbs(path) && filepath.Clean(path) == path && path != "/" && !reservedMount(path)
+	return safeGuestPath(path) && !reservedMount(path)
 }
 
 func safeShareMount(path, user string) bool {
-	if !mountPattern.MatchString(path) || !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
+	if !safeGuestPath(path) {
 		return false
 	}
 	for _, reserved := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn", filepath.Join("/home", user, ".ssh")} {
@@ -105,6 +105,71 @@ func safeShareMount(path, user string) bool {
 		}
 	}
 	return true
+}
+
+func safeGuestPath(value string) bool {
+	cleaned, ok := normalizeGuestPath(value)
+	if !ok || cleaned == "/" {
+		return false
+	}
+	return true
+}
+
+func normalizeGuestPath(value string) (string, bool) {
+	if !pathpkg.IsAbs(value) {
+		return "", false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return "", false
+		}
+	}
+	cleaned := pathpkg.Clean(value)
+	if cleaned == "/" {
+		return "", false
+	}
+	return cleaned, true
+}
+
+func normalizeInput(input Input) (Input, error) {
+	input.Disks = append([]Disk(nil), input.Disks...)
+	for index := range input.Disks {
+		cleaned, ok := normalizeGuestPath(input.Disks[index].Mount)
+		if !ok {
+			return Input{}, fmt.Errorf("unsafe data disk mount %q", input.Disks[index].Mount)
+		}
+		input.Disks[index].Mount = cleaned
+	}
+	input.Shares = append([]Share(nil), input.Shares...)
+	for index := range input.Shares {
+		cleaned, ok := normalizeGuestPath(input.Shares[index].Guest)
+		if !ok {
+			return Input{}, fmt.Errorf("unsafe guest share mount %q", input.Shares[index].Guest)
+		}
+		input.Shares[index].Guest = cleaned
+	}
+	return input, nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func fstabField(value string) string {
+	var escaped strings.Builder
+	for _, character := range value {
+		switch character {
+		case '\\':
+			escaped.WriteString(`\134`)
+		case ' ':
+			escaped.WriteString(`\040`)
+		case '\t':
+			escaped.WriteString(`\011`)
+		default:
+			escaped.WriteRune(character)
+		}
+	}
+	return escaped.String()
 }
 
 func singleLine(label, value string) error {
@@ -314,7 +379,7 @@ filesystem_unusable() {
   esac
 }
 init_disk() {
-  local serial="$1" mountpoint="$2" requested="$3" fresh="$4" dev="/dev/disk/by-id/$5"
+  local serial="$1" mountpoint="$2" requested="$3" fresh="$4" dev="/dev/disk/by-id/$5" fstab_mountpoint="$6"
   local uuid= fstype= metadata= mounted_id= expected_id= attempt probe_error
   probe_error=$(mktemp /var/lib/barn/probe.err.XXXXXX)
   trap "rm -f -- '${probe_error}'" EXIT
@@ -361,8 +426,8 @@ init_disk() {
   fi
   local fstab_tmp
   fstab_tmp=$(mktemp /etc/fstab.barn.XXXXXX)
-  awk -v mountpoint="${mountpoint}" 'NF < 2 || $2 != mountpoint { print }' /etc/fstab >"${fstab_tmp}"
-  printf 'UUID=%s %s %s defaults,nofail 0 2\n' "${uuid}" "${mountpoint}" "${fstype}" >>"${fstab_tmp}"
+  BARN_FSTAB_MOUNT="${fstab_mountpoint}" awk 'NF < 2 || $2 != ENVIRON["BARN_FSTAB_MOUNT"] { print }' /etc/fstab >"${fstab_tmp}"
+  printf 'UUID=%s %s %s defaults,nofail 0 2\n' "${uuid}" "${fstab_mountpoint}" "${fstype}" >>"${fstab_tmp}"
   chmod 0644 "${fstab_tmp}"
   mv -f -- "${fstab_tmp}" /etc/fstab
   touch "/var/lib/barn/disk-${serial}.initialized"
@@ -370,19 +435,20 @@ init_disk() {
 
 `)
 	for _, disk := range disks {
-		fmt.Fprintf(&out, `disk_err=$(mktemp /var/lib/barn/disk.err.XXXXXX)
+		fmt.Fprintf(&out, `disk_mount=%s
+disk_err=$(mktemp /var/lib/barn/disk.err.XXXXXX)
 set +e
-( set -euo pipefail; init_disk %s %s %s %t virtio-%s ) 2>"${disk_err}"
+( set -euo pipefail; init_disk %s "${disk_mount}" %s %t virtio-%s %s ) 2>"${disk_err}"
 disk_status=$?
 set -e
 if (( disk_status != 0 )); then
   if [[ "${check_only}" == true ]]; then rm -f -- "${disk_err}"; exit 1; fi
   detail=$(tail -n 1 "${disk_err}")
-  /usr/local/libexec/barn-warning data-disks "%s: ${detail:-disk setup unavailable}"
+  /usr/local/libexec/barn-warning data-disks "${disk_mount}: ${detail:-disk setup unavailable}"
 fi
 cat "${disk_err}" >&2
 rm -f -- "${disk_err}"
-`, disk.Serial, disk.Mount, disk.Filesystem, disk.Fresh, disk.Serial, disk.Mount)
+`, shellQuote(disk.Mount), disk.Serial, shellQuote(disk.Filesystem), disk.Fresh, disk.Serial, shellQuote(fstabField(disk.Mount)))
 	}
 	return out.String()
 }
@@ -398,12 +464,12 @@ func renderShareScript(user string, shares []Share) string {
 	)
 	var out strings.Builder
 	out.WriteString("#!/bin/bash\nset -Eeuo pipefail\n\n")
-	fmt.Fprintf(&out, "share_user=%q\n", user)
-	fmt.Fprintf(&out, "begin_marker=%q\n", beginMarker)
-	fmt.Fprintf(&out, "end_marker=%q\n", endMarker)
+	fmt.Fprintf(&out, "share_user=%s\n", shellQuote(user))
+	fmt.Fprintf(&out, "begin_marker=%s\n", shellQuote(beginMarker))
+	fmt.Fprintf(&out, "end_marker=%s\n", shellQuote(endMarker))
 	out.WriteString("is_desired_share() {\n  case \"$1|$2\" in\n")
 	for _, share := range shares {
-		fmt.Fprintf(&out, "    %q) return 0 ;;\n", share.Tag+"|"+share.Guest)
+		fmt.Fprintf(&out, "    %s) return 0 ;;\n", shellQuote(share.Tag+"|"+share.Guest))
 	}
 	out.WriteString("    *) return 1 ;;\n  esac\n}\n\n")
 	out.WriteString(`fstab=/etc/fstab
@@ -430,7 +496,7 @@ path_overlap() {
 
 safe_guest_mount() {
   local path="$1" root canonical
-  [[ "${path}" =~ ^/[A-Za-z0-9._/-]+$ && "${path}" != / ]]
+  [[ "${path}" == /* && "${path}" != / && "${path}" != *[[:cntrl:]]* ]]
   canonical=$(realpath -m -- "${path}")
   [[ "${canonical}" == "${path}" ]]
   for root in /bin /boot /dev /etc /lib /lib64 /proc /root /run /sbin /sys /usr /var/lib/barn; do
@@ -442,6 +508,13 @@ safe_guest_mount() {
     return 1
   fi
   return 0
+}
+
+fstab_unescape() {
+  local value="$1"
+  value="${value//\\040/ }"
+  value="${value//\\011/$'\t'}"
+  REPLY="${value//\\134/\\}"
 }
 
 for required in awk findmnt grep mktemp mount mountpoint realpath runuser stat sync umount; do
@@ -472,6 +545,8 @@ if (( begin_count == 1 )); then
       echo 'unsafe entry in Barn share block' >&2
       exit 1
     fi
+    fstab_unescape "${guest}"
+    guest="${REPLY}"
     normalized_options=${options/access=any/access=client}
     if [[ "${normalized_options}" != "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,rw" && "${normalized_options}" != "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,ro" ]]; then
       echo 'unexpected options in Barn share block' >&2
@@ -517,8 +592,8 @@ printf '%s\n' "${begin_marker}" >> "${fstab_tmp}"
 		if share.Readonly {
 			options = baseOptions + ",ro"
 		}
-		line := fmt.Sprintf("%s %s 9p %s 0 0", share.Tag, share.Guest, options)
-		fmt.Fprintf(&out, "printf '%%s\\n' %q >> \"${fstab_tmp}\"\n", line)
+		line := fmt.Sprintf("%s %s 9p %s 0 0", share.Tag, fstabField(share.Guest), options)
+		fmt.Fprintf(&out, "printf '%%s\\n' %s >> \"${fstab_tmp}\"\n", shellQuote(line))
 	}
 	out.WriteString(`printf '%s\n' "${end_marker}" >> "${fstab_tmp}"
 chown root:root "${fstab_tmp}"
@@ -589,10 +664,10 @@ check_share_access() {
     # Keep the actual fallback across reboots. A subsequent finalize rewrites
     # the desired options and retries writable access.
     fstab_tmp=$(mktemp /etc/.fstab.barn-shares.XXXXXX)
-    awk -v tag="${tag}" -v target="${mountpoint}" -v begin="${begin_marker}" -v end="${end_marker}" '
+    awk -v tag="${tag}" -v begin="${begin_marker}" -v end="${end_marker}" '
       $0 == begin { inside=1 }
       $0 == end { inside=0 }
-      inside && $1 == tag && $2 == target && $3 == "9p" { sub(/,rw$/, ",ro", $4) }
+      inside && $1 == tag && $3 == "9p" { sub(/,rw$/, ",ro", $4) }
       { print }
     ' "${fstab}" >"${fstab_tmp}"
     chown root:root "${fstab_tmp}"
@@ -651,16 +726,16 @@ init_share() {
 		// function in an if/|| condition would disable errexit inside it.
 		fmt.Fprintf(&out, `share_err=$(mktemp /var/lib/barn/share.err.XXXXXX)
 set +e
-( set -Eeuo pipefail; init_share %q %q %t ) 2>"${share_err}"
+( set -Eeuo pipefail; init_share %s %s %t ) 2>"${share_err}"
 share_status=$?
 set -e
 if (( share_status != 0 )); then
   detail=$(tail -n 1 "${share_err}")
-  /usr/local/libexec/barn-warning shares "${detail:-%s: mount unavailable}"
+  /usr/local/libexec/barn-warning shares "${detail:-share mount unavailable}"
 fi
 cat "${share_err}" >&2
 rm -f -- "${share_err}"
-`, share.Tag, share.Guest, share.Readonly, share.Guest)
+`, shellQuote(share.Tag), shellQuote(share.Guest), share.Readonly)
 	}
 	return out.String()
 }
@@ -1022,6 +1097,11 @@ func hostNames(hosts []Host) []string {
 
 // Render validates all interpolated values before producing YAML/shell text.
 func Render(input Input) (Files, error) {
+	normalized, err := normalizeInput(input)
+	if err != nil {
+		return Files{}, err
+	}
+	input = normalized
 	if err := validateInput(input); err != nil {
 		return Files{}, err
 	}

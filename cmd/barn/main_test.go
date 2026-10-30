@@ -200,10 +200,6 @@ func TestProvisionRejectsUnsafeInputBeforeDeploymentAccess(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte("echo ok\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	symlinkPath := filepath.Join(root, "setup-link.sh")
-	if err := os.Symlink(scriptPath, symlinkPath); err != nil {
-		t.Fatal(err)
-	}
 	for _, test := range []struct {
 		name    string
 		options provisionOptions
@@ -212,9 +208,8 @@ func TestProvisionRejectsUnsafeInputBeforeDeploymentAccess(t *testing.T) {
 	}{
 		{name: "missing script flag", options: provisionOptions{Parallelism: 1, Timeout: time.Hour}, code: exitUsage, want: "--script is required"},
 		{name: "missing script file", options: provisionOptions{ScriptPath: filepath.Join(root, "missing.sh"), Parallelism: 1, Timeout: time.Hour}, code: exitUsage, want: "missing.sh does not exist"},
-		{name: "invalid parallelism", options: provisionOptions{ScriptPath: scriptPath, Parallelism: 0, Timeout: time.Hour}, code: exitUsage, want: "parallelism must be"},
-		{name: "invalid timeout", options: provisionOptions{ScriptPath: scriptPath, Parallelism: 1, Timeout: 25 * time.Hour}, code: exitUsage, want: "no more than 24h"},
-		{name: "symlink script", options: provisionOptions{ScriptPath: symlinkPath, Parallelism: 1, Timeout: time.Hour}, code: exitUsage, want: "non-symlink"},
+		{name: "invalid parallelism", options: provisionOptions{ScriptPath: scriptPath, Parallelism: 0, Timeout: time.Hour}, code: exitUsage, want: "parallelism must be positive"},
+		{name: "invalid timeout", options: provisionOptions{ScriptPath: scriptPath, Parallelism: 1, Timeout: 0}, code: exitUsage, want: "timeout must be greater than zero"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -233,6 +228,19 @@ func TestProvisionRejectsUnsafeInputBeforeDeploymentAccess(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+func TestProvisionAcceptsLongTimeoutAndHighParallelism(t *testing.T) {
+	scriptPath := filepath.Join(t.TempDir(), "setup.sh")
+	if err := os.WriteFile(scriptPath, []byte("echo ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BARN_HOME", filepath.Join(t.TempDir(), "barn"))
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"provision", "--script", scriptPath, "--parallel", "64", "--timeout", "48h"}, &stdout, &stderr)
+	if code != exitConflict || !strings.Contains(stderr.String(), "provision requires an existing running deployment") {
+		t.Fatalf("valid large provision options were rejected: code=%d stderr=%q", code, stderr.String())
 	}
 }
 

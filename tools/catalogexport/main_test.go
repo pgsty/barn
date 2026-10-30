@@ -10,7 +10,8 @@ import (
 )
 
 func TestExportCatalogWritesExactEmbeddedCatalogOnce(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "catalog.json")
+	root := t.TempDir()
+	target := filepath.Join(root, "output", "catalog.json")
 	if err := exportCatalog(target); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,8 @@ func TestExportCatalogWritesExactEmbeddedCatalogOnce(t *testing.T) {
 	if err := exportCatalog(target); err == nil {
 		t.Fatal("catalog export overwrote an existing file")
 	}
-	if err := exportCatalog("catalog.json"); err == nil {
-		t.Fatal("catalog export accepted a relative path")
+	t.Chdir(root)
+	if err := exportCatalog("relative/catalog.json"); err != nil {
+		t.Fatalf("catalog export rejected a relative path: %v", err)
 	}
 }

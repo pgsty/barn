@@ -681,8 +681,8 @@ host is published by address only.`,
 		Long:    "Show the last lines of the machine's runtime log: startup, network, shutdown and Apple Virtualization errors.",
 		Example: "  barn mac logs\n  barn mac logs dev -n 200",
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if lines < 1 || lines > 10000 {
-				return newUsageError(errors.New("--lines must be between 1 and 10000"))
+			if lines < 1 {
+				return newUsageError(errors.New("--lines must be positive"))
 			}
 			return nil
 		},
@@ -700,7 +700,7 @@ host is published by address only.`,
 			}}, err
 		})(cmd, args)
 	}
-	logs.Flags().IntVarP(&lines, "lines", "n", 100, "number of recent lines (at most 10000)")
+	logs.Flags().IntVarP(&lines, "lines", "n", 100, "number of recent lines")
 	noFileCompletions(logs, "lines")
 	mac.AddCommand(logs)
 

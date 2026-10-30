@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pgsty/barn/internal/failure"
 )
@@ -15,10 +15,19 @@ import (
 // guest mounts every share automatically under /Volumes/My Shared Files/<name>.
 const (
 	GuestShareRoot = "/Volumes/My Shared Files"
-	maxShares      = 8
 )
 
-var shareNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+func validShareName(name string) bool {
+	if name == "" || name == "." || name == ".." || !utf8.ValidString(name) || len(name) > 255 {
+		return false
+	}
+	for _, character := range name {
+		if character == '/' || character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
+}
 
 // ParseShare reads "[name=]PATH[:ro|:rw]". The name defaults to the last path
 // component; a leading ~/ expands to the caller's home directory.
@@ -58,8 +67,8 @@ func ParseShare(spec string) (Share, error) {
 	if share.Name == "" {
 		share.Name = filepath.Base(share.Path)
 	}
-	if !shareNamePattern.MatchString(share.Name) {
-		return Share{}, usage("the share name must use letters, digits, '.', '_' or '-'")
+	if !validShareName(share.Name) {
+		return Share{}, usage("the share name must be a non-empty path component without '/' or control characters")
 	}
 	return share, nil
 }
@@ -67,15 +76,12 @@ func ParseShare(spec string) (Share, error) {
 // checkShareSource verifies a host directory right before the VM uses it.
 // Barn never creates, changes or deletes a shared host directory.
 func checkShareSource(share Share) error {
-	info, err := os.Lstat(share.Path)
+	info, err := os.Stat(share.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return failure.New(failure.Usage, fmt.Errorf("shared directory %s does not exist: %s", share.Name, share.Path))
 	}
 	if err != nil {
 		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return failure.New(failure.Usage, fmt.Errorf("shared directory %s is a symlink; share its target instead: %s", share.Name, share.Path))
 	}
 	if !info.IsDir() {
 		return failure.New(failure.Usage, fmt.Errorf("shared path %s is not a directory: %s", share.Name, share.Path))
@@ -84,12 +90,9 @@ func checkShareSource(share Share) error {
 }
 
 func validateShares(shares []Share) error {
-	if len(shares) > maxShares {
-		return fmt.Errorf("at most %d shared directories are supported", maxShares)
-	}
 	seen := map[string]bool{}
 	for _, share := range shares {
-		if !shareNamePattern.MatchString(share.Name) || !filepath.IsAbs(share.Path) || filepath.Clean(share.Path) != share.Path {
+		if !validShareName(share.Name) || !filepath.IsAbs(share.Path) || filepath.Clean(share.Path) != share.Path {
 			return fmt.Errorf("invalid shared directory %q", share.Name)
 		}
 		if seen[share.Name] {

@@ -76,6 +76,31 @@ func TestRejectsUnsafeXDGAndWrongIdentity(t *testing.T) {
 	}
 }
 
+func TestXDGDirectoryFollowsSafeAliasAndNormalizesPath(t *testing.T) {
+	realRoot := shortRuntimeRoot(t)
+	aliasParent := t.TempDir()
+	alias := filepath.Join(aliasParent, "runtime-alias")
+	if err := os.Symlink(realRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", aliasParent+"/./runtime-alias/../runtime-alias")
+	directory, err := Directory("meta", os.Getuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(realRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(canonical, "barn", "meta")
+	if directory != want {
+		t.Fatalf("runtime directory = %q, want %q", directory, want)
+	}
+	if err := Ensure(directory, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEnsureSharedParentsIsConcurrentAndIdempotent(t *testing.T) {
 	root := shortRuntimeRoot(t)
 	t.Setenv("XDG_RUNTIME_DIR", root)

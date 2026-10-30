@@ -1,6 +1,7 @@
 package image
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -83,10 +84,17 @@ func TestResolveRepositoryPrecedence(t *testing.T) {
 
 func TestRepositoryRejectsAmbiguousLocations(t *testing.T) {
 	t.Parallel()
-	for _, value := range []string{"relative/repo", "ftp://example.com/repo", "https://user@example.com/repo", "https://example.com/repo?q=1"} {
+	for _, value := range []string{"ftp://example.com/repo", "https://user@example.com/repo", "https://example.com/repo?q=1"} {
 		if _, err := NormalizeRepository(value); err == nil {
 			t.Errorf("unsafe repository %q accepted", value)
 		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := NormalizeRepository("relative/repo"); err != nil || got != filepath.Join(cwd, "relative/repo") {
+		t.Fatalf("relative repository = %q, %v", got, err)
 	}
 	if _, err := RepositoryArtifactSource("https://example.com/repo", "../escape.qcow2"); err == nil {
 		t.Fatal("unsafe artifact path accepted")

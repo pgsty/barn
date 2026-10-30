@@ -22,7 +22,7 @@ func testDirs(t *testing.T) (string, string) {
 	return work, root
 }
 
-func TestOpenRejectsSymlinksAndProtectedPaths(t *testing.T) {
+func TestOpenResolvesSymlinksAndRejectsProtectedPaths(t *testing.T) {
 	work, root := testDirs(t)
 	source := filepath.Join(work, "source")
 	if err := os.Mkdir(source, 0o700); err != nil {
@@ -35,11 +35,18 @@ func TestOpenRejectsSymlinksAndProtectedPaths(t *testing.T) {
 	if err := os.Symlink(source, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := Validate(root, []spec.Share{{Host: link, Guest: "/mnt/link", Readonly: true}}); err == nil {
-		t.Fatal("symlink source was accepted")
+	if err := Validate(root, []spec.Share{{Host: link, Guest: "/mnt/link", Readonly: true}}); err != nil {
+		t.Fatalf("symlink source: %v", err)
 	}
 	if err := Validate(root, []spec.Share{{Host: root, Guest: "/mnt/data", Readonly: true}}); err == nil {
 		t.Fatal("data root source was accepted")
+	}
+	protectedLink := filepath.Join(work, "barn-data")
+	if err := os.Symlink(root, protectedLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(root, []spec.Share{{Host: protectedLink, Guest: "/mnt/data", Readonly: true}}); err == nil {
+		t.Fatal("data root source was accepted through a symlink")
 	}
 	if err := Validate(root, []spec.Share{{Host: filepath.Join(root, "nodes"), Guest: "/mnt/nodes", Readonly: true}}); err == nil {
 		t.Fatal("data root descendant source was accepted")

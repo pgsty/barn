@@ -17,7 +17,7 @@ func TestInventoryErrorsStateTheRule(t *testing.T) {
 		"derived name": {`10.10.10.10: {pg_cluster: pg_test, pg_seq: 1}`, `"pg_test-1" derived from pg_cluster and pg_seq is invalid`},
 		"duplicate":    {`{10.10.10.10: {nodename: a}, 10.10.10.11: {nodename: a}}`, `host 10.10.10.10 (a) and host 10.10.10.11 (a) have the same node name`},
 		"mount":        {`10.10.10.10: {vm_disks: [{path: /etc}]}`, `disk mount "/etc" overlaps the reserved system path /etc`},
-		"share":        {`10.10.10.10: {vm_shares: [{host: ./x, guest: /mnt/x}]}`, `share host "./x" must be a clean absolute path`},
+		"share":        {`10.10.10.10: {vm_shares: [{host: /, guest: /mnt/x}]}`, `share host "/" must name a directory other than /`},
 		"address":      {`10.10.10.3: {}`, `address must be in 10.10.10.9-10.10.10.254; 10.10.10.1-10.10.10.8 are reserved`},
 		"public":       {`8.8.8.10: {}`, `host 8.8.8.10: `},
 	} {

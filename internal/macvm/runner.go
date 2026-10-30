@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 // RunnerProtocol is the runner command and RPC contract this CLI speaks. The
@@ -70,10 +71,11 @@ func FindRunner() (string, error) {
 		return "", err
 	}
 	if override := os.Getenv("BARN_MAC_RUNNER"); override != "" {
-		if !filepath.IsAbs(override) {
-			return "", errors.New("BARN_MAC_RUNNER must be absolute")
+		resolved, err := fsutil.UserPath(override, "")
+		if err != nil {
+			return "", fmt.Errorf("resolve BARN_MAC_RUNNER: %w", err)
 		}
-		return executableFile(override)
+		return executableFile(resolved)
 	}
 	exe, err := os.Executable()
 	if err != nil {

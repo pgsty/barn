@@ -19,7 +19,7 @@ import (
 	"github.com/pgsty/barn/internal/state"
 )
 
-func TestSelectedRecreateRefusesPeerDriftBeforeDeletingDisks(t *testing.T) {
+func TestSelectedRecreateAllowsPeerDriftAndStillPreflights(t *testing.T) {
 	fixture, nodes := preparedStartFixture(t)
 	t.Setenv("BARN_HOME", fixture.Deployment.Root)
 	store := state.Store{Root: fixture.Deployment.Root}
@@ -31,8 +31,14 @@ func TestSelectedRecreateRefusesPeerDriftBeforeDeletingDisks(t *testing.T) {
 	for i := range requested.Nodes {
 		requested.Nodes[i].Memory *= 2
 	}
-	_, err = (Manager{Nodes: []string{"node-1"}}).RecreateResolved(context.Background(), requested)
-	if !errors.Is(err, ErrRecreateRequired) || !strings.Contains(err.Error(), "barn recreate node-1 meta") {
+	manager := planFixtureManager(t)
+	manager.Nodes = []string{"node-1"}
+	preflightError := errors.New("fixture preflight failed")
+	manager.HostPreflight = func(context.Context, platform.Profile, *spec.PrivateNetwork, execx.Runner) (Backend, error) {
+		return Backend{}, preflightError
+	}
+	_, err = manager.RecreateResolved(context.Background(), requested)
+	if !errors.Is(err, preflightError) {
 		t.Fatalf("recreate: %v", err)
 	}
 	for _, node := range nodes {

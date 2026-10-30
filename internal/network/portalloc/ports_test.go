@@ -7,7 +7,7 @@ import (
 
 func TestCandidates(t *testing.T) {
 	t.Parallel()
-	want := []uint16{15432, 25432, 35432, 45432, 55432}
+	want := []uint16{15432, 25432, 35432, 45432, 55432, 65432}
 	if got := Candidates(15432); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Candidates = %v, want %v", got, want)
 	}

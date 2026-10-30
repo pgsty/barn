@@ -154,8 +154,8 @@ func (r OSRunner) Run(ctx context.Context, binary string, args ...string) (Resul
 }
 
 func (r OSRunner) RunWithExtraFiles(ctx context.Context, binary string, files []*os.File, args ...string) (Result, error) {
-	if len(files) == 0 || len(files) > 16 {
-		return Result{}, errors.New("external command extra-file count must be 1..16")
+	if len(files) == 0 {
+		return Result{}, errors.New("external command extra-file count must be positive")
 	}
 	for _, file := range files {
 		if file == nil {

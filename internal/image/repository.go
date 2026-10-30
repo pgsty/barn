@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 const CatalogFilename = "catalog.json"
@@ -73,15 +74,19 @@ func NormalizeRepository(value string) (string, error) {
 	parsed, err := url.Parse(value)
 	if err == nil && parsed.Scheme != "" {
 		if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return "", failure.New(failure.Usage, errors.New("image repository must be an absolute HTTP(S) URL without credentials, query, or fragment, or an absolute directory"))
+			return "", failure.New(failure.Usage, errors.New("image repository must be an absolute HTTP(S) URL without credentials, query, or fragment, or a local directory"))
 		}
 		parsed.Path = strings.TrimSuffix(parsed.Path, "/")
 		return parsed.String(), nil
 	}
-	if !filepath.IsAbs(value) {
-		return "", failure.New(failure.Usage, errors.New("image repository must be an absolute HTTP(S) URL or an absolute directory"))
+	if strings.Contains(value, "://") {
+		return "", failure.New(failure.Usage, errors.New("image repository URL is invalid"))
 	}
-	return filepath.Clean(value), nil
+	local, err := fsutil.UserPath(value, "")
+	if err != nil {
+		return "", failure.New(failure.Usage, err)
+	}
+	return local, nil
 }
 
 func RepositoryCatalogSource(repository string) (string, error) {

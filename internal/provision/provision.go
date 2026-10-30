@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/vm"
 	"golang.org/x/sys/unix"
@@ -26,7 +27,6 @@ import (
 
 const (
 	MaxScriptBytes   = 4 << 20
-	MaxParallelism   = 4
 	defaultOutputCap = 1 << 20
 )
 
@@ -45,7 +45,14 @@ func LoadScript(path string) (Script, error) {
 	if path == "" || strings.ContainsAny(path, "\x00\r\n") {
 		return Script{}, errors.New("provision script path must be a non-empty single line")
 	}
-	absolute, err := filepath.Abs(path)
+	absolute, err := fsutil.UserPath(path, "")
+	if err != nil {
+		return Script{}, fmt.Errorf("resolve provision script: %w", err)
+	}
+	absolute, err = filepath.EvalSymlinks(absolute)
+	if errors.Is(err, os.ErrNotExist) {
+		return Script{}, failure.New(failure.Usage, fmt.Errorf("provision script %s does not exist", path))
+	}
 	if err != nil {
 		return Script{}, fmt.Errorf("resolve provision script: %w", err)
 	}
@@ -182,11 +189,11 @@ func (e Executor) Execute(ctx context.Context, script Script, targets []Target, 
 	if script.SHA256 != hex.EncodeToString(digest[:]) {
 		return Report{}, errors.New("provision script snapshot is invalid")
 	}
-	if len(targets) == 0 || len(targets) > 20 {
-		return Report{}, errors.New("provision requires 1..20 targets")
+	if len(targets) == 0 {
+		return Report{}, errors.New("provision requires at least one target")
 	}
-	if e.Parallelism < 1 || e.Parallelism > MaxParallelism {
-		return Report{}, fmt.Errorf("provision parallelism must be 1..%d", MaxParallelism)
+	if e.Parallelism < 1 {
+		return Report{}, errors.New("provision parallelism must be positive")
 	}
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {

@@ -40,15 +40,13 @@ type NativeLifecycle struct {
 	DarwinSocket    string
 }
 
-func (l NativeLifecycle) PreflightStart(node state.NodeState) error {
+func (l NativeLifecycle) PrepareStart(node state.NodeState) (state.NodeState, error) {
 	bundle, err := openPrivateNodeShares(l.Deployment, l.Shares, node)
 	if err != nil {
-		return err
+		return node, err
 	}
-	if err := bundle.Close(); err != nil {
-		return fmt.Errorf("close preflight host shares for private node %s: %w", node.Node, err)
-	}
-	return nil
+	node.Invocation, err = bundle.BindInvocation(node.Invocation)
+	return node, errors.Join(err, bundle.Close())
 }
 
 func (l NativeLifecycle) privateNetworkFile() (*os.File, error) {
@@ -82,6 +80,13 @@ func (l NativeLifecycle) Start(ctx context.Context, node state.NodeState) (_ pro
 			returnErr = errors.Join(returnErr, fmt.Errorf("close inherited host-share files: %w", err))
 		}
 	}()
+	bound, err := bundle.BindInvocation(node.Invocation)
+	if err != nil {
+		return process.Identity{}, err
+	}
+	if !slices.Equal(bound.Args, node.Invocation.Args) {
+		return process.Identity{}, fmt.Errorf("host share for node %s changed before startup; retry", node.Node)
+	}
 
 	shareFiles := bundle.Files()
 	extraFiles := make([]*os.File, 0, len(shareFiles)+1)
@@ -335,8 +340,8 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 			return nil, err
 		}
 	}
-	preflight, hasPreflight := config.Lifecycle.(interface {
-		PreflightStart(state.NodeState) error
+	prepare, hasPrepare := config.Lifecycle.(interface {
+		PrepareStart(state.NodeState) (state.NodeState, error)
 	})
 	starting := make([]state.NodeState, 0, len(nodes))
 	for index, node := range nodes {
@@ -344,12 +349,14 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 		if node.Phase == state.Running {
 			continue
 		}
-		if hasPreflight {
-			if err := preflight.PreflightStart(node); err != nil {
-				outcomes[index].Error = fmt.Sprintf("preflight node %s before start: %v", node.Node, err)
+		if hasPrepare {
+			prepared, err := prepare.PrepareStart(node)
+			if err != nil {
+				outcomes[index].Error = fmt.Sprintf("prepare node %s before start: %v", node.Node, err)
 				outcomes[index].Reason = failureReason(err)
 				continue
 			}
+			node, nodes[index] = prepared, prepared
 		} else if len(node.Invocation.ShareFiles()) != 0 {
 			outcomes[index].Error = fmt.Sprintf("node %s lifecycle cannot preflight host shares", node.Node)
 			continue

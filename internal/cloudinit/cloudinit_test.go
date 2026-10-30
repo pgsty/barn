@@ -208,12 +208,27 @@ func TestWriteUserDataForExternalSchemaValidation(t *testing.T) {
 
 func TestRenderRejectsUnsafeMounts(t *testing.T) {
 	t.Parallel()
-	for _, mount := range []string{"/data/../../etc", "/data/..", "/data//nested", "/proc/data", "/var/lib/barn/data"} {
+	for _, mount := range []string{"/data/../../etc", "/data/..", "/proc/data", "/var/lib/barn/data"} {
 		input := testInput()
 		input.Disks[0].Mount = mount
 		if _, err := Render(input); err == nil {
 			t.Errorf("unsafe mount %q was accepted", mount)
 		}
+	}
+}
+
+func TestRenderNormalizesGuestPaths(t *testing.T) {
+	t.Parallel()
+	input := testInput()
+	input.Disks[0].Mount = "/data//nested/../build"
+	input.Shares = []Share{{Tag: "barn-0123456789abcdef0123", Guest: "/shared/../source"}}
+	files, err := Render(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userData := string(files.UserData)
+	if !strings.Contains(userData, "init_disk") || !strings.Contains(userData, "/data/build") || !strings.Contains(userData, "'/source'") {
+		t.Fatalf("normalized guest paths missing from generated seed:\n%s", userData)
 	}
 }
 
@@ -270,6 +285,49 @@ func TestRenderShareContract(t *testing.T) {
 	emptyScript := renderShareScript(input.SSHUser, nil)
 	if emptyScript != "" {
 		t.Fatalf("empty share script changed the no-share path:\n%s", emptyScript)
+	}
+}
+
+func TestRenderShareSupportsSpacesUnicodeAndShellCharacters(t *testing.T) {
+	t.Parallel()
+	shares := []Share{
+		{Tag: "barn-0123456789abcdef0123", Guest: "/src code/源码 files/$build", Readonly: false},
+		{Tag: "barn-fedcba9876543210fedc", Guest: "/reference:current", Readonly: true},
+	}
+	script := renderShareScript("dba", shares)
+	command := exec.Command("bash", "-n")
+	command.Stdin = strings.NewReader(script)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("share script is invalid: %v\n%s\n%s", err, output, script)
+	}
+	if !strings.Contains(script, `barn-0123456789abcdef0123 /src\040code/源码\040files/$build 9p`) {
+		t.Fatalf("fstab path was not escaped: %s", script)
+	}
+	if !strings.Contains(script, `init_share 'barn-0123456789abcdef0123' '/src code/源码 files/$build' false`) {
+		t.Fatalf("shell path was not quoted: %s", script)
+	}
+}
+
+func TestGeneratedPathEscapingRoundTripsThroughBash(t *testing.T) {
+	t.Parallel()
+	value := "/src path/it's\\ready"
+	shellCommand := "value=" + shellQuote(value) + "\nprintf '%s' \"$value\""
+	command := exec.Command("bash", "-c", shellCommand)
+	output, err := command.Output()
+	if err != nil || string(output) != value {
+		t.Fatalf("shell quote round trip = %q, %v", output, err)
+	}
+
+	encoded := fstabField(value)
+	decodeCommand := "value=" + shellQuote(encoded) + `
+value="${value//\\040/ }"
+value="${value//\\011/$'\t'}"
+REPLY="${value//\\134/\\}"
+printf '%s' "$REPLY"`
+	command = exec.Command("bash", "-c", decodeCommand)
+	output, err = command.Output()
+	if err != nil || string(output) != value {
+		t.Fatalf("fstab round trip = %q (encoded %q), %v", output, encoded, err)
 	}
 }
 

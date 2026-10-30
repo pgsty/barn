@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgsty/barn/internal/hostshare"
 	privatevm "github.com/pgsty/barn/internal/private"
 )
 
@@ -22,13 +21,5 @@ func TestScopedRetryPreservesInventoryRepositoryAndFlags(t *testing.T) {
 	got := lifecycleRetryCommand("applied deployment state", []string{"meta"}, options)
 	if got != "barn start --no-wait meta" {
 		t.Fatalf("start retry must use applied state without creating nodes: %s", got)
-	}
-}
-
-func TestUnrecoverableShareCapabilityDoesNotSuggestBlindRetry(t *testing.T) {
-	var out bytes.Buffer
-	printNodeFailures(&out, "lab.yml", []privatevm.NodeFailure{{Node: "meta", Stage: "start", Error: "host share cannot be safely opened by QEMU on macOS; preserve needed data", Reason: hostshare.ReasonUnsupportedOnDarwin}})
-	if strings.Contains(out.String(), "barn up") || strings.Contains(out.String(), "barn recreate") || !strings.Contains(out.String(), "preserve needed data") {
-		t.Fatalf("unsafe or ineffective retry: %s", &out)
 	}
 }

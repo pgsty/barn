@@ -1,5 +1,5 @@
-// Package hostshare opens user-selected host directories without following
-// symlinks and keeps the resulting descriptors anchored through QEMU startup.
+// Package hostshare resolves user-selected directories and holds them open
+// through QEMU startup. Access follows the invoking user's filesystem rights.
 package hostshare
 
 import (
@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/qemu"
 	"github.com/pgsty/barn/internal/spec"
 	"golang.org/x/sys/unix"
@@ -18,6 +17,7 @@ import (
 
 type Bundle struct {
 	shares []spec.Share
+	paths  []string
 	files  []*os.File
 }
 
@@ -73,12 +73,7 @@ func openDirectory(share spec.Share) (*os.File, error) {
 		case errors.Is(openErr, unix.ENOENT):
 			return nil, missingShare(fmt.Sprintf("host share %s does not exist", share.Host))
 		case errors.Is(openErr, unix.ELOOP):
-			// Shares bind the directory named in the inventory; a symlink could
-			// be repointed underneath the lab, so ask for the real path.
-			if real, err := filepath.EvalSymlinks(share.Host); err == nil {
-				return nil, fmt.Errorf("host share %s goes through a symlink at %q; write the real path %s in the inventory", share.Host, component, real)
-			}
-			return nil, fmt.Errorf("host share %s goes through a symlink at %q; write the real path in the inventory", share.Host, component)
+			return nil, fmt.Errorf("host share %s changed while opening; retry", share.Host)
 		default:
 			return nil, fmt.Errorf("open host share %s at %q: %w", share.Host, component, openErr)
 		}
@@ -93,17 +88,6 @@ func openDirectory(share spec.Share) (*os.File, error) {
 	if mode&unix.S_IFMT != unix.S_IFDIR {
 		return nil, fmt.Errorf("host share is not a directory: %q", share.Host)
 	}
-	if stat.Uid != uint32(os.Geteuid()) {
-		return nil, fmt.Errorf("host share %q is owned by uid %d, expected %d", share.Host, stat.Uid, os.Geteuid())
-	}
-	permissions := mode & 0o777
-	// Project directories often allow group writes. The user chose this
-	// directory explicitly; its mode is not a reason to reject the whole lab.
-	// Guest initialization checks actual access and can fall back to read-only.
-	required := uint32(0o500)
-	if permissions&required != required {
-		return nil, fmt.Errorf("host share %q owner permissions %#o do not provide required %#o", share.Host, permissions, required)
-	}
 	file := os.NewFile(uintptr(descriptor), "barn-host-share")
 	if file == nil {
 		return nil, errors.New("wrap host share directory descriptor")
@@ -115,8 +99,20 @@ func openDirectory(share spec.Share) (*os.File, error) {
 // Open validates protected-path boundaries, securely opens every source in
 // canonical spec order, and closes the partial set on every error.
 func Open(root string, shares []spec.Share) (*Bundle, error) {
+	if canonical, err := filepath.EvalSymlinks(root); err == nil {
+		root = canonical
+	}
 	bundle := &Bundle{shares: append([]spec.Share(nil), shares...)}
 	for _, share := range shares {
+		canonical, err := filepath.EvalSymlinks(share.Host)
+		if err != nil {
+			_ = bundle.Close()
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, missingShare(fmt.Sprintf("host share %s (for %s) does not exist; restore the directory or its mount, then retry (Barn never creates an empty one)", share.Host, share.Guest))
+			}
+			return nil, fmt.Errorf("resolve host share %s: %w", share.Host, err)
+		}
+		share.Host = canonical
 		if err := validateProtectedPaths(root, share); err != nil {
 			_ = bundle.Close()
 			return nil, err
@@ -130,6 +126,7 @@ func Open(root string, shares []spec.Share) (*Bundle, error) {
 			return nil, fmt.Errorf("host share %q -> %q: %w", share.Host, share.Guest, err)
 		}
 		bundle.files = append(bundle.files, file)
+		bundle.paths = append(bundle.paths, canonical)
 	}
 	return bundle, nil
 }
@@ -142,29 +139,58 @@ func Validate(root string, shares []spec.Share) error {
 	return bundle.Close()
 }
 
-// ReasonUnsupportedOnDarwin marks a share QEMU cannot open on macOS. Retrying
-// cannot fix it; only a configuration or host change can.
-const ReasonUnsupportedOnDarwin = "host_share_unsupported"
-
-// ValidateQEMUAccess checks the directory reopen used by QEMU's local 9p
-// backend. Darwin's /dev/fd supports stat but not open(O_DIRECTORY). Do not
-// substitute a pathname: that would lose the descriptor's identity guarantee.
+// Darwin opens the resolved path because /dev/fd cannot reopen directories.
+// Check it against the held directory immediately before launching QEMU.
 func (b *Bundle) ValidateQEMUAccess() error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
 	for index, file := range b.files {
-		path := fmt.Sprintf("/dev/fd/%d", file.Fd())
-		reopened, err := os.OpenFile(path, os.O_RDONLY|unix.O_DIRECTORY, 0)
+		path := b.paths[index]
+		reopened, err := os.OpenFile(path, os.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 		if err != nil {
-			share := b.shares[index]
-			return failure.New(failure.Capability, fmt.Errorf("host share %q -> %q cannot be safely opened by QEMU on macOS: %w; omit vm_shares when creating a new node, or use a Linux host; changing shares on an existing node requires explicit recreate and replaces its root disk, so preserve needed data first; Barn will not bypass directory identity checks", share.Host, share.Guest, err)).Because(ReasonUnsupportedOnDarwin)
+			return fmt.Errorf("open host share %s: %w", path, err)
 		}
-		if err := reopened.Close(); err != nil {
-			return fmt.Errorf("close host-share capability probe: %w", err)
+		actual, statErr := reopened.Stat()
+		expected, expectedErr := file.Stat()
+		if err := errors.Join(statErr, expectedErr, reopened.Close()); err != nil {
+			return err
+		}
+		if !os.SameFile(actual, expected) {
+			return fmt.Errorf("host share %s changed while opening; retry", path)
 		}
 	}
 	return nil
+}
+
+// BindInvocation records the exact path used on macOS. Persist this invocation
+// before startup so process identity checks see the argv QEMU actually uses.
+func (b *Bundle) BindInvocation(invocation qemu.Invocation) (qemu.Invocation, error) {
+	if runtime.GOOS != "darwin" || len(b.shares) == 0 {
+		return invocation, nil
+	}
+	invocation.Args = append([]string(nil), invocation.Args...)
+	matched := 0
+	for index := 0; index+1 < len(invocation.Args); index++ {
+		if invocation.Args[index] != "-fsdev" {
+			continue
+		}
+		if matched >= len(b.shares) {
+			return qemu.Invocation{}, errors.New("host-share invocation has unexpected exports")
+		}
+		share := b.shares[matched]
+		path := strings.ReplaceAll(b.paths[matched], ",", ",,")
+		options := fmt.Sprintf("local,id=share%d,path=%s,security_model=mapped-xattr,multidevs=remap,fmode=0600,dmode=0700", matched, path)
+		if share.Readonly {
+			options += ",readonly=on"
+		}
+		invocation.Args[index+1] = options
+		matched++
+	}
+	if matched != len(b.shares) {
+		return qemu.Invocation{}, errors.New("host-share invocation is missing exports")
+	}
+	return invocation, nil
 }
 
 func (b *Bundle) Files() []*os.File {

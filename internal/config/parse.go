@@ -15,15 +15,16 @@ var sizeUnits = []struct {
 	{"KiB", 1 << 10}, {"MiB", 1 << 20}, {"GiB", 1 << 30}, {"TiB", 1 << 40},
 	{"KB", 1000}, {"MB", 1000 * 1000}, {"GB", 1000 * 1000 * 1000}, {"TB", 1000 * 1000 * 1000 * 1000},
 	{"B", 1},
+	{"K", 1 << 10}, {"M", 1 << 20}, {"G", 1 << 30}, {"T", 1 << 40},
 }
 
 func ParseSize(value string) (int64, error) {
 	value = strings.TrimSpace(value)
 	for _, unit := range sizeUnits {
-		if !strings.HasSuffix(value, unit.name) {
+		if len(value) < len(unit.name) || !strings.EqualFold(value[len(value)-len(unit.name):], unit.name) {
 			continue
 		}
-		number := strings.TrimSpace(strings.TrimSuffix(value, unit.name))
+		number := strings.TrimSpace(value[:len(value)-len(unit.name)])
 		if number == "" || strings.ContainsAny(number, ".+-") {
 			return 0, fmt.Errorf("size %q must be a positive integer plus unit", value)
 		}
@@ -33,7 +34,7 @@ func ParseSize(value string) (int64, error) {
 		}
 		return parsed * unit.multiplier, nil
 	}
-	return 0, fmt.Errorf("size %q requires B, KiB, MiB, GiB, TiB, KB, MB, GB, or TB", value)
+	return 0, fmt.Errorf("size %q requires B, K/M/G/T, KiB/MiB/GiB/TiB, or KB/MB/GB/TB (case-insensitive)", value)
 }
 
 func scaleSize(value, multiplier int64) (int64, error) {

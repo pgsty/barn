@@ -4,6 +4,55 @@ Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
 1.0.0 may include incompatible changes between minor versions.
 
+## Unreleased
+
+### Fixed
+
+- Allow `init` and `setup` through directory symlinks. Inventories, provision
+  scripts, imported images, shared folders, and owned SSH directories may also
+  be reached through symlinks. Existing output files still require `--force`;
+  output-file symlinks are never overwritten or followed for writes.
+- Resolve relative share sources beside the inventory's real file and expand
+  `~/`. Allow readable directories owned by another user, overlapping sources,
+  and multiple guest readers or writers under the caller's host permissions.
+- Open Linux-guest shares on macOS through resolved directory paths instead of
+  the unusable `/dev/fd` directory path. Persist the actual QEMU invocation before
+  launch. Guests still need a kernel with 9p support.
+- Cache imported images by content digest, allowing spaces, Unicode names, and
+  different images with the same source basename without collisions. Reimporting
+  identical bytes preserves existing aliases that use the old basename layout.
+- Remove the 256-alias ceiling for local images. Reject oversized registry
+  updates before writing, preserving the existing readable registry.
+- Keep `BARN_HOME` usable when it is also the current working directory.
+- Apply explicit node selections against the applied definitions of their
+  peers. `up`, `reload`, `recreate`, and `plan` no longer require unrelated node
+  edits to be applied together. Omitted peers remain intact, and conflicting
+  addresses, aliases, control-node changes, or shared deployment settings are
+  checked before any node is stopped or deleted.
+
+- Accept relative paths and `~/` for `BARN_HOME`, local image repositories,
+  catalog export, and `BARN_MAC_RUNNER`. Data roots, runtime directories, cache
+  directories, and verified local archives support directory symlinks. Existing
+  state keeps its stored path spelling for compatibility with macOS `/var`.
+- Normalize guest mount paths and quote shell/fstab values correctly, accepting
+  spaces, Unicode, and shell punctuation. Mac share names accept these characters
+  too. Accept case-insensitive size units and binary `K/M/G/T` shorthand while
+  preserving decimal `KB/MB/GB/TB` in inventories.
+- Remove the 20-node inventory/provisioning ceiling, four-worker provisioning
+  ceiling, 24-hour provisioning timeout ceiling, and eight-directory share
+  ceiling. Actual subnet, backend device, deadline, and resource constraints
+  still apply. Provisioning retains its 4 MiB script snapshot and SSH checks.
+- Allow `vm_skip: true` external hosts to use hostnames or IPv6 inventory keys;
+  validate IPv4 addresses only for managed virtual machines.
+- Remove the 8 GiB image artifact ceiling for local inputs and catalog artifacts
+  with declared sizes. Bound reads by the actual file or declared size, stop
+  downloads on excess bytes, and continue verifying digests and qcow2 structure.
+- Allow repository builds through directory aliases and shared writable roots,
+  including a linked `repo.yaml`. Preserve output-file and artifact checks.
+- Make `mac logs --lines` honor any positive requested line count, including
+  diagnostics beyond the old 1 MiB tail and 10,000-line ceiling.
+- Use every valid `+10000` fallback port instead of stopping after five attempts.
+
 ## 0.9.2 — 2026-10-30
 
 Barn 0.9.2 bundles the signed and notarized native macOS guest component in

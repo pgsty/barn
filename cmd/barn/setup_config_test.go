@@ -58,6 +58,34 @@ func TestFreshUntouchedInitCanUseAnAvailableNetwork(t *testing.T) {
 	}
 }
 
+func TestSetupPublishesThroughDirectoryAliasAndReusesLinkedInventory(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("BARN_HOME", t.TempDir())
+	directory := filepath.Join(root, "real")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(directory, link); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := resolveSetupSelection("meta", "", "", link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSetupConfig(selection); err != nil {
+		t.Fatalf("publish in linked directory: %v", err)
+	}
+	linkedInventory := filepath.Join(root, "barn.yml")
+	if err := os.Symlink(filepath.Join(directory, "barn.yml"), linkedInventory); err != nil {
+		t.Fatal(err)
+	}
+	selection, err = resolveSetupSelection("", "", "", root)
+	if err != nil || selection.Generated || selection.Publish || selection.ConfigPath != linkedInventory {
+		t.Fatalf("linked inventory should be reused: %+v, %v", selection, err)
+	}
+}
+
 func TestSetupPreservesExplicitCustomAndConcurrentlyEditedInventory(t *testing.T) {
 	cwd := t.TempDir()
 	t.Setenv("BARN_HOME", t.TempDir())

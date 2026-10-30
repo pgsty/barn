@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 // ErrNoConfig marks an inventory directory with no discoverable configuration.
@@ -28,7 +29,7 @@ func readBounded(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("configuration must be a regular non-symlink file: %s", path)
+		return nil, fmt.Errorf("configuration must be a regular file: %s", path)
 	}
 	handle, err := os.Open(path)
 	if err != nil {
@@ -55,14 +56,21 @@ func LoadPath(path string) (File, error) {
 	if path == "" || !filepath.IsAbs(path) {
 		return File{}, errors.New("configuration path must be absolute")
 	}
-	data, err := readBounded(path)
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return File{}, failure.New(failure.Usage, fmt.Errorf("inventory %s does not exist", path)).Then("barn init, or check -f")
+	}
+	if err != nil {
+		return File{}, failure.New(failure.Usage, fmt.Errorf("resolve inventory %s: %w", path, err))
+	}
+	data, err := readBounded(resolvedPath)
 	if err != nil {
 		return File{}, failure.New(failure.Usage, err)
 	}
 	if _, err := DetectFormat(data); err != nil {
 		return File{}, failure.New(failure.Usage, fmt.Errorf("%s: %w", path, err))
 	}
-	file, err := ParseInventory(data)
+	file, err := parseInventory(data, filepath.Dir(resolvedPath))
 	if err != nil {
 		return File{}, failure.New(failure.Usage, fmt.Errorf("%s: %w", path, err))
 	}
@@ -74,7 +82,7 @@ func LoadPath(path string) (File, error) {
 // A missing configuration returns ErrNoConfig.
 func Discover(cwd, explicit string) (File, string, error) {
 	if explicit != "" {
-		absolute, err := filepath.Abs(explicit)
+		absolute, err := fsutil.UserPath(explicit, cwd)
 		if err != nil {
 			return File{}, "", err
 		}

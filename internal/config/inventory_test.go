@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,33 @@ func writeTestFile(t *testing.T, directory, name, content string) string {
 		t.Fatalf("write %s: %v", name, err)
 	}
 	return path
+}
+
+func TestSkippedExternalHostsNeedNoVMAddress(t *testing.T) {
+	data := `all:
+  children:
+    external:
+      vars: {vm_skip: true}
+      hosts:
+        build.example.com: {}
+        localhost: {}
+        '2001:db8::1': {}
+    lab:
+      hosts:
+        10.10.10.10: {nodename: meta}
+`
+	file, err := ParseInventory([]byte(data))
+	if err != nil || len(file.Nodes) != 1 || file.Nodes[0].Name != "meta" {
+		t.Fatalf("mixed inventory = %#v, %v", file.Nodes, err)
+	}
+	for _, input := range []string{
+		strings.Replace(data, "vm_skip: true", "vm_skip: false", 1),
+		strings.Replace(data, "build.example.com: {}", "build.example.com: {vm_skip: false}", 1),
+	} {
+		if _, err := ParseInventory([]byte(input)); err == nil || !strings.Contains(err.Error(), "IPv4") {
+			t.Fatalf("managed hostname must still require a VM address: %v", err)
+		}
+	}
 }
 
 const fullInventory = `---
@@ -145,6 +173,49 @@ all:
 		if len(node.Disks) != 1 || node.Disks[0].Filesystem != want[index] {
 			t.Fatalf("node %d filesystem = %+v, want %s", index, node.Disks, want[index])
 		}
+	}
+}
+
+func TestParseInventoryNormalizesFriendlyDiskPathsAndKeepsStableNames(t *testing.T) {
+	file := mustParseInventory(t, `
+all:
+  children:
+    nodes:
+      hosts:
+        10.10.10.10:
+          vm_disks:
+            - {path: "/data//build/../源码 files/$build", size: "8G"}
+`)
+	if len(file.Nodes) != 1 || len(file.Nodes[0].Disks) != 1 {
+		t.Fatalf("friendly disk was not parsed: %#v", file.Nodes)
+	}
+	disk := file.Nodes[0].Disks[0]
+	if disk.Mount != "/data/源码 files/$build" || int64(disk.Size) != 8*spec.GiB || !strings.HasPrefix(disk.Name, "disk-") {
+		t.Fatalf("friendly disk = %#v", disk)
+	}
+	resolved, err := file.Resolve()
+	if err != nil || resolved.Nodes[0].Disks[0].Mount != disk.Mount || resolved.Nodes[0].Disks[0].Name != disk.Name {
+		t.Fatalf("resolved friendly disk = %#v, %v", resolved.Nodes[0].Disks, err)
+	}
+	for path, want := range map[string]string{"/data": "data", "/data/pg": "data-pg"} {
+		if got, err := diskNameForPath(path); err != nil || got != want {
+			t.Fatalf("disk name for %q = %q, %v; want %q", path, got, err, want)
+		}
+	}
+}
+
+func TestParseInventoryAllowsMoreThanTwentyStaticNodes(t *testing.T) {
+	var text strings.Builder
+	text.WriteString("all:\n  children:\n    nodes:\n      hosts:\n")
+	for address := 10; address < 42; address++ {
+		fmt.Fprintf(&text, "        10.10.10.%d: {}\n", address)
+	}
+	file := mustParseInventory(t, text.String())
+	if len(file.Nodes) != 32 {
+		t.Fatalf("node count = %d, want 32", len(file.Nodes))
+	}
+	if _, err := file.Resolve(); err != nil {
+		t.Fatalf("32-node inventory did not resolve: %v", err)
 	}
 }
 

@@ -23,11 +23,11 @@ digest, and never leaves the script behind as a guest file.`,
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: nodeCompletion(false, false),
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if options.Parallelism < 1 || options.Parallelism > 4 {
-				return fmt.Errorf("--parallel must be between 1 and 4, got %d", options.Parallelism)
+			if options.Parallelism < 1 {
+				return fmt.Errorf("--parallel must be positive, got %d", options.Parallelism)
 			}
-			if options.Timeout <= 0 || options.Timeout > 24*time.Hour {
-				return fmt.Errorf("--timeout must be greater than zero and no more than 24h, got %s", options.Timeout)
+			if options.Timeout <= 0 {
+				return fmt.Errorf("--timeout must be greater than zero, got %s", options.Timeout)
 			}
 			return nil
 		},
@@ -41,8 +41,8 @@ digest, and never leaves the script behind as a guest file.`,
 	}
 	command.Flags().StringVarP(&options.ScriptPath, "script", "s", "", "local Bash script to stream to each selected guest")
 	command.Flags().BoolVar(&options.Sudo, "sudo", false, "run the guest script through sudo -n")
-	command.Flags().IntVarP(&options.Parallelism, "parallel", "p", options.Parallelism, "bounded node concurrency, 1..4")
-	command.Flags().DurationVarP(&options.Timeout, "timeout", "t", options.Timeout, "hard deadline for the operation, maximum 24h")
+	command.Flags().IntVarP(&options.Parallelism, "parallel", "p", options.Parallelism, "node concurrency; values above the selected node count are harmless")
+	command.Flags().DurationVarP(&options.Timeout, "timeout", "t", options.Timeout, "hard deadline for the operation")
 	noFileCompletions(command, "sudo", "parallel", "timeout")
 	_ = command.MarkFlagRequired("script")
 	return command

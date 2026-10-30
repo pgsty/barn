@@ -16,6 +16,11 @@ func RetryScript(input Input, stages ...string) (string, error) {
 	if input.PrivateKey != "" {
 		return "", errors.New("guest setup retry must not contain a private key")
 	}
+	normalized, err := normalizeInput(input)
+	if err != nil {
+		return "", err
+	}
+	input = normalized
 	if err := validateInput(input); err != nil {
 		return "", err
 	}

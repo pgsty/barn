@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/image"
@@ -13,7 +12,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: catalogexport <absolute-new-output-path>")
+		fmt.Fprintln(os.Stderr, "usage: catalogexport <new-output-path>")
 		os.Exit(2)
 	}
 	if err := exportCatalog(os.Args[1]); err != nil {
@@ -27,12 +26,9 @@ func exportCatalog(target string) error {
 	if err != nil {
 		return err
 	}
-	if !filepath.IsAbs(target) {
-		return fmt.Errorf("output path must be absolute")
-	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(target))
+	target, err = fsutil.EnsureParent(target)
 	if err != nil {
 		return err
 	}
-	return fsutil.AtomicCreate(filepath.Join(parent, filepath.Base(target)), data, 0o600)
+	return fsutil.AtomicCreate(target, data, 0o600)
 }

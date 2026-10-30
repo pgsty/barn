@@ -40,8 +40,8 @@ func TestLoadScriptSnapshotAndSafety(t *testing.T) {
 	if err := os.Symlink(path, symlink); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadScript(symlink); err == nil || !strings.Contains(err.Error(), "non-symlink") {
-		t.Fatalf("symlink error = %v", err)
+	if linked, err := LoadScript(symlink); err != nil || string(linked.Content) != "changed\n" {
+		t.Fatalf("linked script = %#v, %v", linked, err)
 	}
 	empty := filepath.Join(root, "empty.sh")
 	if err := os.WriteFile(empty, nil, 0o600); err != nil {
@@ -125,6 +125,20 @@ func TestExecutorRequiresDeadlineAndSafeTargets(t *testing.T) {
 	target.PrivateKey = "relative"
 	if _, err := executor.Execute(ctx, script, []Target{target}, false); err == nil || !strings.Contains(err.Error(), "non-absolute") {
 		t.Fatalf("target error = %v", err)
+	}
+}
+
+func TestExecutorAllowsConcurrencyAboveTheHistoricalFourWorkerLimit(t *testing.T) {
+	runner := &recordingRunner{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	targets := []Target{fixtureTarget("meta"), fixtureTarget("node-1"), fixtureTarget("node-2"), fixtureTarget("node-3"), fixtureTarget("node-4")}
+	report, err := (Executor{Runner: runner, Parallelism: len(targets), OperationID: "operation-fixture"}).Execute(ctx, fixtureScript(), targets, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.maxActive != len(targets) || report.Parallelism != len(targets) || report.Successful != len(targets) {
+		t.Fatalf("requested concurrency was not applied: max=%d report=%#v", runner.maxActive, report)
 	}
 }
 

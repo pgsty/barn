@@ -96,18 +96,26 @@ func readRepoSpec(root string) (RepoSpec, error) {
 	if root == "" || !filepath.IsAbs(root) {
 		return RepoSpec{}, errors.New("repository root must be an absolute directory")
 	}
-	rootInfo, err := os.Lstat(root)
-	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o022 != 0 {
-		return RepoSpec{}, fmt.Errorf("repository root is missing, symlinked, or writable by group/other: %s", root)
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return RepoSpec{}, fmt.Errorf("repository root must resolve to an existing directory: %s", root)
 	}
 	pathname := filepath.Join(root, RepoFilename)
-	info, err := os.Lstat(pathname)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > MaxRepoSpecSize {
-		return RepoSpec{}, fmt.Errorf("%s must be a regular non-symlink file no larger than %d bytes", pathname, MaxRepoSpecSize)
+	info, err := os.Stat(pathname)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > MaxRepoSpecSize {
+		return RepoSpec{}, fmt.Errorf("%s must resolve to a regular file no larger than %d bytes", pathname, MaxRepoSpecSize)
 	}
-	data, err := os.ReadFile(pathname)
+	handle, err := os.Open(pathname)
 	if err != nil {
 		return RepoSpec{}, err
+	}
+	defer func() { _ = handle.Close() }()
+	data, err := io.ReadAll(io.LimitReader(handle, MaxRepoSpecSize+1))
+	if err != nil {
+		return RepoSpec{}, err
+	}
+	if len(data) > MaxRepoSpecSize {
+		return RepoSpec{}, fmt.Errorf("%s exceeds %d bytes", pathname, MaxRepoSpecSize)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -221,6 +229,10 @@ func expectedRepoFiles(spec RepoSpec) (map[string]string, error) {
 }
 
 func ScanRepository(root string) (RepoScanReport, error) {
+	root, err := resolveRepositoryRoot(root)
+	if err != nil {
+		return RepoScanReport{}, err
+	}
 	spec, err := readRepoSpec(root)
 	if err != nil {
 		return RepoScanReport{}, err
@@ -231,9 +243,9 @@ func ScanRepository(root string) (RepoScanReport, error) {
 	}
 	report := RepoScanReport{Root: root, Tracked: []string{}, Missing: []string{}, Untracked: []string{}, Unsafe: []string{}}
 	imagesRoot := filepath.Join(root, RepoImagesDir)
-	imagesInfo, err := os.Lstat(imagesRoot)
-	if err != nil || !imagesInfo.IsDir() || imagesInfo.Mode()&os.ModeSymlink != 0 || imagesInfo.Mode().Perm()&0o022 != 0 {
-		return RepoScanReport{}, fmt.Errorf("repository images directory is missing, symlinked, or writable by group/other: %s", imagesRoot)
+	imagesInfo, err := os.Stat(imagesRoot)
+	if err != nil || !imagesInfo.IsDir() {
+		return RepoScanReport{}, fmt.Errorf("repository images path must resolve to an existing directory: %s", imagesRoot)
 	}
 	entries, err := os.ReadDir(imagesRoot)
 	if err != nil {
@@ -346,7 +358,21 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (Catalog, []b
 	return catalog, append(data, '\n'), scan, nil
 }
 
+// Resolve user-selected directory aliases once, before publishing catalog.json.
+// The final output entry still goes through AtomicWrite's no-symlink check.
+func resolveRepositoryRoot(root string) (string, error) {
+	root, err := fsutil.UserPath(root, "")
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(root)
+}
+
 func (b RepoBuilder) Build(ctx context.Context, root string) (RepoBuildResult, error) {
+	root, err := resolveRepositoryRoot(root)
+	if err != nil {
+		return RepoBuildResult{}, err
+	}
 	catalog, data, scan, err := b.materialize(ctx, root)
 	if err != nil {
 		return RepoBuildResult{Scan: scan}, err
@@ -373,6 +399,10 @@ func (b RepoBuilder) Build(ctx context.Context, root string) (RepoBuildResult, e
 }
 
 func (b RepoBuilder) Verify(ctx context.Context, root string) (RepoBuildResult, error) {
+	root, err := resolveRepositoryRoot(root)
+	if err != nil {
+		return RepoBuildResult{}, err
+	}
 	catalog, data, scan, err := b.materialize(ctx, root)
 	if err != nil {
 		return RepoBuildResult{Scan: scan}, err

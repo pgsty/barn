@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
@@ -120,29 +121,30 @@ type NodeConfig struct {
 }
 
 type File struct {
-	Version  int            `yaml:"version"`
-	Name     string         `yaml:"name"`
-	Arch     string         `yaml:"arch,omitempty"`
-	Network  NetworkConfig  `yaml:"network"`
-	Defaults DefaultsConfig `yaml:"defaults,omitempty"`
-	SSH      SSHConfig      `yaml:"ssh,omitempty"`
-	Nodes    []NodeConfig   `yaml:"nodes"`
+	directory string
+	Version   int            `yaml:"version"`
+	Name      string         `yaml:"name"`
+	Arch      string         `yaml:"arch,omitempty"`
+	Network   NetworkConfig  `yaml:"network"`
+	Defaults  DefaultsConfig `yaml:"defaults,omitempty"`
+	SSH       SSHConfig      `yaml:"ssh,omitempty"`
+	Nodes     []NodeConfig   `yaml:"nodes"`
 }
 
 var (
 	sshUser        = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 	dnsName        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
 	diskName       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
-	shareGuestPath = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
 	reservedMounts = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn"}
 )
 
 func safeDiskMount(value string) bool {
-	if !filepath.IsAbs(value) || filepath.Clean(value) != value || value == "/" {
+	cleaned, ok := normalizeGuestPath(value)
+	if !ok {
 		return false
 	}
 	for _, root := range reservedMounts {
-		if guestPathOverlap(value, root) {
+		if guestPathOverlap(cleaned, root) {
 			return false
 		}
 	}
@@ -151,12 +153,31 @@ func safeDiskMount(value string) bool {
 
 // unsafeGuestPathReason explains why safeDiskMount rejected a guest path.
 func unsafeGuestPathReason(value string) string {
+	if cleaned, ok := normalizeGuestPath(value); ok {
+		value = cleaned
+	}
 	for _, root := range reservedMounts {
 		if guestPathOverlap(value, root) {
 			return "overlaps the reserved system path " + root
 		}
 	}
-	return "must be a clean absolute path other than /"
+	return "must be an absolute path other than / and must not contain control characters"
+}
+
+func normalizeGuestPath(value string) (string, bool) {
+	if !pathpkg.IsAbs(value) {
+		return "", false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return "", false
+		}
+	}
+	cleaned := pathpkg.Clean(value)
+	if cleaned == "/" {
+		return "", false
+	}
+	return cleaned, true
 }
 
 // label names a node the way the inventory does: by its host key.
@@ -175,15 +196,11 @@ func safeShareHost(value string) bool {
 }
 
 func safeShareGuest(value string) bool {
-	return shareGuestPath.MatchString(value) && pathpkg.IsAbs(value) && pathpkg.Clean(value) == value && safeDiskMount(value)
+	return safeDiskMount(value)
 }
 
 func cleanPathOverlap(first, second, separator string) bool {
 	return first == second || strings.HasPrefix(first, second+separator) || strings.HasPrefix(second, first+separator)
-}
-
-func hostPathOverlap(first, second string) bool {
-	return cleanPathOverlap(first, second, string(filepath.Separator))
 }
 
 func guestPathOverlap(first, second string) bool {
@@ -275,8 +292,8 @@ func (f *File) Validate() error {
 	if _, err := image.ParseReference(f.Defaults.Image); err != nil {
 		return fmt.Errorf("invalid default image reference: %w", err)
 	}
-	if len(f.Nodes) == 0 || len(f.Nodes) > 20 {
-		return errors.New("configuration requires 1..20 nodes")
+	if len(f.Nodes) == 0 {
+		return errors.New("configuration requires at least one node")
 	}
 	layout, err := subnet.Parse(f.Network.CIDR)
 	if err != nil {
@@ -289,13 +306,8 @@ func (f *File) Validate() error {
 	addresses := make(map[string]struct{})
 	allAliases := make(map[string]struct{})
 	controls := 0
-	type deploymentShareHost struct {
-		path     string
-		readonly bool
-		node     string
-	}
-	deploymentShareHosts := make([]deploymentShareHost, 0)
-	for _, node := range f.Nodes {
+	for nodeIndex := range f.Nodes {
+		node := &f.Nodes[nodeIndex]
 		if !naming.ValidNodeName(node.Name) {
 			return fmt.Errorf("%s: invalid node name %q: %s", node.label(), node.Name, naming.NodeNameRule)
 		}
@@ -345,7 +357,13 @@ func (f *File) Validate() error {
 		}
 		diskNames := make(map[string]struct{})
 		mounts := make(map[string]struct{})
-		for _, disk := range node.Disks {
+		for diskIndex := range node.Disks {
+			disk := &node.Disks[diskIndex]
+			cleaned, ok := normalizeGuestPath(disk.Mount)
+			if !ok {
+				return fmt.Errorf("%s: disk mount %q %s", where, disk.Mount, unsafeGuestPathReason(disk.Mount))
+			}
+			disk.Mount = cleaned
 			switch {
 			case !diskName.MatchString(disk.Name):
 				return fmt.Errorf("%s: invalid disk name %q", where, disk.Name)
@@ -365,26 +383,25 @@ func (f *File) Validate() error {
 			diskNames[disk.Name] = struct{}{}
 			mounts[disk.Mount] = struct{}{}
 		}
-		if len(node.Shares) > spec.MaxSharesPerNode {
-			return fmt.Errorf("%s has %d shares; maximum is %d", where, len(node.Shares), spec.MaxSharesPerNode)
-		}
-		shareHosts := make([]string, 0, len(node.Shares))
 		shareGuests := make([]string, 0, len(node.Shares))
 		sshDirectory := pathpkg.Join("/home", f.SSH.User, ".ssh")
-		for _, share := range node.Shares {
-			if !safeShareHost(share.Host) {
-				return fmt.Errorf("%s: share host %q must be a clean absolute path other than / (~ and relative paths are not expanded)", where, share.Host)
+		for shareIndex := range node.Shares {
+			share := &node.Shares[shareIndex]
+			host, err := fsutil.UserPath(share.Host, f.directory)
+			if err != nil || !safeShareHost(host) {
+				return fmt.Errorf("%s: share host %q must name a directory other than / on a single line", where, share.Host)
 			}
+			share.Host = host
+			cleanedGuest, ok := normalizeGuestPath(share.Guest)
+			if !ok {
+				return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
+			}
+			share.Guest = cleanedGuest
 			if !safeShareGuest(share.Guest) {
 				return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
 			}
 			if guestPathOverlap(share.Guest, sshDirectory) {
 				return fmt.Errorf("%s: share guest %q overlaps the SSH directory %q", where, share.Guest, sshDirectory)
-			}
-			for _, previous := range shareHosts {
-				if hostPathOverlap(previous, share.Host) {
-					return fmt.Errorf("%s: share hosts %q and %q overlap", where, previous, share.Host)
-				}
 			}
 			for _, previous := range shareGuests {
 				if guestPathOverlap(previous, share.Guest) {
@@ -396,15 +413,7 @@ func (f *File) Validate() error {
 					return fmt.Errorf("%s: share guest %q overlaps disk mount %q", where, share.Guest, mount)
 				}
 			}
-			readonly := shareReadonly(share)
-			for _, previous := range deploymentShareHosts {
-				if previous.node != node.Name && hostPathOverlap(previous.path, share.Host) && (!previous.readonly || !readonly) {
-					return fmt.Errorf("share host %q on %s and %q on %s overlap with read-write access; make both readonly or separate them", previous.path, previous.node, share.Host, node.Name)
-				}
-			}
-			shareHosts = append(shareHosts, share.Host)
 			shareGuests = append(shareGuests, share.Guest)
-			deploymentShareHosts = append(deploymentShareHosts, deploymentShareHost{path: share.Host, readonly: readonly, node: node.Name})
 		}
 		if len(node.Shares) == 0 {
 			node.Shares = nil

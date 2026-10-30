@@ -3,17 +3,22 @@ package portalloc
 
 import "fmt"
 
-const candidateSteps = 5
+const candidateStep = 10000
 
-// Candidates implements preferred+n*10000 for n=0..4 and rejects overflow.
+// Candidates implements preferred+n*10000 until the uint16 port range ends.
+// The first five values preserve Barn's historical choices; lower preferred
+// ports get every remaining valid step instead of an arbitrary five-attempt
+// ceiling.
 func Candidates(preferred uint16) []uint16 {
-	ports := make([]uint16, 0, candidateSteps)
-	for n := 0; n < candidateSteps; n++ {
-		candidate := uint32(preferred) + uint32(n*10000)
-		if candidate > 65535 || candidate == 0 {
+	ports := make([]uint16, 0, 7)
+	for candidate := uint32(preferred); candidate <= 65535; candidate += candidateStep {
+		if candidate == 0 {
 			break
 		}
 		ports = append(ports, uint16(candidate))
+		if candidate > 65535-candidateStep {
+			break
+		}
 	}
 	return ports
 }

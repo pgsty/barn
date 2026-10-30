@@ -137,6 +137,10 @@ func ensureSSHDir(home string) (string, error) {
 	if home == "" || !safeOpenSSHPath(home) {
 		return "", errors.New("SSH integration home must be absolute")
 	}
+	home, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return "", fmt.Errorf("resolve SSH integration home: %w", err)
+	}
 	homeInfo, err := os.Lstat(home)
 	if err != nil {
 		return "", errors.New("SSH integration home is not a real directory")
@@ -148,6 +152,10 @@ func ensureSSHDir(home string) (string, error) {
 	directory := filepath.Join(home, ".ssh")
 	if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", err
+	}
+	directory, err = filepath.EvalSymlinks(directory)
+	if err != nil {
+		return "", fmt.Errorf("resolve SSH directory: %w", err)
 	}
 	info, err := os.Lstat(directory)
 	if err != nil {
