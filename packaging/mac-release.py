@@ -22,6 +22,9 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 APP = "bin/Barn.app"
 MANIFEST = "MACOS.json"
+CLI = "bin/barn"
+HELPER = "bin/barn-hosts-helper"
+EXECUTABLES = {CLI, HELPER, APP + "/Contents/MacOS/barn-mac-runner"}
 
 
 def identity(version, commit):
@@ -64,17 +67,24 @@ def validate(files, version, commit=None):
         raise ValueError("Mac payload does not match the CLI source commit")
     if os.environ.get("BARN_MAC_REQUIRE_NOTARIZATION") == "1" and (manifest.get("signing") != "developer_id" or manifest.get("notarized") is not True):
         raise ValueError("formal Mac release requires a Developer ID signed, notarized app")
-    required = {APP + "/Contents/Info.plist", APP + "/Contents/MacOS/barn-mac-runner", APP + "/Contents/_CodeSignature/CodeResources", "MACOS.md"}
+    required = {
+        CLI,
+        HELPER,
+        APP + "/Contents/Info.plist",
+        APP + "/Contents/MacOS/barn-mac-runner",
+        APP + "/Contents/_CodeSignature/CodeResources",
+        "MACOS.md",
+    }
     declared = manifest["files"]
     if not isinstance(declared, dict):
         raise ValueError("invalid Mac payload inventory")
     if not required <= declared.keys() or set(files) != set(declared) | {MANIFEST}:
         raise ValueError("incomplete or unexpected Mac payload inventory")
     for name, expected in declared.items():
-        if name != "MACOS.md" and not name.startswith(APP + "/Contents/"):
+        if name != "MACOS.md" and name not in {CLI, HELPER} and not name.startswith(APP + "/Contents/"):
             raise ValueError("Mac payload escapes its app bundle")
         data, mode = files[name]
-        executable = name in required and name.endswith("/barn-mac-runner")
+        executable = name in EXECUTABLES
         if mode != (0o755 if executable else 0o644) or expected != {"sha256": hashlib.sha256(data).hexdigest(), "mode": mode}:
             raise ValueError(f"Mac payload content or mode changed: {name}")
     info = plistlib.loads(files[APP + "/Contents/Info.plist"][0])
@@ -84,6 +94,9 @@ def validate(files, version, commit=None):
             info.get("CFBundleName") != "Barn" or info.get("CFBundleDisplayName") != "Barn" or
             info.get("CFBundleExecutable") != "barn-mac-runner"):
         raise ValueError("Mac app bundle identity does not match Barn")
+    helper_sha = hashlib.sha256(files[HELPER][0]).hexdigest().encode()
+    if helper_sha not in files[CLI][0]:
+        raise ValueError("Mac CLI does not carry the digest of its paired helper")
     return manifest
 
 
@@ -102,11 +115,88 @@ def build(args):
         stage = Path(temporary)
         (stage / "bin").mkdir()
         env = dict(os.environ, BARN_VERSION=args.version, BARN_COMMIT=args.commit)
+        if env.get("BARN_NOTARY_PROFILE"):
+            if env.get("BARN_CODESIGN_IDENTITY", "-") == "-":
+                raise ValueError("notarization requires BARN_CODESIGN_IDENTITY")
+            # The final submission must contain the CLI, helper, and app together.
+            env["BARN_NOTARY_DEFER"] = "1"
+        go_output = stage / "go"
+        subprocess.run(
+            ["bash", str(REPO / "packaging/build-dev.sh"), "darwin", "arm64", str(go_output)],
+            env=env,
+            check=True,
+        )
+        for name in (CLI, HELPER):
+            source = go_output / Path(name).name
+            destination = stage / name
+            shutil.copyfile(source, destination)
+            destination.chmod(0o755)
+        shutil.rmtree(go_output)
         subprocess.run(["bash", str(REPO / "packaging/build-mac-app.sh"), str(stage / APP)], env=env, check=True)
         shutil.copyfile(REPO / "docs/mac.md", stage / "MACOS.md")
-        signature = subprocess.run(["codesign", "-d", "--verbose=4", str(stage / APP)], capture_output=True, text=True, check=True).stderr
-        notarized = bool(env.get("BARN_NOTARY_PROFILE"))
-        manifest = {"schema": 1, "version": args.version, "commit": args.commit, "target": "darwin/arm64", "signing": "developer_id" if "Authority=Developer ID Application:" in signature else "ad_hoc", "notarized": notarized, "files": {}}
+        signatures = []
+        for name in (CLI, HELPER):
+            subprocess.run(["codesign", "--verify", "--strict", str(stage / name)], check=True)
+            signatures.append(
+                subprocess.run(
+                    ["codesign", "-d", "--verbose=4", str(stage / name)],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stderr
+            )
+        subprocess.run(["codesign", "--verify", "--deep", "--strict", str(stage / APP)], check=True)
+        signatures.append(
+            subprocess.run(
+                ["codesign", "-d", "--verbose=4", str(stage / APP)],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stderr
+        )
+        notarized = False
+        if env.get("BARN_NOTARY_PROFILE"):
+            notarize_root = stage / "Barn-native"
+            notarize_bin = notarize_root / "bin"
+            notarize_bin.mkdir(parents=True)
+            for name in (CLI, HELPER):
+                shutil.copyfile(stage / name, notarize_root / name)
+            subprocess.run(["ditto", str(stage / APP), str(notarize_root / APP)], check=True)
+            notarize_zip = stage / "notarize.zip"
+            subprocess.run(
+                ["ditto", "-c", "-k", "--keepParent", str(notarize_root), str(notarize_zip)],
+                check=True,
+            )
+            notary = subprocess.run(
+                [
+                    "xcrun",
+                    "notarytool",
+                    "submit",
+                    str(notarize_zip),
+                    "--keychain-profile",
+                    env["BARN_NOTARY_PROFILE"],
+                    "--wait",
+                    "--timeout",
+                    "20m",
+                    "--output-format",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            notary_result = json.loads(notary.stdout)
+            if notary_result.get("status") != "Accepted":
+                raise ValueError("Apple did not accept the complete Mac payload for notarization")
+            print(f"Apple notarization accepted: {notary_result['id']}", flush=True)
+            subprocess.run(["xcrun", "stapler", "staple", str(stage / APP)], check=True)
+            subprocess.run(["xcrun", "stapler", "validate", str(stage / APP)], check=True)
+            subprocess.run(["spctl", "--assess", "--type", "execute", str(stage / APP)], check=True)
+            shutil.rmtree(notarize_root)
+            notarize_zip.unlink()
+            notarized = True
+        developer_id = all("Authority=Developer ID Application:" in signature for signature in signatures)
+        manifest = {"schema": 1, "version": args.version, "commit": args.commit, "target": "darwin/arm64", "signing": "developer_id" if developer_id else "ad_hoc", "notarized": notarized, "files": {}}
         files = {}
         for path in sorted(stage.rglob("*")):
             if path.is_symlink():
@@ -130,6 +220,8 @@ def build(args):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
             path.chmod(mode)
+        subprocess.run(["codesign", "--verify", "--strict", str(verify / CLI)], check=True)
+        subprocess.run(["codesign", "--verify", "--strict", str(verify / HELPER)], check=True)
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(verify / APP)], check=True)
         if notarized:
             subprocess.run(["xcrun", "stapler", "validate", str(verify / APP)], check=True)
@@ -152,7 +244,7 @@ def attach(args):
         raise ValueError("unexpected Darwin archive root")
     for path, value in payload.items():
         key = root + "/" + path
-        if key in files:
+        if key in files and path not in {CLI, HELPER}:
             raise ValueError("Darwin archive already contains a native payload")
         files[key] = value
     with tempfile.TemporaryDirectory(prefix=".mac-attach-", dir=dist) as temporary:
@@ -168,19 +260,27 @@ def attach(args):
         checksums = sorted(f"{hashlib.sha256((dist / item).read_bytes()).hexdigest()}  {item}\n" for item in checksum_names)
         (stage / "checksums.txt").write_text("".join(checksums))
         os.replace(stage / "checksums.txt", dist / "checksums.txt")
-    print(f"Attached native Mac app to {dist / name}")
+    print(f"Attached native Mac payload to {dist / name}")
 
 
 def inventory(args):
     files = members(args.archive)
     root = f"barn_{args.version}_darwin_arm64/"
-    payload = {name[len(root):]: value for name, value in files.items() if name.startswith(root) and (name[len(root):].startswith(APP + "/") or name[len(root):] in (MANIFEST, "MACOS.md"))}
-    if not payload:
+    payload = {
+        name[len(root):]: value
+        for name, value in files.items()
+        if name.startswith(root)
+        and (
+            name[len(root):].startswith(APP + "/")
+            or name[len(root):] in (CLI, HELPER, MANIFEST, "MACOS.md")
+        )
+    }
+    if not (set(payload) - {CLI, HELPER}):
         if os.environ.get("BARN_MAC_REQUIRE_PAYLOAD") == "1":
             raise ValueError("Darwin arm64 release is missing the native Mac payload")
         return
     validate(payload, args.version, args.commit)
-    print("\n".join(sorted(payload)))
+    print("\n".join(sorted(set(payload) - {CLI, HELPER})))
 
 
 def check(args):

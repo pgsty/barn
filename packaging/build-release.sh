@@ -90,6 +90,7 @@ license_corpus=${temporary}/license-corpus
 
 ldflags="-buildid= -s -w -X github.com/pgsty/barn/internal/version.Version=${version} -X github.com/pgsty/barn/internal/version.Commit=${commit} -X github.com/pgsty/barn/internal/version.Date=${build_date}"
 targets=(darwin/arm64 darwin/amd64 linux/amd64 linux/arm64)
+codesign_identity=${BARN_CODESIGN_IDENTITY:--}
 
 for target in "${targets[@]}"; do
   goos=${target%/*}
@@ -97,11 +98,36 @@ for target in "${targets[@]}"; do
   root_name="barn_${version}_${goos}_${goarch}"
   stage="${temporary}/${root_name}"
   install -d -m 0755 "${stage}/bin" "${stage}/licenses"
+  macos_signing=0
+  if [[ ${goos} == darwin && ${codesign_identity} != - ]]; then
+    [[ $(uname -s) == Darwin ]] || {
+      printf 'Darwin code signing requires a macOS build host\n' >&2
+      exit 2
+    }
+    command -v codesign >/dev/null || {
+      printf 'required development build tool is missing: codesign\n' >&2
+      exit 3
+    }
+    macos_signing=1
+  fi
+  if [[ ${goos} == darwin && ${BARN_MAC_REQUIRE_NOTARIZATION:-0} == 1 && ${codesign_identity} == - ]]; then
+    printf 'formal Darwin builds require BARN_CODESIGN_IDENTITY\n' >&2
+    exit 2
+  fi
+  sign_macos_binary() {
+    local path=$1
+    if (( macos_signing )); then
+      codesign --force --sign "${codesign_identity}" --options runtime --timestamp "${path}"
+      codesign --verify --strict "${path}"
+    fi
+  }
   (
     cd "${repo}"
     CGO_ENABLED=0 GOOS=${goos} GOARCH=${goarch} GOFLAGS=-mod=readonly \
       go build -trimpath -buildvcs=false -ldflags "${ldflags}" -o "${stage}/bin/barn-hosts-helper" ./cmd/barn-hosts-helper
   )
+  chmod 0755 "${stage}/bin/barn-hosts-helper"
+  sign_macos_binary "${stage}/bin/barn-hosts-helper"
   helper_sha=$(shasum -a 256 "${stage}/bin/barn-hosts-helper" | awk '{print $1}')
   (
     cd "${repo}"
@@ -109,6 +135,7 @@ for target in "${targets[@]}"; do
       go build -trimpath -buildvcs=false -ldflags "${ldflags} -X github.com/pgsty/barn/internal/hostconfig.ExpectedHelperSHA256=${helper_sha}" -o "${stage}/bin/barn" ./cmd/barn
   )
   chmod 0755 "${stage}/bin/barn" "${stage}/bin/barn-hosts-helper"
+  sign_macos_binary "${stage}/bin/barn"
   barn_sha=$(shasum -a 256 "${stage}/bin/barn" | awk '{print $1}')
   install -m 0644 "${repo}/LICENSE" "${repo}/README.md" "${stage}/"
   install -m 0644 "${license_corpus}"/* "${stage}/licenses/"

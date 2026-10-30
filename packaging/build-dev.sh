@@ -40,6 +40,24 @@ for tool in awk chmod cmp date git go grep install ln mkdir mktemp mv rm rmdir; 
   }
 done
 
+codesign_identity=${BARN_CODESIGN_IDENTITY:--}
+macos_signing=0
+if [[ ${goos} == darwin && ${codesign_identity} != - ]]; then
+  [[ $(uname -s) == Darwin ]] || {
+    printf 'Darwin code signing requires a macOS build host\n' >&2
+    exit 2
+  }
+  command -v codesign >/dev/null || {
+    printf 'required development build tool is missing: codesign\n' >&2
+    exit 3
+  }
+  macos_signing=1
+fi
+if [[ ${goos} == darwin && ${BARN_MAC_REQUIRE_NOTARIZATION:-0} == 1 && ${codesign_identity} == - ]]; then
+  printf 'formal Darwin builds require BARN_CODESIGN_IDENTITY\n' >&2
+  exit 2
+fi
+
 bin_root=${repo}/bin
 if [[ -L ${bin_root} || (-e ${bin_root} && ! -d ${bin_root}) ]]; then
   printf 'development bin root must be a real directory: %s\n' "${bin_root}" >&2
@@ -228,12 +246,21 @@ helper=${temporary}/barn-hosts-helper
 binary=${temporary}/barn
 common_ldflags="-buildid= -X github.com/pgsty/barn/internal/version.Version=${version} -X github.com/pgsty/barn/internal/version.Commit=${commit} -X github.com/pgsty/barn/internal/version.Date=${build_date}"
 
+sign_macos_binary() {
+  local path=$1
+  if (( macos_signing )); then
+    codesign --force --sign "${codesign_identity}" --options runtime --timestamp "${path}"
+    codesign --verify --strict "${path}"
+  fi
+}
+
 (
   cd "${repo}"
   CGO_ENABLED=0 GOOS=${goos} GOARCH=${goarch} GOFLAGS=-mod=readonly \
     go build -trimpath -buildvcs=false -ldflags "${common_ldflags}" \
       -o "${helper}" ./cmd/barn-hosts-helper
 )
+sign_macos_binary "${helper}"
 helper_sha=$(sha256_file "${helper}")
 (
   cd "${repo}"
@@ -242,6 +269,7 @@ helper_sha=$(sha256_file "${helper}")
       -ldflags "${common_ldflags} -X github.com/pgsty/barn/internal/hostconfig.ExpectedHelperSHA256=${helper_sha}" \
       -o "${binary}" ./cmd/barn
 )
+sign_macos_binary "${binary}"
 grep -a -F "${helper_sha}" "${binary}" >/dev/null || {
   printf 'built CLI does not contain the companion helper digest\n' >&2
   exit 1

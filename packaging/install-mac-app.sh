@@ -9,9 +9,12 @@ source_app=$1
 destination=$2
 [[ $destination == /* ]] || destination="$repo/$destination"
 case /$destination/ in */../*|*/./*) echo "Refusing dot path in app destination" >&2; exit 2 ;; esac
-case $destination in "$repo"/bin/*.app) ;; *) echo "Local app destination must be inside repository bin" >&2; exit 2 ;; esac
+bin_root=$repo/bin
+[[ ! -L $bin_root && ( ! -e $bin_root || -d $bin_root ) ]] || { echo "Unsafe app destination root: $bin_root" >&2; exit 2; }
+[[ $destination == "$bin_root"/* && ${destination##*/} == *.app ]] || { echo "Local app destination must be inside repository bin" >&2; exit 2; }
 parent=${destination%/*}
 [[ -d $parent && ! -L $parent && $(cd "$parent" && pwd -P) == "$parent" ]] || { echo "Unsafe app destination parent: $parent" >&2; exit 2; }
+case "$(cd "$parent" && pwd -P)" in "$bin_root"|"$bin_root"/*) ;; *) echo "App destination parent escapes repository bin" >&2; exit 2 ;; esac
 [[ ! -L $destination && ( ! -e $destination || -d $destination ) ]] || { echo "Unsafe app destination: $destination" >&2; exit 2; }
 [[ -d $source_app && ! -L $source_app ]] || { echo "App source must be a real directory" >&2; exit 2; }
 codesign --verify --deep --strict "$source_app"

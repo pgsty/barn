@@ -105,14 +105,12 @@ tag_commit=$(git -C "${repo}" rev-parse --verify "refs/tags/v${version}^{commit}
 }
 source_epoch=$(git -C "${repo}" show -s --format=%ct "${commit}")
 [[ ${source_epoch} =~ ^[0-9]+$ ]] && (( source_epoch > 0 ))
-# The native Mac app is optional. When supplied it must be notarized; without
-# it the release ships the CLI alone and barn mac explains what is missing.
-if [[ -n ${BARN_MAC_PAYLOAD:-} ]]; then
-  BARN_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" check \
-    "${version}" "${commit}" "${BARN_MAC_PAYLOAD}"
-else
-  printf 'BARN_MAC_PAYLOAD is not set; this release will not include the native Mac app (see docs/mac-release.md)\n' >&2
-fi
+[[ -n ${BARN_MAC_PAYLOAD:-} ]] || {
+  printf 'formal releases require BARN_MAC_PAYLOAD with the signed, notarized Mac component (see docs/mac-release.md)\n' >&2
+  exit 1
+}
+BARN_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" check \
+  "${version}" "${commit}" "${BARN_MAC_PAYLOAD}"
 if build_date=$(date -u -r "${source_epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null); then
   :
 else
@@ -168,15 +166,11 @@ case ${folded_output} in
     exit 2
     ;;
 esac
-if [[ -n ${BARN_MAC_PAYLOAD:-} ]]; then
-  SOURCE_DATE_EPOCH=${source_epoch} \
-    BARN_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" attach \
-      "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}" "${BARN_MAC_PAYLOAD}"
-  SOURCE_DATE_EPOCH=${source_epoch} BARN_MAC_REQUIRE_PAYLOAD=1 BARN_MAC_REQUIRE_NOTARIZATION=1 \
-    "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
-else
-  SOURCE_DATE_EPOCH=${source_epoch} "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
-fi
+SOURCE_DATE_EPOCH=${source_epoch} \
+  BARN_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" attach \
+    "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}" "${BARN_MAC_PAYLOAD}"
+SOURCE_DATE_EPOCH=${source_epoch} BARN_MAC_REQUIRE_PAYLOAD=1 BARN_MAC_REQUIRE_NOTARIZATION=1 \
+  "${repo}/packaging/verify-goreleaser.sh" "${version}" "${goreleaser_dist}"
 "${repo}/packaging/verify-linux-packages.sh" \
   "${version}" "${commit}" "${source_epoch}" "${goreleaser_dist}"
 

@@ -4,29 +4,34 @@ Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
 1.0.0 may include incompatible changes between minor versions.
 
-## 1.0.0 — Unreleased
+## 0.9.2 — 2026-10-30
+
+Barn 0.9.2 bundles the signed and notarized native macOS guest component in
+the Apple Silicon archive and Homebrew installation.
+
+### Added
+
+- Include `Barn.app` with the Darwin arm64 archive. The CLI, hosts helper and
+  native runner come from one source commit and are checked as one payload.
+- Install the matching `Barn.app` from Homebrew into the formula's private
+  `libexec` directory so `barn mac` works without Go or Xcode.
 
 ### Changed
 
 - Require `--` before remote commands for `ssh`, `exec`, `mac ssh`, and
-  `mac exec`. Before the separator, accept at most one known node or machine.
-  `ssh` still opens an interactive session without a command; `exec` requires
-  one. Reject an empty first remote argument; `exec` retains later empty
-  values. Replace `barn exec meta hostname` with `barn exec meta -- hostname`.
-- Parse Barn flags normally before `--` and stop suggesting Barn flags or
-  selectors after it. `ssh` retains shell command-line semantics; `exec`
-  preserves multiple-argument boundaries. Prefer separate program arguments
-  and explicit `sh -c` for shell expressions; single-string shell shorthand
-  remains supported for compatibility.
-  Regenerate saved Bash completion scripts after upgrading.
+  `mac exec`. SSH keeps shell command-line semantics; exec preserves separate
+  argument boundaries. Use `sh -c` explicitly for shell operators.
+- Sign the helper before embedding its final SHA-256 in the CLI, then verify
+  the pair after archive composition.
+- Refuse formal releases and Apple Silicon Homebrew installs when the native
+  component is absent or lacks Developer ID and notarization metadata.
 
 ### Fixed
 
-- Distinguish missing `--`, extra selectors, and unknown nodes or machines
-  in SSH/exec errors. Unknown selectors point to `barn status` or `barn mac ls`.
 - Terminate OpenSSH option parsing before the destination for Linux and Mac
   guests, so remote `-V` and `-o...` commands cannot affect the local client.
-  Provisioning retains its fixed command, script input, and exit handling.
+- Distinguish missing `--`, extra selectors, and unknown nodes or machines in
+  SSH/exec errors.
 
 ## 0.9.1 — 2026-10-22
 

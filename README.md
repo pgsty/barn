@@ -26,7 +26,7 @@
 <p align="center">
   <a href="https://barn.pgsty.com/"><img alt="Website" src="https://img.shields.io/badge/Website-barn.pgsty.com-A9573B"></a>
   <a href="https://github.com/pgsty/barn/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/pgsty/barn/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/pgsty/barn/releases/tag/v0.9.1"><img alt="Release: 0.9.1" src="https://img.shields.io/badge/release-0.9.1-AF8250"></a>
+  <a href="https://github.com/pgsty/barn/releases/tag/v0.9.2"><img alt="Release: 0.9.2" src="https://img.shields.io/badge/release-0.9.2-AF8250"></a>
   <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/pgsty/barn?logo=go"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-344F60"></a>
 </p>
@@ -48,14 +48,14 @@ Linux uses QEMU with HVF on macOS or KVM on Linux. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **0.9.1** updates Go to 1.27.3, refreshes dependencies,
-and names the native Mac component `Barn.app`. See the
-[release notes](.github/releases/0.9.1.md) and
-[release checklist](docs/release-0.9.1.md).
+Barn **0.9.2** bundles the Developer ID signed and Apple-notarized native
+Mac component with the Apple Silicon download and Homebrew installation.
+It also makes remote SSH and exec argument boundaries explicit. See the
+[release notes](.github/releases/0.9.2.md).
 
-## Install 0.9.1
+## Install 0.9.2
 
-[0.9.1](https://github.com/pgsty/barn/releases/tag/v0.9.1) follows Barn's pre-1.0
+[0.9.2](https://github.com/pgsty/barn/releases/tag/v0.9.2) follows Barn's pre-1.0
 pre-release channel. Select the version explicitly with the download installer;
 GitHub's `releases/latest` does not select pre-releases.
 
@@ -72,8 +72,8 @@ The installer selects the native arm64 or amd64 archive, verifies it, and
 installs into `~/.local/bin` without sudo:
 
 ```bash
-curl -fLO https://github.com/pgsty/barn/releases/download/v0.9.1/install.sh
-BARN_VERSION=0.9.1 bash install.sh
+curl -fLO https://github.com/pgsty/barn/releases/download/v0.9.2/install.sh
+BARN_VERSION=0.9.2 bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 barn version
 ```
@@ -113,10 +113,10 @@ Follow the [Linux quick start](https://barn.pgsty.com/docs/start/tutorial/).
 ## Run a macOS VM
 
 macOS guests require Apple Silicon, macOS 27 or later, and `Barn.app`.
-The 0.9.1 downloads include the CLI and hosts helper; `Barn.app` is available
-as a source preview. Build the CLI and app together from tag `v0.9.1`
-with Xcode 27 using the
-[Mac guide](https://barn.pgsty.com/docs/start/macos/#install), then run:
+The 0.9.2 Apple Silicon archive includes the signed, notarized CLI, hosts
+helper, and `Barn.app`. Homebrew installs all three and QEMU; `barn mac`
+finds its matching native component automatically. No source build or Xcode
+installation is needed to run the packaged app:
 
 ```bash
 barn mac doctor
@@ -167,7 +167,7 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 - [Guides](https://barn.pgsty.com/docs/start/) — installation, daily operations, images, automation, and troubleshooting.
 - [Reference](https://barn.pgsty.com/docs/reference/) — configuration, Linux and Mac commands, output, and exit codes.
 - [Platforms and limits](https://barn.pgsty.com/docs/about/status/) — host requirements and guest restrictions.
-- [Release notes](https://barn.pgsty.com/blog/release/) — version history and what's new in 0.9.1.
+- [Release notes](.github/releases/0.9.2.md) — what's new in 0.9.2.
 - [Design and validation history](docs/README.md) — original proposals, implementation decisions, and dated acceptance records.
 - [Issues](https://github.com/pgsty/barn/issues) — bug reports and feature requests; use the [security policy](SECURITY.md) for vulnerabilities.
 

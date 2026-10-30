@@ -1,9 +1,10 @@
 # typed: strict
 # frozen_string_literal: true
 
-# Barn installs the unprivileged native QEMU development-VM runtime.
+# Barn installs the unprivileged QEMU development-VM runtime and its optional
+# signed native macOS guest component.
 class Barn < Formula
-  desc "Native Go/QEMU runtime for Pigsty development VMs"
+  desc "Go/QEMU runtime for Pigsty development VMs"
   homepage "https://barn.pgsty.com"
   version "@VERSION@"
   license "Apache-2.0"
@@ -39,10 +40,25 @@ class Barn < Formula
   def install
     bin.install "bin/barn"
     libexec.install "bin/barn-hosts-helper"
-    if (buildpath/"bin/Barn.app").directory?
-      libexec.install "bin/Barn.app"
+
+    app = buildpath/"bin/Barn.app"
+    if app.directory?
+      if bundled_mac_component_required? && !native_component_metadata_valid?(buildpath)
+        odie <<~EOS
+          The Barn #{version} native component is not a Developer ID signed,
+          notarized release. Refusing to install an incomplete macOS VM bundle.
+        EOS
+      end
+      libexec.install app
       doc.install "MACOS.md", "MACOS.json"
+    elsif bundled_mac_component_required?
+      odie <<~EOS
+        The Barn #{version} Apple Silicon archive is missing Barn.app.
+        This release cannot provide macOS VM support through Homebrew.
+        Use a release with the signed, notarized native component.
+      EOS
     end
+
     doc.install "README.md"
     doc.install "licenses"
   end
@@ -59,7 +75,15 @@ class Barn < Formula
       Use barn init full to customize a four-node lab before starting it.
       For unattended preparation, run barn setup --yes before barn up.
     EOS
-    return text unless (libexec/"Barn.app").exist?
+    unless (libexec/"Barn.app").directory?
+      return text if !OS.mac? || !Hardware::CPU.arm?
+
+      return text + <<~EOS
+
+        This Barn release does not bundle Barn.app, so it cannot run macOS
+        guests. Upgrade to a release that includes the signed native component.
+      EOS
+    end
 
     text + <<~EOS
 
@@ -69,7 +93,41 @@ class Barn < Formula
     EOS
   end
 
+  def bundled_mac_component_required?
+    # 0.9.1 is the last public CLI-only release; 0.9.2+ carries Barn.app.
+    OS.mac? && Hardware::CPU.arm? && version >= "0.9.2"
+  end
+
+  def native_component_metadata_valid?(root)
+    manifest = root/"MACOS.json"
+    return false unless manifest.file?
+
+    metadata = JSON.parse(manifest.read)
+    metadata.is_a?(Hash) && metadata["signing"] == "developer_id" &&
+      metadata["notarized"] == true && metadata["target"] == "darwin/arm64"
+  rescue JSON::ParserError
+    false
+  end
+
   test do
     assert_match "barn #{version}", shell_output("#{bin}/barn version")
+    assert_path_exists libexec/"barn-hosts-helper"
+
+    if OS.mac? && Hardware::CPU.arm?
+      app = libexec/"Barn.app"
+      if app.directory?
+        assert_path_exists app/"Contents/MacOS/barn-mac-runner"
+        assert native_component_metadata_valid?(doc)
+        system "/usr/bin/codesign", "--verify", "--strict", bin/"barn"
+        system "/usr/bin/codesign", "--verify", "--strict", libexec/"barn-hosts-helper"
+        helper_sha = Digest::SHA256.file(libexec/"barn-hosts-helper").hexdigest
+        assert (bin/"barn").binread.include?(helper_sha), "CLI does not match its signed hosts helper"
+        system "/usr/bin/codesign", "--verify", "--deep", "--strict", app
+        signature = shell_output("/usr/bin/codesign --display --verbose=2 #{app} 2>&1")
+        assert_match "Authority=Developer ID Application:", signature
+      elsif bundled_mac_component_required?
+        flunk "Barn #{version} must install the signed native macOS component"
+      end
+    end
   end
 end

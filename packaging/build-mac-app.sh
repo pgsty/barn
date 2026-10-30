@@ -43,7 +43,8 @@ sign_args=(--force --sign "$identity" --options runtime)
 if [[ $identity != - ]]; then sign_args+=(--timestamp); fi
 codesign "${sign_args[@]}" --entitlements "$repo/native/mac-runner/entitlements.plist" "$app"
 codesign --verify --deep --strict "$app"
-if [[ -n ${BARN_NOTARY_PROFILE:-} ]]; then
+# The complete payload builder submits the CLI, helper, and app together.
+if [[ -n ${BARN_NOTARY_PROFILE:-} && ${BARN_NOTARY_DEFER:-0} != 1 ]]; then
   [[ $identity != - ]] || { echo "Notarization requires a Developer ID identity" >&2; exit 2; }
   ditto -c -k --keepParent "$app" "$stage/notarize.zip"
   xcrun notarytool submit "$stage/notarize.zip" --keychain-profile "$BARN_NOTARY_PROFILE" --wait --timeout 20m --output-format json >"$stage/notary.json"

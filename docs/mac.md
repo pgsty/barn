@@ -12,27 +12,19 @@ Linux `destroy` and `purge` leave them alone.
 
 ## Install
 
-Install [Barn 0.9.0](https://barn.pgsty.com/docs/start/installation/) and run
-`barn mac doctor`. Mac guests require the native component alongside the CLI.
-It is named `Barn Mac.app` in v0.9.0 and `Barn.app` in the later development
-checkout. The installer preserves a bundled component when the selected
-Darwin arm64 archive includes one.
-
-The 0.9.0 release archives provide the CLI. Build the native bundle from the
-0.9.0 source with Xcode 27 on Apple Silicon:
+Barn 0.9.2 includes the signed, notarized native component in its Apple Silicon
+archive. Homebrew installs the CLI, its matching hosts helper, `Barn.app`, and
+QEMU together:
 
 ```sh
-git clone --branch v0.9.0 https://github.com/pgsty/barn.git
-cd barn
-make mac-build
-export PATH="$PWD/bin/mac:$PATH"
+brew install pgsty/infra/barn
 barn mac doctor
 ```
 
-The v0.9.0 command above builds `Barn Mac.app`; keep it beside the matching
-`barn` in `bin/mac`. A build from the later development checkout instead
-produces `Barn.app`. Xcode is needed for building the component, not for
-running a packaged one.
+The CLI finds `Barn.app` in the formula's private `libexec` directory. Xcode
+and Go are not required to run the packaged component. The download installer
+also preserves the bundled app. Upgrade the CLI, helper, and app together;
+the 0.9.1 downloads did not include the app.
 
 ## Quick start
 

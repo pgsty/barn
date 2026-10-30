@@ -35,7 +35,14 @@ sha_darwin_amd64=$(shasum -a 256 "${darwin_amd64}" | awk '{print $1}')
 sha_linux_arm64=$(shasum -a 256 "${linux_arm64}" | awk '{print $1}')
 sha_linux_amd64=$(shasum -a 256 "${linux_amd64}" | awk '{print $1}')
 
+# Homebrew infers plain versions, but can mistake a suffix for the architecture.
+version_filter=''
+if [[ ${version} != *-* && ${version} != *+* ]]; then
+  version_filter='/^  version "@VERSION@"$/d'
+fi
+
 sed \
+  -e "${version_filter}" \
   -e "s|@VERSION@|${version}|g" \
   -e "s|@BASE_URL@|${release_base}|g" \
   -e "s|@DARWIN_ARM64_SHA@|${sha_darwin_arm64}|g" \

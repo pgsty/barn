@@ -11,6 +11,7 @@ import plistlib
 import sys
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -23,6 +24,9 @@ spec.loader.exec_module(release)
 class PayloadTests(unittest.TestCase):
     def fixture(self):
         files = {"MACOS.md": (b"guide", 0o644)}
+        helper = b"test helper bytes"
+        files[release.HELPER] = helper, 0o755
+        files[release.CLI] = b"test cli " + hashlib.sha256(helper).hexdigest().encode(), 0o755
         files[release.APP + "/Contents/Info.plist"] = plistlib.dumps({"BarnVersion": "0.8.1-next", "BarnCommit": "uncommitted", "LSMinimumSystemVersion": "27.0",
                 "CFBundleIdentifier": "com.pgsty.barn", "CFBundleName": "Barn", "CFBundleDisplayName": "Barn", "CFBundleExecutable": "barn-mac-runner"}), 0o644
         for name in ("MacOS/barn-mac-runner", "_CodeSignature/CodeResources"):
@@ -67,6 +71,27 @@ class PayloadTests(unittest.TestCase):
         with patch.dict(os.environ, BARN_MAC_REQUIRE_NOTARIZATION="1"):
             with self.assertRaisesRegex(ValueError, "notarized"):
                 release.validate(self.fixture(), "0.8.1-next")
+
+    def test_cli_and_helper_must_remain_paired(self):
+        files = self.fixture()
+        files[release.HELPER] = b"changed helper", 0o755
+        manifest = json.loads(files[release.MANIFEST][0])
+        manifest["files"][release.HELPER]["sha256"] = hashlib.sha256(files[release.HELPER][0]).hexdigest()
+        files[release.MANIFEST] = json.dumps(manifest).encode(), 0o644
+        with self.assertRaisesRegex(ValueError, "paired helper"):
+            release.validate(files, "0.8.1-next")
+
+    def test_cli_only_inventory_is_optional_only_for_snapshots(self):
+        files = self.fixture()
+        root = "barn_0.8.1-next_darwin_arm64/"
+        archive_files = {root + name: files[name] for name in (release.CLI, release.HELPER)}
+        args = SimpleNamespace(archive="unused", version="0.8.1-next", commit=None)
+        with patch.object(release, "members", return_value=archive_files):
+            with patch.dict(os.environ, BARN_MAC_REQUIRE_PAYLOAD="0"):
+                release.inventory(args)
+            with patch.dict(os.environ, BARN_MAC_REQUIRE_PAYLOAD="1"):
+                with self.assertRaisesRegex(ValueError, "missing"):
+                    release.inventory(args)
 
     def test_wrong_bundle_identity_is_rejected_even_with_matching_digests(self):
         files = self.fixture()
