@@ -114,6 +114,34 @@ func TestPruneDryRunAndApplyOrphanedStagingFiles(t *testing.T) {
 	}
 }
 
+func TestPruneDryRunAndApplyQuarantinedImages(t *testing.T) {
+	t.Parallel()
+	dataRoot := t.TempDir()
+	family := filepath.Join(dataRoot, "images", "u24")
+	for _, directory := range []string{family, filepath.Join(dataRoot, "locks")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	quarantined := filepath.Join(family, "u24-1-arm64.qcow2.corrupt-123456789")
+	if err := os.WriteFile(quarantined, []byte("damaged image"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	store := Store{DataRoot: dataRoot, QEMUImg: "/fake/qemu-img", Runner: pruneRunner{virtualSize: 1 << 30}}
+	resolver := func() (map[string]struct{}, error) { return map[string]struct{}{}, nil }
+	dryRun, err := store.Prune(context.Background(), false, resolver)
+	if err != nil || len(dryRun.Items) != 1 || dryRun.Items[0].Kind != "quarantine" || dryRun.Items[0].Digest != "" || dryRun.Items[0].Applied {
+		t.Fatalf("quarantine dry-run prune = %#v, %v", dryRun, err)
+	}
+	applied, err := store.Prune(context.Background(), true, resolver)
+	if err != nil || len(applied.Items) != 1 || applied.Items[0].Kind != "quarantine" || !applied.Items[0].Applied {
+		t.Fatalf("quarantine apply prune = %#v, %v", applied, err)
+	}
+	if _, err := os.Lstat(quarantined); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("quarantined image remains: %v", err)
+	}
+}
+
 func TestPruneProtectsActiveExplicitRepositoryCatalog(t *testing.T) {
 	t.Parallel()
 	dataRoot := t.TempDir()

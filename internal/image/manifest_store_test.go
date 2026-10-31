@@ -504,6 +504,15 @@ func TestExplicitUnsignedLocalRepositoriesKeepIndependentHighWaterState(t *testi
 	}
 }
 
+func TestOfficialMirrorInheritsEmbeddedHighWaterMark(t *testing.T) {
+	t.Parallel()
+	manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data"), Repository: ChinaRepositoryURL, Keys: testManifestRoots(t)}
+	path := signedCatalog(t, t.TempDir(), EmbeddedManifestVersion-1, privateKey(t, developmentPrivateRoot1), nil)
+	if _, err := manager.Sync(context.Background(), path, false); err == nil || !strings.Contains(err.Error(), "below accepted high-water mark") {
+		t.Fatalf("old official mirror catalog was accepted: %v", err)
+	}
+}
+
 func TestIndependentRepositoriesCanSignIdenticalCatalogWithDifferentKeys(t *testing.T) {
 	t.Parallel()
 	dataRoot := filepath.Join(t.TempDir(), "data")

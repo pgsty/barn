@@ -41,6 +41,33 @@ func stagingImageName(name string) bool {
 	return strings.HasPrefix(name, ".download-") || strings.HasPrefix(name, ".import-") || strings.HasPrefix(name, ".repository-")
 }
 
+func quarantinedImageName(name string) bool {
+	for _, extension := range []string{".qcow2", ".img"} {
+		prefix := extension + ".corrupt-"
+		index := strings.Index(name, prefix)
+		if index <= 0 {
+			continue
+		}
+		if index+len(prefix) >= len(name) || !allDecimal(name[index+len(prefix):]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func allDecimal(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 type pruneCandidate struct {
 	path string
 	kind string
@@ -82,6 +109,8 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 			switch {
 			case extension == ".qcow2" || extension == ".img":
 				kind = "image"
+			case quarantinedImageName(file.Name()):
+				kind = "quarantine"
 			case stagingImageName(file.Name()):
 				kind = "staging"
 			}
@@ -96,9 +125,12 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 		if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return report, fmt.Errorf("managed image cache entry is not a regular non-symlink file: %s", candidate.path)
 		}
-		if candidate.kind == "staging" {
-			if info.Mode().Perm()&0o077 != 0 {
+		if candidate.kind == "staging" || candidate.kind == "quarantine" {
+			if candidate.kind == "staging" && info.Mode().Perm()&0o077 != 0 {
 				return report, fmt.Errorf("managed image staging file has unsafe permissions: %s", candidate.path)
+			}
+			if candidate.kind == "quarantine" && info.Mode().Perm()&0o222 != 0 {
+				return report, fmt.Errorf("managed image quarantine file is writable: %s", candidate.path)
 			}
 			item := PruneItem{Kind: candidate.kind, ImagePath: candidate.path, Bytes: info.Size()}
 			if apply {
@@ -146,6 +178,18 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 }
 
 func (s Store) Prune(ctx context.Context, apply bool, resolveReferences func() (map[string]struct{}, error)) (_ PruneReport, returnErr error) {
+	return s.prune(ctx, apply, "", resolveReferences)
+}
+
+// PruneWithReferenceLock keeps the reference snapshot lock until the scan and
+// deletion finish. Callers that update durable node image references can use
+// the same lock to prevent an image from being removed between the snapshot
+// and the filesystem operation.
+func (s Store) PruneWithReferenceLock(ctx context.Context, apply bool, referenceLockPath string, resolveReferences func() (map[string]struct{}, error)) (_ PruneReport, returnErr error) {
+	return s.prune(ctx, apply, referenceLockPath, resolveReferences)
+}
+
+func (s Store) prune(ctx context.Context, apply bool, referenceLockPath string, resolveReferences func() (map[string]struct{}, error)) (_ PruneReport, returnErr error) {
 	if s.DataRoot == "" || !filepath.IsAbs(s.DataRoot) || s.QEMUImg == "" || s.Runner == nil {
 		return PruneReport{}, errors.New("image prune store is incomplete")
 	}
@@ -159,25 +203,31 @@ func (s Store) Prune(ctx context.Context, apply bool, resolveReferences func() (
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o022 != 0 {
 		return PruneReport{}, errors.New("barn home directory is unsafe")
 	}
-	if !apply {
-		referenced, resolveErr := resolveReferences()
-		if resolveErr != nil {
-			return PruneReport{}, resolveErr
-		}
-		return s.scanPrune(ctx, referenced, false)
-	}
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	imageLock, err := lock.Acquire(lockContext, s.lockPath(), false)
-	if err != nil {
-		return PruneReport{}, err
+	if apply {
+		imageLock, err := lock.Acquire(lockContext, s.lockPath(), false)
+		if err != nil {
+			return PruneReport{}, err
+		}
+		defer func() {
+			returnErr = lock.JoinRelease(returnErr, imageLock, "image prune lock")
+		}()
 	}
-	defer func() {
-		returnErr = lock.JoinRelease(returnErr, imageLock, "image prune lock")
-	}()
+	var referenceLock *lock.File
+	if referenceLockPath != "" && apply {
+		var err error
+		referenceLock, err = lock.Acquire(lockContext, referenceLockPath, false)
+		if err != nil {
+			return PruneReport{}, err
+		}
+		defer func() {
+			returnErr = lock.JoinRelease(returnErr, referenceLock, "image reference allocator lock")
+		}()
+	}
 	referenced, err := resolveReferences()
 	if err != nil {
 		return PruneReport{}, err
 	}
-	return s.scanPrune(ctx, referenced, true)
+	return s.scanPrune(ctx, referenced, apply)
 }

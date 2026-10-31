@@ -10,7 +10,6 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
-	"github.com/pgsty/barn/internal/lock"
 	"github.com/pgsty/barn/internal/platform"
 )
 
@@ -228,15 +227,6 @@ func (s Service) PruneAll(ctx context.Context, apply bool, nodeRefs func(context
 		return PruneReport{}, err
 	}
 	resolve := func() (_ map[string]struct{}, returnErr error) {
-		lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		allocator, err := lock.Acquire(lockContext, filepath.Join(s.DataRoot, "locks", "allocator.lock"), false)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			returnErr = lock.JoinRelease(returnErr, allocator, "image reference allocator lock")
-		}()
 		references := make(map[string]struct{})
 		session, err := s.OpenCatalog()
 		if err != nil {
@@ -263,5 +253,5 @@ func (s Service) PruneAll(ctx context.Context, apply bool, nodeRefs func(context
 		}
 		return references, nil
 	}
-	return store.Prune(ctx, apply, resolve)
+	return store.PruneWithReferenceLock(ctx, apply, filepath.Join(s.DataRoot, "locks", "allocator.lock"), resolve)
 }

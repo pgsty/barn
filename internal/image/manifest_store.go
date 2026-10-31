@@ -147,6 +147,23 @@ func (m ManifestManager) stateKey() (string, error) {
 	return "repo-" + hex.EncodeToString(digest[:]), nil
 }
 
+func officialRepository(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return true
+	}
+	normalized, err := NormalizeRepository(value)
+	if err != nil {
+		return false
+	}
+	for _, official := range []string{GlobalRepositoryURL, ChinaRepositoryURL} {
+		candidate, candidateErr := NormalizeRepository(official)
+		if candidateErr == nil && normalized == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func (m ManifestManager) unsignedAllowed() bool {
 	return m.AllowUnsigned && RepositoryAllowsUnsigned(m.Repository)
 }
@@ -499,6 +516,22 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 		current, err = currentBaselineState(current)
 		if err != nil {
 			return ManifestState{}, err
+		}
+	} else if officialRepository(m.Repository) {
+		// The global and China production repositories share the embedded
+		// trust baseline even though their accepted catalogs have separate
+		// state slots. A mirror must not make a fresh BARN_HOME accept an
+		// older signed catalog merely because its own high-water mark is zero.
+		baseline, baselineErr := embeddedState()
+		if baselineErr != nil {
+			return ManifestState{}, baselineErr
+		}
+		if current.HighestVersion < baseline.HighestVersion {
+			current.HighestVersion = baseline.HighestVersion
+		}
+		if current.ActiveVersion < baseline.ActiveVersion {
+			current.ActiveVersion = baseline.ActiveVersion
+			current.ActiveDigest = baseline.ActiveDigest
 		}
 	}
 	if current.KeyID != "" && len(signatureText) == 0 && !allowDowngrade {
