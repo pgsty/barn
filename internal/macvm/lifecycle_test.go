@@ -128,6 +128,25 @@ func TestDestroyRemovesOnlyTheMachine(t *testing.T) {
 	}
 }
 
+func TestMachineDeletionFinishesAfterProcessInterruption(t *testing.T) {
+	m := lifecycleManager(t)
+	testMachine(t, m, "dev", "10.10.30.0/24", true)
+	directory, err := m.Store.MachinePath("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trash := filepath.Join(filepath.Dir(directory), deletingMachinePrefix+"dev")
+	if err := os.Rename(directory, trash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Store.LoadMachine("dev"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted deletion was not recovered: %v", err)
+	}
+	if _, err := os.Lstat(trash); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deletion trash remains: %v", err)
+	}
+}
+
 func TestRecreateChecksVMLimitBeforeDeletingMachine(t *testing.T) {
 	m := lifecycleManager(t)
 	old := testMachine(t, m, "dev", "10.10.30.0/24", true)

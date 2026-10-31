@@ -940,53 +940,62 @@ func (m *Manager) Recreate(ctx context.Context, name string, options RecreateOpt
 			return outcome, err
 		}
 	}
+	// Recreate replaces the old machine, so its name is excluded from the
+	// running-machine count. Check the host limit before powering it off; a
+	// resource refusal must leave the existing guest running and recoverable.
+	if err := m.checkVMLimit(ctx, name); err != nil {
+		return outcome, err
+	}
 	if _, _, err := m.stopRuntime(ctx, old, true); err != nil {
 		return outcome, err
 	}
 	if err := m.checkNetworkFree(ctx, old); err != nil {
 		return outcome, err
 	}
-	// Recreate deletes the old overlay and identity below. Check the host VM
-	// quota while the old machine is already stopped, but before any destructive
-	// mutation, so a resource refusal leaves the old machine recoverable.
-	if err := m.checkVMLimit(ctx, name); err != nil {
-		return outcome, err
-	}
 	held, err := m.acquireState(ctx, "mac recreate "+name)
 	if err != nil {
 		return outcome, err
 	}
-	machine, err := func() (*Machine, error) {
-		if err := m.removeMachineFiles(held, old); err != nil {
-			return nil, err
+	var machine *Machine
+	beginErr := m.Store.BeginRecreate(held, old)
+	if beginErr == nil {
+		id, newErr := NewInstanceID()
+		if newErr == nil {
+			candidate := *old
+			candidate.InstanceID, candidate.BaseID, candidate.State, candidate.Initialized = id, base.ID, "prepared", false
+			candidate.DiskBytes, candidate.Version, candidate.Build = base.DiskBytes, base.Version, base.Build
+			candidate.ObservedVersion, candidate.ObservedBuild, candidate.LastError = "", "", ""
+			candidate.CreatedAt = time.Now().UTC()
+			var password string
+			password, newErr = NewPassword()
+			if newErr == nil {
+				newErr = m.Store.SavePassword(name, password)
+			}
+			if newErr == nil {
+				newErr = m.Store.SaveMachine(held, &candidate)
+			}
+			if newErr == nil {
+				machine = &candidate
+			}
 		}
-		id, err := NewInstanceID()
-		if err != nil {
-			return nil, err
-		}
-		machine := *old
-		machine.InstanceID, machine.BaseID, machine.State, machine.Initialized = id, base.ID, "prepared", false
-		machine.DiskBytes, machine.Version, machine.Build = base.DiskBytes, base.Version, base.Build
-		machine.ObservedVersion, machine.ObservedBuild, machine.LastError = "", "", ""
-		machine.CreatedAt = time.Now().UTC()
-		password, err := NewPassword()
-		if err != nil {
-			return nil, err
-		}
-		if err := m.Store.SavePassword(name, password); err != nil {
-			return nil, err
-		}
-		return &machine, m.Store.SaveMachine(held, &machine)
-	}()
-	if releaseErr := held.Release(); releaseErr != nil {
-		err = errors.Join(err, releaseErr)
+		err = newErr
 	}
-	if err != nil {
-		return outcome, err
+	if beginErr != nil || err != nil {
+		restoreErr := m.Store.RestoreRecreate(held, name)
+		releaseErr := held.Release()
+		return outcome, errors.Join(beginErr, err, restoreErr, releaseErr)
 	}
 	if err := m.cloneMachine(ctx, machine); err != nil {
-		machine.State, machine.LastError = "failed", err.Error()
-		return outcome, errors.Join(err, m.Store.SaveMachine(operation, machine))
+		restoreErr := m.Store.RestoreRecreate(held, name)
+		releaseErr := held.Release()
+		return outcome, errors.Join(err, restoreErr, releaseErr)
+	}
+	if err := m.Store.FinalizeRecreate(held, name); err != nil {
+		releaseErr := held.Release()
+		return outcome, errors.Join(err, releaseErr)
+	}
+	if err := held.Release(); err != nil {
+		return outcome, err
 	}
 	outcome, err = m.startLocked(ctx, operation, machine, options.StartOptions, "recreated")
 	return outcome, err

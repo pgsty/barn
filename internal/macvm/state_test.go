@@ -134,6 +134,65 @@ func TestMachineRoundTripAndIdentityIsImmutable(t *testing.T) {
 	}
 }
 
+func TestRecreateJournalRestoresMachineAfterInterruption(t *testing.T) {
+	m, _ := testManager(t)
+	old := testMachine(t, m, "dev", "10.10.30.0/24", true)
+	held := holdStore(t, m.Store)
+	if err := m.Store.BeginRecreate(held, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := m.Store.LoadMachine("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.InstanceID != old.InstanceID || loaded.CPU != old.CPU || loaded.MemoryBytes != old.MemoryBytes {
+		t.Fatalf("recovered machine changed: got %#v want %#v", loaded, old)
+	}
+	if journal, err := m.Store.recreateJournalPath("dev"); err != nil {
+		t.Fatal(err)
+	} else if _, err := os.Lstat(journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recreate journal remains: %v", err)
+	}
+}
+
+func TestRecreateJournalFinalizesNewMachine(t *testing.T) {
+	m, _ := testManager(t)
+	old := testMachine(t, m, "dev", "10.10.30.0/24", true)
+	held := holdStore(t, m.Store)
+	if err := m.Store.BeginRecreate(held, old); err != nil {
+		t.Fatal(err)
+	}
+	candidate := *old
+	candidate.InstanceID, _ = NewInstanceID()
+	candidate.State, candidate.Initialized = "prepared", false
+	if err := m.Store.SavePassword(candidate.Name, "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Store.SaveMachine(held, &candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Store.FinalizeRecreate(held, candidate.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := m.Store.LoadMachine(candidate.Name)
+	if err != nil || loaded.InstanceID != candidate.InstanceID {
+		t.Fatalf("finalized machine = %#v, %v", loaded, err)
+	}
+	backup, err := m.Store.recreateBackupPath(candidate.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recreate backup remains: %v", err)
+	}
+}
+
 func TestSaveMachineRequiresTheRightLock(t *testing.T) {
 	m, _ := testManager(t)
 	machine := testMachine(t, m, "mac1", "10.10.20.0/24", false)
