@@ -372,11 +372,11 @@ const finderMetadataName = ".DS_Store"
 func validateFinderMetadata(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("Finder metadata is not a regular non-symlink file: %s", path)
+		return fmt.Errorf("finder metadata is not a regular non-symlink file: %s", path)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || int(stat.Uid) != os.Geteuid() {
-		return fmt.Errorf("Finder metadata is not owned by the current user: %s", path)
+		return fmt.Errorf("finder metadata is not owned by the current user: %s", path)
 	}
 	return nil
 }
@@ -451,10 +451,6 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 			if err := validateDirectory(diskDir); err != nil {
 				return nil, err
 			}
-			entries, err := os.ReadDir(diskDir)
-			if err != nil {
-				return nil, err
-			}
 			diskCount++
 			recovered, recoverErr := recoverPending(deploymentRoot, diskDir, nodeDir)
 			if recoverErr != nil {
@@ -463,7 +459,7 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 			if recovered {
 				continue
 			}
-			entries, err = os.ReadDir(diskDir)
+			entries, err := os.ReadDir(diskDir)
 			if err != nil {
 				return nil, err
 			}
