@@ -33,7 +33,7 @@ jobs:
           distribution: goreleaser
           version: v2.18.3
           install-only: true
-      - name: Resolve the same identity as the CLI build
+      - name: Resolve the same identity as the release verifier
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
@@ -44,8 +44,18 @@ jobs:
           BARN_BUILD_DATE=$(date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
           version=${REQUESTED_VERSION#v}
           if [[ -z $version ]]; then
-            goreleaser build --snapshot --single-target --id barn --id barn-hosts-helper --parallelism 1
-            version=$(jq -er .version .goreleaser-dist/metadata.json)
+            # `goreleaser build --snapshot` and `goreleaser release --snapshot`
+            # use different tag bases on a commit that already carries a
+            # release tag. The packaging job verifies the latter, whose
+            # configured template is incpatch(.Version)-next.
+            source packaging/semver.sh
+            latest_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+            if [[ -n $latest_tag ]] && version=$(barn_next_snapshot_version "${latest_tag#v}"); then
+              :
+            else
+              goreleaser build --snapshot --single-target --id barn --id barn-hosts-helper --parallelism 1
+              version=$(jq -er .version .goreleaser-dist/metadata.json)
+            fi
           fi
           printf 'BARN_VERSION=%s\nBARN_COMMIT=%s\nSOURCE_DATE_EPOCH=%s\n' "$version" "$BARN_COMMIT" "$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
       - name: Mac Go and native component regression

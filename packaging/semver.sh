@@ -40,6 +40,18 @@ barn_is_prerelease_semver() {
   barn_is_semver "${value}" && [[ ${value%%+*} == *-* ]]
 }
 
+# GoReleaser's snapshot template is incpatch(.Version)-next. Keep the
+# equivalent calculation available to the native Mac workflow, whose build
+# command does not resolve the same snapshot base as the release command.
+barn_next_snapshot_version() {
+  local value=${1:-} core major minor patch
+  barn_is_semver "${value}" || return 1
+  [[ ${value} != *-* && ${value} != *+* ]] || return 1
+  core=${value}
+  IFS=. read -r major minor patch <<<"${core}"
+  printf '%s.%s.%s-next\n' "${major}" "${minor}" "$((10#${patch} + 1))"
+}
+
 # barn_is_stable_release is the single definition of "finished release": 1.0.0
 # or later with no prerelease suffix. Everything under 1.0.0 is a pre-1.0
 # developer release however the tag is spelled. The release channel recorded in
