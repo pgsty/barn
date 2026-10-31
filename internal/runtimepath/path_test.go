@@ -1,9 +1,11 @@
 package runtimepath
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -188,6 +190,61 @@ func TestFallbackExpandsBarnHomeBeforeHashing(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("BARN_HOME=~/... changed with working directory: %q -> %q", first, second)
+	}
+}
+
+func TestEnsureAcceptsLegacyFallbackNamespaceAfterUpgrade(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	legacy := filepath.Join(fallbackRoot(), fmt.Sprintf("barn-%d", os.Getuid()))
+	if _, err := os.Lstat(legacy); err == nil {
+		t.Skipf("legacy runtime base already exists: %s", legacy)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(legacy, "barn", "meta")
+	if err := Ensure(directory, os.Getuid()); err != nil {
+		t.Fatalf("legacy fallback namespace was not recreated: %v", err)
+	}
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := PruneEmptyParents(directory, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy fallback base remains: %v", err)
+	}
+}
+
+func TestEnsureAcceptsPreviousLongFallbackNamespace(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	previous := filepath.Join(fallbackRoot(), fmt.Sprintf("barn-%d-0123456789abcdef", os.Getuid()))
+	if _, err := os.Lstat(previous); err == nil {
+		t.Skipf("previous runtime base already exists: %s", previous)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(previous, "barn", "meta")
+	if err := Ensure(directory, os.Getuid()); err != nil {
+		t.Fatalf("previous fallback namespace was not recreated: %v", err)
+	}
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := PruneEmptyParents(directory, os.Getuid()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMaximumNodeNameFitsRuntimeSocketPath(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	node := strings.Repeat("n", 63)
+	directory, err := Directory(node, os.Getuid())
+	if err != nil {
+		t.Fatalf("maximum valid node name rejected: %v", err)
+	}
+	if got := len(filepath.Join(directory, "qmp.sock")); got > maxSocketPath() {
+		t.Fatalf("maximum runtime socket path length = %d, limit %d", got, maxSocketPath())
 	}
 }
 

@@ -38,17 +38,30 @@ func barnScope() string {
 	return scope
 }
 
-func scopedBase(root string, uid int) string {
+const scopeHashDigits = 11
+
+func compactBase(root string) string {
 	digest := sha256.Sum256([]byte(barnScope()))
-	return filepath.Join(root, fmt.Sprintf("barn-%d-%x", uid, digest[:8]))
+	return filepath.Join(root, "b"+fmt.Sprintf("%x", digest[:scopeHashDigits/2+scopeHashDigits%2])[:scopeHashDigits])
+}
+
+// scopedBase is the short namespace used below XDG_RUNTIME_DIR. Keep the uid
+// argument for callers/tests from the earlier scoped layout; ownership of the
+// validated XDG root already supplies the user boundary.
+func scopedBase(root string, _ int) string {
+	return compactBase(root)
+}
+
+func fallbackRoot() string {
+	if runtime.GOOS == "darwin" {
+		return "/private/tmp"
+	}
+	return "/tmp"
 }
 
 func fallbackBase(uid int) string {
-	root := "/tmp"
-	if runtime.GOOS == "darwin" {
-		root = "/private/tmp"
-	}
-	return scopedBase(root, uid)
+	_ = uid
+	return compactBase(fallbackRoot())
 }
 
 func xdgBase(uid int) (string, error) {
@@ -79,7 +92,7 @@ func xdgRoot(uid int) (string, error) {
 }
 
 func managedBase(path string, uid int) bool {
-	if path == fallbackBase(uid) {
+	if isManagedFallbackBase(path, uid) {
 		return true
 	}
 	root, err := xdgRoot(uid)
@@ -93,7 +106,7 @@ func managedBase(path string, uid int) bool {
 }
 
 func prunableBase(path string, uid int) bool {
-	if path == fallbackBase(uid) {
+	if isManagedFallbackBase(path, uid) {
 		return true
 	}
 	root, err := xdgRoot(uid)
@@ -104,17 +117,46 @@ func isScopedXDGBase(path, root string, uid int) bool {
 	if filepath.Dir(path) != root {
 		return false
 	}
+	name := filepath.Base(path)
+	if len(name) == 1+scopeHashDigits && name[0] == 'b' && isLowerHex(name[1:]) {
+		return true
+	}
 	prefix := fmt.Sprintf("barn-%d-", uid)
-	suffix := strings.TrimPrefix(filepath.Base(path), prefix)
+	suffix := strings.TrimPrefix(name, prefix)
 	if suffix == filepath.Base(path) || len(suffix) != 16 {
 		return false
 	}
-	for _, character := range suffix {
+	return isLowerHex(suffix)
+}
+
+func isLowerHex(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
 		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
 			return false
 		}
 	}
 	return true
+}
+
+func isManagedFallbackBase(path string, uid int) bool {
+	if filepath.Dir(path) != fallbackRoot() {
+		return false
+	}
+	name := filepath.Base(path)
+	if name == "barn-"+fmt.Sprint(uid) {
+		return true
+	}
+	if name == filepath.Base(fallbackBase(uid)) {
+		return true
+	}
+	longPrefix := fmt.Sprintf("barn-%d-", uid)
+	if suffix := strings.TrimPrefix(name, longPrefix); suffix != name && len(suffix) == 16 && isLowerHex(suffix) {
+		return true
+	}
+	return false
 }
 
 func ownerUID(info os.FileInfo) (int, bool) {
