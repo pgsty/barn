@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/image"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	privatevm "github.com/pgsty/barn/internal/private"
@@ -93,6 +94,54 @@ func TestInitForceOverwritesExistingInventory(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte("nodename: node-3")) {
 		t.Fatalf("--force did not replace the meta inventory with full: %s", data)
+	}
+}
+
+func TestInitImageOverrideIsWrittenToGeneratedInventory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BARN_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--json", "init", "full", "--image", "el9:stable", "-o", "lab.yml"}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("init image: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"image": "el9:stable"`) {
+		t.Fatalf("init JSON omitted selected image: %s", stdout.String())
+	}
+	data, err := os.ReadFile("lab.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "    vm_image: el9:stable\n") {
+		t.Fatalf("generated inventory did not persist image override: %s", data)
+	}
+	file, err := config.ParseInventory(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := file.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range resolved.Nodes {
+		if node.Image != "el9:stable" {
+			t.Fatalf("node %s image=%q, want el9:stable", node.Name, node.Image)
+		}
+	}
+}
+
+func TestInitRejectsMalformedImageReference(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"init", "--image", "el9/name"}, &stdout, &stderr); code != exitUsage || stdout.Len() != 0 || !strings.Contains(stderr.String(), "invalid image reference") {
+		t.Fatalf("malformed image: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestSetupRejectsMalformedImageReferenceAsUsage(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("BARN_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--json", "setup", "full", "--image", "el9/name"}, &stdout, &stderr); code != exitUsage || !strings.Contains(stdout.String(), `"exit_code": 2`) || !strings.Contains(stderr.String(), "invalid image reference") {
+		t.Fatalf("malformed setup image: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 

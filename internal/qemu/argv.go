@@ -18,6 +18,12 @@ import (
 
 const MiB int64 = 1024 * 1024
 
+const (
+	defaultMemorySlots = 8
+	minimumMaxCPUs     = 8
+	maximumMaxCPUs     = 256
+)
+
 type Firmware struct {
 	Code string `json:"code"`
 	Vars string `json:"vars"`
@@ -58,30 +64,302 @@ type InheritedFile struct {
 }
 
 type Config struct {
-	Profile   platform.Profile
-	Binary    string
-	Name      string
-	UUID      string
-	CPUs      int
-	Memory    int64
-	Firmware  *Firmware
-	Root      Disk
-	Data      []Disk
-	Seed      string
-	QMP       string
-	PIDFile   string
-	SerialLog string
-	MgmtMAC   string
-	Forwards  []Forward
-	Private   *PrivateNetwork
-	Shares    []Share
-	Detach    bool
+	Profile platform.Profile
+	Binary  string
+	Name    string
+	UUID    string
+	CPUs    int
+	Memory  int64
+	// MaxCPUs, MaxMemory, and MemorySlots are optional launch-time capacity
+	// reservations for later resource changes. Zero selects Barn's conservative
+	// defaults, so inventories do not need to carry a second resource model.
+	MaxCPUs     int
+	MaxMemory   int64
+	MemorySlots int
+	Firmware    *Firmware
+	Root        Disk
+	Data        []Disk
+	Seed        string
+	QMP         string
+	PIDFile     string
+	SerialLog   string
+	MgmtMAC     string
+	Forwards    []Forward
+	Private     *PrivateNetwork
+	Shares      []Share
+	Detach      bool
 }
 
 type Invocation struct {
 	Binary         string          `json:"binary"`
 	Args           []string        `json:"args"`
 	InheritedFiles []InheritedFile `json:"inherited_files,omitempty"`
+}
+
+// Resources describes the CPU and memory values encoded in a QEMU
+// invocation. MaxCPUs and MaxMemory are zero when an older invocation did not
+// reserve hotplug capacity.
+type Resources struct {
+	CPUs        int
+	MaxCPUs     int
+	Memory      int64
+	MaxMemory   int64
+	MemorySlots int
+}
+
+func defaultMaxCPUs(cpus int) int {
+	max := cpus * 4
+	if max < minimumMaxCPUs {
+		max = minimumMaxCPUs
+	}
+	if max > maximumMaxCPUs {
+		max = maximumMaxCPUs
+	}
+	return max
+}
+
+func defaultMaxMemory(memory int64) int64 {
+	max := memory * 4
+	if max < 16*1024*MiB {
+		max = 16 * 1024 * MiB
+	}
+	return max
+}
+
+func formatMemory(memory int64) string {
+	return strconv.FormatInt(memory/MiB, 10) + "M"
+}
+
+func parseMemory(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, errors.New("QEMU memory value is empty")
+	}
+	value = strings.TrimSuffix(strings.TrimSuffix(value, "B"), "b")
+	// QEMU's short numeric form for -m/maxmem is in megabytes. Barn stores
+	// memory in bytes, so keep the conversion compatible with invocations
+	// written by versions that emitted `-m 4096`.
+	unit := MiB
+	if len(value) > 0 {
+		switch value[len(value)-1] {
+		case 'k', 'K':
+			unit, value = 1024, value[:len(value)-1]
+		case 'm', 'M':
+			unit, value = MiB, value[:len(value)-1]
+		case 'g', 'G':
+			unit, value = 1024*MiB, value[:len(value)-1]
+		case 't', 'T':
+			unit, value = 1024*1024*MiB, value[:len(value)-1]
+		}
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		if err == nil {
+			err = errors.New("must be positive")
+		}
+		return 0, fmt.Errorf("invalid QEMU memory value %q: %w", value, err)
+	}
+	if parsed > (1<<63-1)/unit {
+		return 0, fmt.Errorf("QEMU memory value %q overflows int64", value)
+	}
+	return parsed * unit, nil
+}
+
+func optionParts(value string) []string {
+	parts := strings.Split(value, ",")
+	for index := range parts {
+		parts[index] = strings.TrimSpace(parts[index])
+	}
+	return parts
+}
+
+func namedOption(parts []string, name string) (int, string, bool) {
+	prefix := name + "="
+	for index, part := range parts {
+		if strings.HasPrefix(part, prefix) {
+			return index, strings.TrimPrefix(part, prefix), true
+		}
+	}
+	return -1, "", false
+}
+
+func parseSMP(value string) (Resources, []string, error) {
+	parts := optionParts(value)
+	if len(parts) == 0 || parts[0] == "" {
+		return Resources{}, nil, errors.New("QEMU -smp value is empty")
+	}
+	result := Resources{}
+	first := parts[0]
+	if !strings.Contains(first, "=") {
+		parsed, err := strconv.Atoi(first)
+		if err != nil || parsed < 1 {
+			return Resources{}, nil, fmt.Errorf("invalid QEMU CPU value %q", first)
+		}
+		result.CPUs = parsed
+	} else if index, value, ok := namedOption(parts, "cpus"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 {
+			return Resources{}, nil, fmt.Errorf("invalid QEMU cpus value %q", value)
+		}
+		_ = index
+		result.CPUs = parsed
+	} else {
+		return Resources{}, nil, errors.New("QEMU -smp value has no cpus field")
+	}
+	if _, value, ok := namedOption(parts, "maxcpus"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < result.CPUs {
+			return Resources{}, nil, fmt.Errorf("invalid QEMU maxcpus value %q", value)
+		}
+		result.MaxCPUs = parsed
+	}
+	return result, parts, nil
+}
+
+func parseMemoryOption(value string) (Resources, []string, error) {
+	parts := optionParts(value)
+	if len(parts) == 0 || parts[0] == "" {
+		return Resources{}, nil, errors.New("QEMU -m value is empty")
+	}
+	result := Resources{}
+	first := parts[0]
+	first = strings.TrimPrefix(first, "size=")
+	memory, err := parseMemory(first)
+	if err != nil {
+		return Resources{}, nil, err
+	}
+	result.Memory = memory
+	if _, value, ok := namedOption(parts, "slots"); ok {
+		result.MemorySlots, err = strconv.Atoi(value)
+		if err != nil || result.MemorySlots < 1 {
+			return Resources{}, nil, fmt.Errorf("invalid QEMU memory slots value %q", value)
+		}
+	}
+	if _, value, ok := namedOption(parts, "maxmem"); ok {
+		result.MaxMemory, err = parseMemory(value)
+		if err != nil || result.MaxMemory < result.Memory {
+			if err == nil {
+				err = errors.New("must be at least current memory")
+			}
+			return Resources{}, nil, fmt.Errorf("invalid QEMU maxmem value %q: %w", value, err)
+		}
+	}
+	return result, parts, nil
+}
+
+// InvocationResources extracts CPU and memory values without making any
+// assumptions about the other QEMU devices in the invocation.
+func InvocationResources(inv Invocation) (Resources, error) {
+	var result Resources
+	for index := 0; index < len(inv.Args); index++ {
+		switch inv.Args[index] {
+		case "-smp":
+			if index+1 >= len(inv.Args) {
+				return Resources{}, errors.New("QEMU invocation has -smp without a value")
+			}
+			parsed, _, err := parseSMP(inv.Args[index+1])
+			if err != nil {
+				return Resources{}, err
+			}
+			result.CPUs, result.MaxCPUs = parsed.CPUs, parsed.MaxCPUs
+		case "-m":
+			if index+1 >= len(inv.Args) {
+				return Resources{}, errors.New("QEMU invocation has -m without a value")
+			}
+			parsed, _, err := parseMemoryOption(inv.Args[index+1])
+			if err != nil {
+				return Resources{}, err
+			}
+			result.Memory, result.MaxMemory, result.MemorySlots = parsed.Memory, parsed.MaxMemory, parsed.MemorySlots
+		}
+	}
+	if result.CPUs < 1 || result.Memory < 512*MiB {
+		return Resources{}, errors.New("QEMU invocation does not contain valid CPU and memory resources")
+	}
+	return result, nil
+}
+
+func setNamedOption(parts []string, name, value string) []string {
+	prefix := name + "="
+	for index, part := range parts {
+		if strings.HasPrefix(part, prefix) {
+			parts[index] = prefix + value
+			return parts
+		}
+	}
+	return append(parts, prefix+value)
+}
+
+// ConfigureResources changes only the -smp and -m resource fields. It also
+// adds conservative hotplug capacity when an older invocation did not have
+// any, which makes an offline resize a one-time upgrade for future changes.
+func ConfigureResources(inv Invocation, cpus int, memory int64) (Invocation, error) {
+	if cpus < 1 || cpus > maximumMaxCPUs {
+		return Invocation{}, fmt.Errorf("CPU count %d is outside 1..%d", cpus, maximumMaxCPUs)
+	}
+	if memory < 512*MiB || memory%MiB != 0 {
+		return Invocation{}, fmt.Errorf("memory %d must be at least 512 MiB and MiB-aligned", memory)
+	}
+	current, err := InvocationResources(inv)
+	if err != nil {
+		return Invocation{}, err
+	}
+	maxCPUs := current.MaxCPUs
+	if maxCPUs < cpus {
+		maxCPUs = defaultMaxCPUs(cpus)
+	}
+	if maxCPUs < current.CPUs {
+		maxCPUs = current.CPUs
+	}
+	maxMemory := current.MaxMemory
+	if maxMemory < memory {
+		maxMemory = defaultMaxMemory(memory)
+	}
+	if maxMemory < current.Memory {
+		maxMemory = current.Memory
+	}
+	slots := current.MemorySlots
+	if slots < 1 {
+		slots = defaultMemorySlots
+	}
+	args := append([]string(nil), inv.Args...)
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "-smp":
+			if index+1 >= len(args) {
+				return Invocation{}, errors.New("QEMU invocation has -smp without a value")
+			}
+			_, parts, err := parseSMP(args[index+1])
+			if err != nil {
+				return Invocation{}, err
+			}
+			if parts[0] != "" && !strings.Contains(parts[0], "=") {
+				parts[0] = "cpus=" + strconv.Itoa(cpus)
+			} else {
+				parts = setNamedOption(parts, "cpus", strconv.Itoa(cpus))
+			}
+			parts = setNamedOption(parts, "maxcpus", strconv.Itoa(maxCPUs))
+			args[index+1] = strings.Join(parts, ",")
+		case "-m":
+			if index+1 >= len(args) {
+				return Invocation{}, errors.New("QEMU invocation has -m without a value")
+			}
+			_, parts, err := parseMemoryOption(args[index+1])
+			if err != nil {
+				return Invocation{}, err
+			}
+			if strings.HasPrefix(parts[0], "size=") {
+				parts[0] = "size=" + formatMemory(memory)
+			} else {
+				parts[0] = formatMemory(memory)
+			}
+			parts = setNamedOption(parts, "slots", strconv.Itoa(slots))
+			parts = setNamedOption(parts, "maxmem", formatMemory(maxMemory))
+			args[index+1] = strings.Join(parts, ",")
+		}
+	}
+	inv.Args = args
+	return inv, nil
 }
 
 func (i Invocation) UsesPrivateFD3() bool {
@@ -296,14 +574,26 @@ func Build(config Config) (Invocation, error) {
 	if err := validate(config); err != nil {
 		return Invocation{}, err
 	}
+	maxCPUs := config.MaxCPUs
+	if maxCPUs < config.CPUs {
+		maxCPUs = defaultMaxCPUs(config.CPUs)
+	}
+	maxMemory := config.MaxMemory
+	if maxMemory < config.Memory {
+		maxMemory = defaultMaxMemory(config.Memory)
+	}
+	memorySlots := config.MemorySlots
+	if memorySlots < 1 {
+		memorySlots = defaultMemorySlots
+	}
 	args := []string{
 		"-name", config.Name,
 		"-uuid", strings.ToLower(config.UUID),
 		"-machine", config.Profile.Machine,
 		"-accel", config.Profile.Accelerator,
 		"-cpu", config.Profile.CPU,
-		"-smp", strconv.Itoa(config.CPUs),
-		"-m", strconv.FormatInt(config.Memory/MiB, 10),
+		"-smp", fmt.Sprintf("cpus=%d,maxcpus=%d", config.CPUs, maxCPUs),
+		"-m", fmt.Sprintf("%s,slots=%d,maxmem=%s", formatMemory(config.Memory), memorySlots, formatMemory(maxMemory)),
 		"-display", "none",
 		"-nodefaults",
 		"-no-user-config",

@@ -100,11 +100,32 @@ The default VM has 2 vCPUs, 4 GiB of memory, a 64 GiB root disk, and a
 128 GiB test disk at `/data`. Disk files grow as data is written.
 
 To choose the configuration before booting, use `barn init` and edit the file.
-`barn init full` generates four nodes. An existing Pigsty inventory works too:
+`barn init full` generates four nodes. Use `--image` to write one image
+reference into `all.vars` for every generated node; aliases, channels, and
+version selectors are accepted, and the image is downloaded later by the
+normal catalog-backed lifecycle flow:
+
+```bash
+barn init full --image el9 -o lab.yml
+```
+
+An existing Pigsty inventory works too:
 
 ```bash
 barn plan -f pigsty.yml
 barn up -f pigsty.yml
+```
+
+To change a running VM, edit its `vm_cpu` or `vm_mem` in the inventory and
+apply the change with `barn resize`. QEMU hot-plugs an increase when the
+backend supports it; otherwise Barn briefly stops and starts the same VM.
+The VM UUID, disks, and SSH keys are preserved, and the inventory remains
+under your control. The launch-time CPU and memory capacity is a virtual QEMU
+limit; it does not pre-allocate the reserved host CPU or RAM:
+
+```bash
+vi barn.yml
+barn resize meta
 ```
 
 Barn prepares the machines; installing Pigsty services is a separate step.
@@ -146,7 +167,8 @@ installation, shared folders, desktop controls, and cleanup.
 | Create nodes or finish interrupted setup | `barn up` |
 | Run a guest command | `barn exec meta -- hostname` |
 | Stop / resume the lab | `barn stop` / `barn start` |
-| Apply a changed VM definition | `barn recreate meta` |
+| Change CPU or memory | `barn resize meta` |
+| Apply another changed VM definition | `barn recreate meta` |
 | Delete a VM | `barn destroy meta` |
 | Inspect available images | `barn image list` |
 | Diagnose the host | `barn doctor` |

@@ -41,7 +41,7 @@ func TestDiffResolvedClassifiesNodeChanges(t *testing.T) {
 	resized := diffFixtureResolved()
 	resized.Nodes[1].Memory = 8 * spec.GiB
 	changed := diffResolved(persisted, resized, stateful)
-	if len(changed.Changed) != 1 || changed.Changed[0] != "node-1" || len(changed.Create) != 0 {
+	if len(changed.Resize) != 1 || changed.Resize[0] != "node-1" || len(changed.Changed) != 0 || len(changed.Create) != 0 {
 		t.Fatalf("changed diff = %#v", changed)
 	}
 

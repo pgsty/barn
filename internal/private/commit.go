@@ -126,7 +126,8 @@ func stateForArtifacts(config PrepareConfig, deploymentValue Deployment, artifac
 	}
 	return state.NodeState{
 		Schema: state.NodeSchema, BarnVersion: version,
-		Node: artifacts.Name, VMUUID: nodePlan.VMUUID, Phase: state.Prepared, Generation: 1, SpecHash: config.NodeHashes[artifacts.Name],
+		Node: artifacts.Name, VMUUID: nodePlan.VMUUID, Phase: state.Prepared, Generation: 1,
+		SpecHash: config.NodeHashes[artifacts.Name], GuestSpecHash: config.NodeHashes[artifacts.Name],
 		Image:    state.Image{Alias: base.Alias, Release: base.Release, Digest: base.Digest, VirtualSize: base.VirtualSize},
 		RootDisk: artifacts.Root, DataDisks: dataState, Seed: artifacts.Seed, NVRAM: artifacts.NVRAM,
 		SSHPort: config.SSHPorts[artifacts.Name], Forwards: forwards,

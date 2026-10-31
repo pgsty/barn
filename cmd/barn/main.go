@@ -935,7 +935,7 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 }
 
 func lifecycleReadsConfig(command string) bool {
-	return command == "up" || command == "plan" || command == "recreate" || command == "reload"
+	return command == "up" || command == "plan" || command == "recreate" || command == "reload" || command == "resize"
 }
 
 func loadLifecycleConfig(command, configPath string) (spec.Resolved, string, error) {
@@ -1127,6 +1127,11 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		// semantics, or stopping successful peers for a second time.
 		retryOptions.Action = "start"
 	}
+	if command == "resize" {
+		// A partial resize must retry the resource operation itself. Falling back
+		// to `up` would silently ignore the inventory resource change.
+		retryOptions.Action = "resize"
+	}
 	operationID := ""
 	if command != "status" && command != "plan" {
 		var err error
@@ -1179,6 +1184,13 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			} else if plan.Action == "recreate" && plan.Blocked == "" {
 				textField(stdout, 12, "recreate", "deployment-level settings changed  (apply: "+applyCommand("barn recreate")+")")
 			}
+			if len(plan.Resize) != 0 {
+				detail := strings.Join(plan.Resize, ", ")
+				if plan.Blocked == "" && plan.Action == "resize" {
+					detail += "  (apply: " + applyCommand("barn resize "+strings.Join(plan.Resize, " ")) + ")"
+				}
+				textField(stdout, 12, "resize", detail)
+			}
 			if len(plan.Missing) != 0 {
 				textField(stdout, 12, "missing", strings.Join(plan.Missing, ", ")+"  (not in the inventory; remove with: barn destroy "+strings.Join(plan.Missing, " ")+")")
 			}
@@ -1203,6 +1215,9 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	case "reload":
 		timeout = 0
 		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Reload(ctx, resolved) }
+	case "resize":
+		timeout = 0
+		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Resize(ctx, resolved) }
 	case "recreate":
 		if !force && term.IsTerminal(int(os.Stdin.Fd())) {
 			names := nodes
@@ -1280,7 +1295,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	status.OperationID = operationID
 	if errors.Is(parent.Err(), context.Canceled) {
 		progressItem.Stop(ErrCancelled)
-		if startupCommand(command) {
+		if lifecycleCanRetry(command) {
 			textField(stderr, 10, "resume", lifecycleRetryCommand(source, nodes, retryOptions))
 		}
 		if command != "status" {
@@ -1308,7 +1323,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	}
 	if errors.Is(parent.Err(), context.Canceled) {
 		progressItem.Stop(ErrCancelled)
-		if startupCommand(command) {
+		if lifecycleCanRetry(command) {
 			textField(stderr, 10, "resume", lifecycleRetryCommand(source, nodes, retryOptions))
 		}
 		if command != "status" {
@@ -2038,12 +2053,14 @@ func runValidate(filePath, repository string) (commandOutcome, error) {
 type initOptions struct {
 	Template string
 	CIDR     string
+	Image    string
 	Output   string
 	Force    bool
 }
 
 type initResult struct {
 	Template string `json:"template"`
+	Image    string `json:"image,omitempty"`
 	Content  string `json:"content,omitempty"`
 	Path     string `json:"path,omitempty"`
 }
@@ -2053,7 +2070,15 @@ func runInit(options initOptions) (commandOutcome, error) {
 	if name == "" {
 		name = "meta"
 	}
-	data, err := config.Template(name, options.CIDR)
+	selectedImage := strings.TrimSpace(options.Image)
+	if selectedImage != "" {
+		canonical, err := image.CanonicalReference(selectedImage)
+		if err != nil {
+			return commandOutcome{}, newUsageError(fmt.Errorf("invalid image reference %q: %w", options.Image, err))
+		}
+		selectedImage = canonical
+	}
+	data, err := config.TemplateWithImage(name, options.CIDR, selectedImage)
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
@@ -2066,7 +2091,7 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 	}
 	if options.Output == "-" {
-		result := initResult{Template: name, Content: string(data)}
+		result := initResult{Template: name, Image: selectedImage, Content: string(data)}
 		return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 			printWarnings(stderr, warnings)
 			_, _ = stdout.Write(data)
@@ -2096,10 +2121,13 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	result := initResult{Template: name, Path: target}
+	result := initResult{Template: name, Image: selectedImage, Path: target}
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printWarnings(stderr, warnings)
 		textField(stdout, 10, "template", name)
+		if selectedImage != "" {
+			textField(stdout, 10, "image", selectedImage)
+		}
 		textField(stdout, 10, "wrote", target)
 		next := "barn up"
 		if options.Output != "" {

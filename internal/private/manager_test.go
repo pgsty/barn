@@ -284,7 +284,7 @@ func TestPrivatePlanFiltersPendingPeersToSelection(t *testing.T) {
 	}
 }
 
-func TestPrivateDriftPlansRecreateAndUpReturnsTypedConflict(t *testing.T) {
+func TestPrivateResourceDriftPlansResizeAndUpReturnsTypedConflict(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("BARN_HOME", root)
 	persisted := singlePrivateResolved()
@@ -303,7 +303,7 @@ func TestPrivateDriftPlansRecreateAndUpReturnsTypedConflict(t *testing.T) {
 	if err := store.WriteNode(state.NodeState{
 		Schema: state.NodeSchema, BarnVersion: "test", Node: "meta",
 		VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped, Generation: 1,
-		SpecHash: metaHash, CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
+		SpecHash: metaHash, Invocation: qemu.Invocation{Binary: "/fixture/qemu-system-aarch64", Args: []string{"-accel", "hvf"}}, CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -311,16 +311,16 @@ func TestPrivateDriftPlansRecreateAndUpReturnsTypedConflict(t *testing.T) {
 	requested.Nodes[0].CPUs++
 	manager := planFixtureManager(t)
 	plan, err := manager.Plan(context.Background(), requested)
-	if err != nil || plan.Action != "recreate" || !plan.Destructive {
+	if err != nil || plan.Action != "resize" || plan.Destructive || len(plan.Resize) != 1 || plan.Resize[0] != "meta" {
 		t.Fatalf("drift plan=%#v err=%v", plan, err)
 	}
-	if _, err := manager.Up(context.Background(), requested); !errors.Is(err, ErrRecreateRequired) {
-		t.Fatalf("drift up error=%T %v, want ErrRecreateRequired", err, err)
+	if _, err := manager.Up(context.Background(), requested); !errors.Is(err, ErrResizeRequired) {
+		t.Fatalf("drift up error=%T %v, want ErrResizeRequired", err, err)
 	}
-	// Reload is stop + up; it must refuse the same drift before anything
+	// Reload is stop + up; it must refuse the same resize before anything
 	// stops, and refuse removed nodes the same way up does.
-	if _, err := manager.Reload(context.Background(), requested); !errors.Is(err, ErrRecreateRequired) {
-		t.Fatalf("drift reload error=%T %v, want ErrRecreateRequired", err, err)
+	if _, err := manager.Reload(context.Background(), requested); !errors.Is(err, ErrResizeRequired) {
+		t.Fatalf("drift reload error=%T %v, want ErrResizeRequired", err, err)
 	}
 	removed := cloneResolved(persisted)
 	removed.Nodes = []spec.Node{{Name: "node-1", Control: true, Address: "10.10.10.11", CPUs: 1, Memory: 512 << 20, RootDisk: 1 << 30}}

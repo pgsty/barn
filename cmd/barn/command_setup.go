@@ -20,6 +20,7 @@ Use -f to prepare one explicit inventory instead. Setup prints one transaction
 before any mutation and requests privilege only at the first privileged step.`,
 		Example: `  barn setup --dry-run      # inspect dependencies, downloads, and privilege steps
   barn setup                # reuse a local inventory, or create the meta template
+  barn setup full --image el9 --yes # prepare a generated EL9 lab
   barn setup --mirror       # use the China official repository
   barn setup full --yes     # prepare a generated four-node lab non-interactively
   barn setup -f pigsty.yml  # prepare an existing Pigsty inventory`,
@@ -31,6 +32,7 @@ before any mutation and requests privilege only at the first privileged step.`,
 	}
 	command.Flags().StringVarP(&options.FilePath, "file", "f", "", "inventory to prepare (cannot be combined with a template)")
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "generated template network as a canonical RFC1918 IPv4 /24")
+	command.Flags().StringVar(&options.Image, "image", "", "image reference for a generated template, such as el9, u24:stable, or u24@version")
 	command.Flags().StringVarP(&options.Repo, "repo", "r", "", "image repository URL or local directory, also used for socket_vmnet; overrides --mirror and $BARN_REPO")
 	command.Flags().BoolVar(&options.Mirror, "mirror", false, mirrorFlagHelp)
 	command.Flags().StringVarP(&options.Mode, "mode", "m", options.Mode, "macOS fixed-IP network backend: host or shared")
@@ -38,6 +40,7 @@ before any mutation and requests privilege only at the first privileged step.`,
 	command.Flags().BoolVarP(&options.Yes, "yes", "y", false, "accept the one-time setup plan (required without a terminal)")
 	command.MarkFlagsMutuallyExclusive("dry-run", "yes")
 	_ = command.RegisterFlagCompletionFunc("mode", enumFlagCompletion("host", "shared"))
+	_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
 	noFileCompletions(command, "cidr", "mirror", "dry-run", "yes")
 	command.RunE = func(command *cobra.Command, arguments []string) error {
 		profileName := ""
@@ -66,6 +69,7 @@ Existing files are preserved unless --force is explicit. Use -o - to send the
 inventory to stdout for inspection or composition.`,
 		Example: `  barn init                        # write ./barn.yml with one meta node
   barn init full -o lab.yml        # write a four-node inventory elsewhere
+  barn init full --image el9       # write a four-node EL9 inventory
   barn init dual -o -              # print the two-node inventory to stdout
   barn init --force                # replace ./barn.yml explicitly
   barn init full -c 10.20.30.0/24  # generate a lab on another private /24`,
@@ -83,8 +87,10 @@ inventory to stdout for inspection or composition.`,
 		},
 	}
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "rebase the generated template to a canonical RFC1918 IPv4 /24")
+	command.Flags().StringVar(&options.Image, "image", "", "image reference for generated nodes, such as el9, u24:stable, or u24@version")
 	command.Flags().StringVarP(&options.Output, "output", "o", "", "write to this path instead of ./barn.yml; '-' writes to stdout")
 	command.Flags().BoolVar(&options.Force, "force", false, "overwrite an existing inventory file")
+	_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
 	noFileCompletions(command, "cidr", "force")
 	return command
 }

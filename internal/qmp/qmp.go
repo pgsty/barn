@@ -168,6 +168,20 @@ type UUID struct {
 	UUID string `json:"UUID"`
 }
 
+type MemorySizeSummary struct {
+	BaseMemory    int64 `json:"base-memory"`
+	PluggedMemory int64 `json:"plugged-memory"`
+}
+
+// HotpluggableCPU is one CPU slot advertised by QEMU. An empty QOMPath means
+// that the slot is still available for device_add.
+type HotpluggableCPU struct {
+	Type       string         `json:"type"`
+	VCPUsCount int            `json:"vcpus-count"`
+	Props      map[string]any `json:"props"`
+	QOMPath    string         `json:"qom-path"`
+}
+
 func (c *Client) QueryStatus(ctx context.Context, socket string) (Status, error) {
 	var status Status
 	err := c.Execute(ctx, socket, "query-status", nil, &status)
@@ -184,6 +198,30 @@ func (c *Client) QueryUUID(ctx context.Context, socket string) (UUID, error) {
 	var uuid UUID
 	err := c.Execute(ctx, socket, "query-uuid", nil, &uuid)
 	return uuid, err
+}
+
+func (c *Client) QueryHotpluggableCPUs(ctx context.Context, socket string) ([]HotpluggableCPU, error) {
+	var cpus []HotpluggableCPU
+	err := c.Execute(ctx, socket, "query-hotpluggable-cpus", nil, &cpus)
+	return cpus, err
+}
+
+func (c *Client) QueryMemorySizeSummary(ctx context.Context, socket string) (MemorySizeSummary, error) {
+	var summary MemorySizeSummary
+	err := c.Execute(ctx, socket, "query-memory-size-summary", nil, &summary)
+	return summary, err
+}
+
+func (c *Client) DeviceAdd(ctx context.Context, socket string, arguments map[string]any) error {
+	return c.Execute(ctx, socket, "device_add", arguments, nil)
+}
+
+func (c *Client) ObjectAdd(ctx context.Context, socket string, arguments map[string]any) error {
+	return c.Execute(ctx, socket, "object-add", arguments, nil)
+}
+
+func (c *Client) ObjectDel(ctx context.Context, socket, id string) error {
+	return c.Execute(ctx, socket, "object-del", map[string]any{"id": id}, nil)
 }
 
 func (c *Client) Powerdown(ctx context.Context, socket string) error {

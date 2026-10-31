@@ -41,6 +41,32 @@ func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
 			selection.OriginalConfig = data
 			return selection
 		}
+		// `barn init --image` and `barn setup <template> --image` produce the
+		// same built-in topology with an explicit per-node image override.
+		// Treat that form as generated too, so an automatic network rebase
+		// never drops the selected image.
+		if len(selection.File.Nodes) != 0 {
+			selectedImage := selection.File.Nodes[0].Image
+			if selectedImage == "" {
+				continue
+			}
+			allSame := true
+			for _, node := range selection.File.Nodes[1:] {
+				if node.Image != selectedImage {
+					allSame = false
+					break
+				}
+			}
+			if !allSame {
+				continue
+			}
+			template, err := config.TemplateWithImage(profile, "", selectedImage)
+			if err == nil && bytes.Equal(template, data) {
+				selection.Profile, selection.Image, selection.Generated = profile, selectedImage, true
+				selection.OriginalConfig = data
+				return selection
+			}
+		}
 	}
 	return selection
 }

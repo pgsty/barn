@@ -45,6 +45,7 @@ type setupResult struct {
 	Arch              string                   `json:"arch"`
 	Profile           string                   `json:"profile"`
 	Config            string                   `json:"config,omitempty"`
+	Image             string                   `json:"image,omitempty"`
 	DryRun            bool                     `json:"dry_run"`
 	Applicable        bool                     `json:"applicable"`
 	Ready             bool                     `json:"ready"`
@@ -66,6 +67,7 @@ type setupResult struct {
 
 type setupSelection struct {
 	Profile         string
+	Image           string
 	Resolved        spec.Resolved
 	File            config.File
 	ConfigData      []byte
@@ -79,6 +81,7 @@ type setupSelection struct {
 type setupCLIOptions struct {
 	FilePath     string
 	CIDR         string
+	Image        string
 	Mode         string
 	Repo         string
 	Mirror       bool
@@ -98,6 +101,9 @@ func (options setupCLIOptions) arguments(profileName string) []string {
 	}
 	if options.CIDR != "" {
 		arguments = append(arguments, "--cidr="+options.CIDR)
+	}
+	if options.Image != "" {
+		arguments = append(arguments, "--image="+options.Image)
 	}
 	if options.Repo != "" {
 		arguments = append(arguments, "--repo="+options.Repo)
@@ -130,8 +136,16 @@ func loadSetupFile(path string) (config.File, spec.Resolved, error) {
 	return file, resolved, err
 }
 
-func generatedSetupProfile(name, cidr, target string) (setupSelection, error) {
-	data, err := config.Template(name, cidr)
+func generatedSetupProfileWithImage(name, cidr, imageOverride, target string) (setupSelection, error) {
+	selectedImage := strings.TrimSpace(imageOverride)
+	var err error
+	if selectedImage != "" {
+		selectedImage, err = image.CanonicalReference(selectedImage)
+		if err != nil {
+			return setupSelection{}, failure.New(failure.Usage, fmt.Errorf("invalid image reference %q: %w", imageOverride, err))
+		}
+	}
+	data, err := config.TemplateWithImage(name, cidr, selectedImage)
 	if err != nil {
 		return setupSelection{}, err
 	}
@@ -144,7 +158,7 @@ func generatedSetupProfile(name, cidr, target string) (setupSelection, error) {
 		return setupSelection{}, err
 	}
 	return setupSelection{
-		Profile: name, Resolved: resolved, File: file,
+		Profile: name, Image: selectedImage, Resolved: resolved, File: file,
 		ConfigData: data, ConfigPath: target, Generated: true, Publish: true,
 		ExplicitNetwork: cidr != "",
 	}, nil
@@ -207,9 +221,16 @@ func discoverSetupConfig(cwd string) (string, error) {
 }
 
 func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelection, error) {
+	return resolveSetupSelectionWithImage(profileName, filePath, cidr, "", cwd)
+}
+
+func resolveSetupSelectionWithImage(profileName, filePath, cidr, imageOverride, cwd string) (setupSelection, error) {
 	target := filepath.Join(cwd, "barn.yml")
 	if filePath != "" && profileName != "" {
 		return setupSelection{}, failure.New(failure.Usage, errors.New("setup accepts either a lab template or -f, not both"))
+	}
+	if filePath != "" && strings.TrimSpace(imageOverride) != "" {
+		return setupSelection{}, failure.New(failure.Usage, errors.New("--image applies only to a generated lab template; edit the existing inventory instead"))
 	}
 	if filePath != "" && cidr != "" {
 		return setupSelection{}, failure.New(failure.Usage, errors.New("--cidr cannot change the network of an existing inventory; edit its addresses instead"))
@@ -230,6 +251,9 @@ func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelect
 		return setupSelection{}, err
 	}
 	if discovered != "" && profileName == "" {
+		if strings.TrimSpace(imageOverride) != "" {
+			return setupSelection{}, failure.New(failure.Usage, errors.New("--image applies only to a generated lab template; pass a template name or edit the discovered inventory"))
+		}
 		if cidr != "" {
 			return setupSelection{}, errors.New("--cidr cannot silently rebase the discovered configuration; edit the file as one coordinated change")
 		}
@@ -251,7 +275,7 @@ func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelect
 		// idempotent; a different existing configuration is preserved.
 		target = discovered
 	}
-	selection, err := generatedSetupProfile(profileName, cidr, target)
+	selection, err := generatedSetupProfileWithImage(profileName, cidr, imageOverride, target)
 	if err != nil {
 		return setupSelection{}, err
 	}
@@ -262,7 +286,7 @@ func (selection *setupSelection) rebaseGenerated(cidr string) error {
 	if !selection.Generated || selection.ExplicitNetwork {
 		return errors.New("setup selection cannot be automatically rebased")
 	}
-	rebased, err := generatedSetupProfile(selection.Profile, cidr, selection.ConfigPath)
+	rebased, err := generatedSetupProfileWithImage(selection.Profile, cidr, selection.Image, selection.ConfigPath)
 	if err != nil {
 		return err
 	}
@@ -934,7 +958,11 @@ func printSetupPlan(stderr io.Writer, plan setuphost.DependencyPlan, selection s
 
 	// config: which file defines the lab, and what it resolves to.
 	if selection.Publish {
-		planRow(stderr, "config", "create %s (%s template: %s)", selection.ConfigPath, selection.Profile, setupNodesSummary(selection.Resolved))
+		detail := fmt.Sprintf("%s template: %s", selection.Profile, setupNodesSummary(selection.Resolved))
+		if selection.Image != "" {
+			detail += ", image: " + selection.Image
+		}
+		planRow(stderr, "config", "create %s (%s)", selection.ConfigPath, detail)
 	} else if selection.ConfigPath != "" {
 		planRow(stderr, "config", "use %s (%s)", selection.ConfigPath, setupNodesSummary(selection.Resolved))
 	}
@@ -1177,12 +1205,20 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	}
 	var selection setupSelection
 	if options.Applied != nil {
+		if strings.TrimSpace(options.Image) != "" {
+			return failSetup(&result, exitUsage, errors.New("--image cannot be used while preparing an already-applied deployment"))
+		}
 		selection = setupSelection{Resolved: *options.Applied, ExplicitNetwork: true}
-	} else if selection, err = resolveSetupSelection(profileName, options.FilePath, options.CIDR, cwd); err != nil {
-		return failSetup(&result, exitConflict, err)
+	} else if selection, err = resolveSetupSelectionWithImage(profileName, options.FilePath, options.CIDR, options.Image, cwd); err != nil {
+		code := exitConflict
+		if class, _, _ := failure.Classify(err); class != "" {
+			code = classExit(class)
+		}
+		return failSetup(&result, code, err)
 	}
 	result.Profile = selection.Profile
 	result.Config = selection.ConfigPath
+	result.Image = selection.Image
 	next, nextArgv := setupNextCommand(selection, cwd)
 	result.Next = next
 	result.NextArgv = nextArgv

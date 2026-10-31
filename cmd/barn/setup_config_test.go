@@ -58,6 +58,33 @@ func TestFreshUntouchedInitCanUseAnAvailableNetwork(t *testing.T) {
 	}
 }
 
+func TestFreshGeneratedImageTemplateCanRebaseWithoutDroppingImage(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("BARN_HOME", t.TempDir())
+	path := filepath.Join(cwd, "barn.yml")
+	original, err := config.TemplateWithImage("dual", "", "el9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := resolveSetupSelection("", "", "", cwd)
+	if err != nil || !selection.Generated || selection.Image != "el9" {
+		t.Fatalf("image template should be recognized: %+v, %v", selection, err)
+	}
+	if err := selection.rebaseGenerated("172.31.251.0/24"); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSetupConfig(selection); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(data, []byte("vm_image: el9\n")) || !bytes.Contains(data, []byte("172.31.251.10")) {
+		t.Fatalf("rebased image inventory=%s %v", data, err)
+	}
+}
+
 func TestSetupPublishesThroughDirectoryAliasAndReusesLinkedInventory(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("BARN_HOME", t.TempDir())

@@ -114,6 +114,19 @@ func TestPartialLifecycleCountsMissingStateAndRetainsConnect(t *testing.T) {
 	}
 }
 
+func TestResizeRestartFailureSuggestsStart(t *testing.T) {
+	result := lifecycleResult{
+		Source:       "/tmp/lab.yml",
+		retryOptions: lifecycleRetryOptions{Action: "resize"},
+		Failures:     []privatevm.NodeFailure{{Node: "meta", Stage: "start", Error: "resized node meta but could not restart it"}},
+	}
+	var out bytes.Buffer
+	printLifecycleResult(&out, "resize", result, false)
+	if !strings.Contains(out.String(), "barn start meta") || strings.Contains(out.String(), "barn resize meta") {
+		t.Fatalf("resize restart recovery hint = %s", out.String())
+	}
+}
+
 func TestBareCommandKeepsTheNextStepsCompact(t *testing.T) {
 	t.Setenv("BARN_HOME", t.TempDir())
 	var out, errOut bytes.Buffer

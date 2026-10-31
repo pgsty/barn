@@ -47,6 +47,10 @@ func startupCommand(command string) bool {
 	}
 }
 
+func lifecycleCanRetry(command string) bool {
+	return startupCommand(command) || command == "resize"
+}
+
 func printLifecycleResult(out io.Writer, command string, result lifecycleResult, noWait bool) {
 	for _, node := range result.Nodes {
 		if node.Error == "" {
@@ -213,7 +217,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 
 func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFailure, options ...lifecycleRetryOptions) {
 	groups := make(map[string][]string)
-	var retry, bootstrap, repair, booted []string
+	var retry, start, bootstrap, repair, booted []string
 	for _, failure := range failures {
 		message := strings.Join(strings.Fields(failure.Error), " ")
 		groups[message] = append(groups[message], failure.Node)
@@ -221,6 +225,9 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 			bootstrap = append(bootstrap, failure.Node)
 		} else if failure.Stage == "guest-setup" {
 			repair = append(repair, failure.Node)
+		} else if failure.Stage == "start" {
+			start = append(start, failure.Node)
+			booted = append(booted, failure.Node)
 		} else {
 			retry = append(retry, failure.Node)
 			if failure.Stage != "prepare" {
@@ -251,6 +258,10 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	}
 	if len(retry) > 0 {
 		textField(out, 10, "retry", lifecycleRetryCommand(source, retry, options...))
+	}
+	if len(start) > 0 {
+		sort.Strings(start)
+		textField(out, 10, "retry", lifecycleNodeCommand("start", source, start, options...))
 	}
 	if len(booted) > 0 {
 		// A node that failed before its VM existed has no console log.

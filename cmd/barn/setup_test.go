@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/execx"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
 	setuphost "github.com/pgsty/barn/internal/setup"
@@ -70,6 +71,45 @@ func TestResolveSetupSelectionGeneratesPrivateProfileOnce(t *testing.T) {
 	}
 	if repeated.Publish {
 		t.Fatalf("repeated selection = %#v", repeated)
+	}
+}
+
+func TestResolveSetupSelectionAppliesImageToGeneratedProfile(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	selection, err := resolveSetupSelectionWithImage("full", "", "", "el9", directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Image != "el9" || !bytes.Contains(selection.ConfigData, []byte("vm_image: el9")) {
+		t.Fatalf("generated image selection = %#v, config=%s", selection, selection.ConfigData)
+	}
+	for _, node := range selection.Resolved.Nodes {
+		if node.Image != "el9" {
+			t.Fatalf("generated node %s image=%q, want el9", node.Name, node.Image)
+		}
+	}
+	if err := selection.rebaseGenerated("172.31.251.0/24"); err != nil {
+		t.Fatal(err)
+	}
+	if selection.Image != "el9" || !bytes.Contains(selection.ConfigData, []byte("vm_image: el9")) {
+		t.Fatalf("rebasing lost image selection = %#v, config=%s", selection, selection.ConfigData)
+	}
+}
+
+func TestResolveSetupSelectionRejectsImageForExistingInventory(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	path := filepath.Join(directory, "pigsty.yml")
+	data, err := config.Template("meta", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveSetupSelectionWithImage("", path, "", "el9", directory); err == nil || !strings.Contains(err.Error(), "--image applies only") {
+		t.Fatalf("existing inventory accepted image override: %v", err)
 	}
 }
 

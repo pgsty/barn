@@ -423,7 +423,7 @@ func TestConfigFlagScopeAndDiscoveryHelp(t *testing.T) {
 	root := newRootCommand(&bytes.Buffer{}, &bytes.Buffer{})
 	expected := map[string]bool{
 		"barn setup": true, "barn validate": true,
-		"barn plan": true, "barn up": true, "barn reload": true, "barn recreate": true,
+		"barn plan": true, "barn up": true, "barn reload": true, "barn resize": true, "barn recreate": true,
 	}
 	var walk func(*cobra.Command)
 	walk = func(parent *cobra.Command) {

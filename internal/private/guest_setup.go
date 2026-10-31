@@ -86,8 +86,12 @@ func (l NativeLifecycle) guestSetupScript(node state.NodeState, stages []string)
 			}
 			disks = append(disks, cloudinit.Disk{Serial: disk.Serial, Mount: disk.Mount, Filesystem: filesystem})
 		}
+		guestSpecHash := node.GuestSpecHash
+		if guestSpecHash == "" {
+			guestSpecHash = node.SpecHash
+		}
 		return cloudinit.RetryScript(cloudinit.Input{
-			Node: node.Node, Hostname: node.Node, Generation: node.Generation, SpecHash: node.SpecHash,
+			Node: node.Node, Hostname: node.Node, Generation: node.Generation, SpecHash: guestSpecHash,
 			SSHUser: resolved.SSHUser, PublicKey: strings.TrimSpace(string(publicKey)), MgmtMAC: mgmtMAC,
 			Private: &cloudinit.PrivateNetwork{MAC: privateMAC, Address: definition.Address, Prefix: prefix, HostAddress: resolved.Private.HostAddress},
 			Control: definition.Control, Hosts: deploymentHosts(resolved), Disks: disks, Shares: privateCloudShares(definition.Shares),

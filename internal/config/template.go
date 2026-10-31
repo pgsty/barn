@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/network/subnet"
 )
 
@@ -35,9 +36,25 @@ func ValidTemplate(name string) bool {
 // Template renders a built-in lab as a Pigsty-compatible inventory. The
 // optional cidr rebases the /24 while keeping each node's last octet.
 func Template(name, cidr string) ([]byte, error) {
+	return TemplateWithImage(name, cidr, "")
+}
+
+// TemplateWithImage renders a built-in lab and, when imageOverride is set,
+// writes the selected image into all.vars so every generated node inherits
+// the same explicit image reference. A blank override preserves the original
+// implicit embedded-catalog default.
+func TemplateWithImage(name, cidr, imageOverride string) ([]byte, error) {
 	nodes, exists := templateProfiles[name]
 	if !exists {
 		return nil, failure.New(failure.Usage, fmt.Errorf("unknown lab template %q; available: %s", name, strings.Join(TemplateNames(), ", ")))
+	}
+	selectedImage := defaultImage
+	if strings.TrimSpace(imageOverride) != "" {
+		canonical, err := image.CanonicalReference(imageOverride)
+		if err != nil {
+			return nil, failure.New(failure.Usage, fmt.Errorf("invalid image reference %q: %w", imageOverride, err))
+		}
+		selectedImage = canonical
 	}
 	if cidr == "" {
 		cidr = subnet.DefaultCIDR
@@ -51,12 +68,15 @@ func Template(name, cidr string) ([]byte, error) {
 	fmt.Fprintf(&output, "---\n")
 	fmt.Fprintf(&output, "# Barn lab %q: %d fixed-IP node(s) on %s.\n", name, len(nodes), layout.CIDR())
 	fmt.Fprintf(&output, "# Start: barn up; connect: barn ssh.\n")
-	fmt.Fprintf(&output, "# Optional per-host settings: vm_cpu: 2, vm_mem: 4096, vm_disk: 64, vm_image: %s.\n", defaultImage)
+	fmt.Fprintf(&output, "# Optional per-host settings: vm_cpu: 2, vm_mem: 4096, vm_disk: 64, vm_image: %s.\n", selectedImage)
 	fmt.Fprintf(&output, "# Each node also gets a %d GiB /data disk; set vm_disks to change it, or vm_disks: [] for none.\n", defaultDataGiB)
 	fmt.Fprintf(&output, "# Other Pigsty/Ansible variables can stay in this inventory.\n")
 	fmt.Fprintf(&output, "all:\n")
 	fmt.Fprintf(&output, "  vars:\n")
 	fmt.Fprintf(&output, "    admin_ip: %s.%d\n", prefix, nodes[0].LastOctet)
+	if strings.TrimSpace(imageOverride) != "" {
+		fmt.Fprintf(&output, "    vm_image: %s\n", selectedImage)
+	}
 	fmt.Fprintf(&output, "  children:\n")
 	fmt.Fprintf(&output, "    nodes:\n")
 	fmt.Fprintf(&output, "      hosts:\n")

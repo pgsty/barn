@@ -96,14 +96,18 @@ type GuestWarning struct {
 }
 
 type NodeState struct {
-	GuestWarnings []GuestWarning  `json:"-"`
-	Schema        int             `json:"schema"`
-	BarnVersion   string          `json:"barn_version"`
-	Node          string          `json:"node"`
-	VMUUID        string          `json:"vm_uuid"`
-	Phase         Phase           `json:"phase"`
-	Generation    uint64          `json:"generation"`
-	SpecHash      string          `json:"spec_hash"`
+	GuestWarnings []GuestWarning `json:"-"`
+	Schema        int            `json:"schema"`
+	BarnVersion   string         `json:"barn_version"`
+	Node          string         `json:"node"`
+	VMUUID        string         `json:"vm_uuid"`
+	Phase         Phase          `json:"phase"`
+	Generation    uint64         `json:"generation"`
+	SpecHash      string         `json:"spec_hash"`
+	// GuestSpecHash is the hash baked into the guest ready marker. CPU and
+	// memory changes do not rebuild cloud-init, so it can intentionally lag
+	// SpecHash while the VM remains the same instance.
+	GuestSpecHash string          `json:"guest_spec_hash,omitempty"`
 	Image         Image           `json:"image"`
 	RootDisk      string          `json:"root_disk"`
 	DataDisks     []DataDisk      `json:"data_disks,omitempty"`
@@ -113,9 +117,13 @@ type NodeState struct {
 	Forwards      []qemu.Forward  `json:"forwards"`
 	Runtime       RuntimePaths    `json:"runtime"`
 	Invocation    qemu.Invocation `json:"invocation"`
-	Process       ProcessIdentity `json:"process"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	// PendingInvocation is the next boot invocation after an online resize.
+	// Invocation stays bound to the currently running QEMU process until it is
+	// stopped, otherwise process identity checks would reject a healthy VM.
+	PendingInvocation qemu.Invocation `json:"pending_invocation,omitempty"`
+	Process           ProcessIdentity `json:"process"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
 type Action struct {

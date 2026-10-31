@@ -42,6 +42,8 @@ type NetworkPreflightError struct{ Report netpreflight.Report }
 
 var ErrRecreateRequired error = failure.New(failure.Conflict, errors.New("recreate required")).Because("recreate_required")
 
+var ErrResizeRequired error = failure.New(failure.Conflict, errors.New("resize required")).Because("resize_required")
+
 // ErrNodesRemoved reports nodes present in deployment state but absent from the
 // desired configuration. The absence of a node from a configuration never
 // implies destruction; removal is an explicit `barn destroy <node> --force`.
@@ -52,7 +54,8 @@ var ErrNodesRemoved error = failure.New(failure.Conflict, errors.New("inventory 
 type resolvedDiff struct {
 	EnvelopeChanged bool
 	Create          []string // desired nodes without committed state: new peers, or the per-node recreate window
-	Changed         []string // desired nodes whose definition differs while their state still exists
+	Changed         []string // desired nodes whose non-resource definition differs while their state still exists
+	Resize          []string // desired nodes whose only changes are CPU and/or memory
 	Removed         []string // stateful nodes the desired configuration dropped
 	Unchanged       []string
 }
@@ -76,6 +79,8 @@ func diffResolved(persisted, desired spec.Resolved, hasState func(string) bool) 
 			diff.Create = append(diff.Create, node.Name)
 		case sameEffectiveResolvedNode(persisted, current, desired, node):
 			diff.Unchanged = append(diff.Unchanged, node.Name)
+		case resourceOnlyNodeChange(persisted, current, desired, node):
+			diff.Resize = append(diff.Resize, node.Name)
 		default:
 			diff.Changed = append(diff.Changed, node.Name)
 		}
@@ -86,6 +91,14 @@ func diffResolved(persisted, desired spec.Resolved, hasState func(string) bool) 
 		}
 	}
 	return diff
+}
+
+func resourceOnlyNodeChange(first spec.Resolved, firstNode spec.Node, second spec.Resolved, secondNode spec.Node) bool {
+	firstNode.Image = effectiveNodeImage(first, firstNode)
+	secondNode.Image = effectiveNodeImage(second, secondNode)
+	firstNode.CPUs, firstNode.Memory = 0, 0
+	secondNode.CPUs, secondNode.Memory = 0, 0
+	return sameResolvedNode(firstNode, secondNode)
 }
 
 func describeChanges(current, desired spec.Resolved, selected map[string]struct{}) []string {
@@ -331,6 +344,7 @@ type LifecyclePlan struct {
 	Destructive bool     `json:"destructive"`
 	Create      []string `json:"create,omitempty"`
 	Recreate    []string `json:"recreate,omitempty"`
+	Resize      []string `json:"resize,omitempty"`
 	Missing     []string `json:"missing,omitempty"`
 }
 
@@ -1352,6 +1366,9 @@ func refuseDrift(diff resolvedDiff) error {
 	if len(diff.Changed) != 0 {
 		return fmt.Errorf("%w: node(s) %s changed; run `barn plan` to review, then `barn recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))
 	}
+	if len(diff.Resize) != 0 {
+		return fmt.Errorf("%w: node(s) %s changed CPU or memory; run `barn resize %s`", ErrResizeRequired, strings.Join(diff.Resize, ", "), strings.Join(diff.Resize, " "))
+	}
 	return nil
 }
 
@@ -2078,10 +2095,12 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	if len(m.Nodes) == 0 {
 		result.Create = append([]string(nil), diff.Create...)
 		result.Recreate = append([]string(nil), diff.Changed...)
+		result.Resize = append([]string(nil), diff.Resize...)
 		result.Missing = append([]string(nil), diff.Removed...)
 	} else {
 		result.Create = selectedNodeList(diff.Create, selectedSet)
 		result.Recreate = selectedNodeList(diff.Changed, selectedSet)
+		result.Resize = selectedNodeList(diff.Resize, selectedSet)
 		result.Missing = selectedNodeList(diff.Removed, selectedSet)
 	}
 	runtimeDrift, err := runtimeDriftNodes(store, resolvedNodeSelection(requested, selected), runtime.Profile)
@@ -2104,6 +2123,9 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 		result.Action = "recreate"
 		result.Destructive = true
 		result.Recreate = append([]string(nil), runtimeDrift...)
+		return result, nil
+	case len(diff.Resize) != 0:
+		result.Action = "resize"
 		return result, nil
 	}
 	allRunning, allStartable := true, true

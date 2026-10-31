@@ -52,8 +52,8 @@ func TestSelectedOperationsLeavePeerChangesPending(t *testing.T) {
 	}
 	desired.Nodes[1].Memory *= 2
 	plan, err = manager.Plan(context.Background(), desired)
-	if err != nil || plan.Blocked != "" || plan.Action != "recreate" || strings.Join(plan.Recreate, ",") != "node-1" {
-		t.Fatalf("selected recreate plan = %#v, %v", plan, err)
+	if err != nil || plan.Blocked != "" || plan.Action != "resize" || strings.Join(plan.Resize, ",") != "node-1" {
+		t.Fatalf("selected resize plan = %#v, %v", plan, err)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestSequentialRecreatePreservesUnselectedDisksAndIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		diff := diffResolved(applied.Resolved, desired, func(string) bool { return true })
-		if selected == "node-1" && strings.Join(diff.Changed, ",") != "meta" || selected == "meta" && len(diff.Changed) != 0 {
+		if selected == "node-1" && strings.Join(diff.Resize, ",") != "meta" || selected == "meta" && len(diff.Resize) != 0 {
 			t.Fatalf("pending changes after %s = %#v", selected, diff)
 		}
 	}

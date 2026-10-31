@@ -68,6 +68,43 @@ func TestBuildLinuxAMD64DoesNotAddFirmware(t *testing.T) {
 	}
 }
 
+func TestBuildReservesConservativeResizeCapacity(t *testing.T) {
+	t.Parallel()
+	invocation, err := Build(testConfig(t, "linux", "amd64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources, err := InvocationResources(invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resources.CPUs != 2 || resources.MaxCPUs != 8 || resources.Memory != 4*1024*MiB || resources.MaxMemory != 16*1024*MiB || resources.MemorySlots != 8 {
+		t.Fatalf("resize capacity = %#v", resources)
+	}
+}
+
+func TestConfigureResourcesPreservesDevicesAndAddsCapacityToOldInvocation(t *testing.T) {
+	t.Parallel()
+	original := Invocation{Binary: "/qemu", Args: []string{"-name", "meta", "-smp", "2", "-m", "4096", "-device", "virtio-net-pci"}, InheritedFiles: []InheritedFile{{FD: 3, Kind: "share", ID: "src"}}}
+	updated, err := ConfigureResources(original, 4, 8*1024*MiB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources, err := InvocationResources(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resources.CPUs != 4 || resources.MaxCPUs != 16 || resources.Memory != 8*1024*MiB || resources.MaxMemory != 32*1024*MiB || resources.MemorySlots != 8 {
+		t.Fatalf("updated resources = %#v", resources)
+	}
+	if strings.Join(updated.Args, " ") != "-name meta -smp cpus=4,maxcpus=16 -m 8192M,slots=8,maxmem=32768M -device virtio-net-pci" {
+		t.Fatalf("updated argv = %v", updated.Args)
+	}
+	if len(updated.InheritedFiles) != 1 || updated.InheritedFiles[0] != original.InheritedFiles[0] {
+		t.Fatalf("inherited files changed: %#v", updated.InheritedFiles)
+	}
+}
+
 func TestBuildUsesSelectedTCGRuntimeVerbatim(t *testing.T) {
 	t.Parallel()
 	host, _ := platform.Resolve("darwin", "arm64")

@@ -15,6 +15,7 @@ import (
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/qemu"
 	"github.com/pgsty/barn/internal/runtimepath"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
@@ -72,6 +73,10 @@ func (l NativeLifecycle) stageControlSSH(ctx context.Context, node state.NodeSta
 }
 
 func (l NativeLifecycle) PrepareStart(node state.NodeState) (state.NodeState, error) {
+	if node.PendingInvocation.Binary != "" {
+		node.Invocation = node.PendingInvocation
+		node.PendingInvocation = qemu.Invocation{}
+	}
 	bundle, err := openPrivateNodeShares(l.Deployment, l.Shares, node)
 	if err != nil {
 		return node, err
@@ -159,7 +164,11 @@ func (l NativeLifecycle) WaitReady(ctx context.Context, node state.NodeState, ti
 	if l.RetryGuestSetup {
 		l.VM.GuestSetupVersion = cloudinit.SetupVersion
 	}
-	expected := vm.ReadyMarker{Node: node.Node, Generation: node.Generation, SpecHash: node.SpecHash}
+	expectedHash := node.GuestSpecHash
+	if expectedHash == "" {
+		expectedHash = node.SpecHash
+	}
+	expected := vm.ReadyMarker{Node: node.Node, Generation: node.Generation, SpecHash: expectedHash}
 	warnings, err := l.VM.WaitReady(ctx, l.SSHPath, l.PrivateKey, l.KnownHosts, node.SSHPort, expected, timeout)
 	if !l.RetryGuestSetup {
 		return warnings, err

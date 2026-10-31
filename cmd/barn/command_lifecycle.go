@@ -14,7 +14,7 @@ type lifecycleHelp struct {
 var lifecycleHelpByName = map[string]lifecycleHelp{
 	"plan": {
 		long: `Compare the desired inventory with the applied deployment and classify each
-selected node as create, recreate, missing, or unchanged. Plan is read-only.
+selected node as create, resize, recreate, missing, or unchanged. Plan is read-only.
 It uses -f first, then local discovery, then the last applied inventory.`,
 		example: `  barn plan                # inspect all pending changes
   barn plan -f pigsty.yml  # compare one explicit desired inventory
@@ -29,8 +29,9 @@ barn.yml if no inventory or applied deployment exists. Use init to customize
 the inventory first. For unattended preparation, run setup --yes before up.
 
 Changed node definitions and nodes removed from the inventory are reported,
-never applied: use recreate or destroy for those. A missing host share fails
-only its node; restore the original directory or mount before retrying it.`,
+never applied: use resize for CPU or memory changes, recreate for other node
+changes, and destroy for removals. A missing host share fails only its node;
+restore the original directory or mount before retrying it.`,
 		example: `  barn up                           # start your first VM, or continue the current lab
   barn up meta                      # converge only the meta node
   barn up --mirror                  # use the China official repository for downloads
@@ -57,12 +58,24 @@ inventory. Use reload when the inventory may contain new nodes.`,
 	},
 	"reload": {
 		long: `Stop the selected nodes, re-read the inventory, and run up. New nodes are
-created; changed definitions still need recreate and removed nodes still need
-destroy, and either is refused before anything stops.`,
+created; CPU or memory changes need resize, other changed definitions need
+recreate, and removed nodes still need destroy. These changes are refused
+before anything stops.`,
 		example: `  barn reload                       # re-read the discovered inventory
   barn reload -f pigsty.yml         # reload from an explicit desired inventory
   barn reload --mirror              # use the China official repository for downloads
   barn reload meta                  # reload one selected node`,
+	},
+	"resize": {
+		long: `Apply CPU and memory changes from the desired inventory to existing nodes.
+Edit vm_cpu or vm_mem first, then run resize. Barn hot-plugs increases when
+the running QEMU instance has capacity reserved; decreases and older VMs use
+an automatic stop and start while preserving the VM identity and disks.
+Resize never changes images, disks, networking, or shared directories; use
+recreate for those changes. The inventory is never modified by this command.`,
+		example: `  barn resize meta                # apply the edited resources to meta
+  barn resize -f pigsty.yml         # apply resource changes for all nodes
+  barn --json resize meta            # inspect structured result`,
 	},
 	"recreate": {
 		long: `Destroy and recreate selected nodes from the desired inventory.
@@ -107,7 +120,7 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 		Long:              help.long,
 		Example:           help.example,
 		Args:              cobra.ArbitraryArgs,
-		ValidArgsFunction: nodeCompletion(name == "plan" || name == "up" || name == "reload" || name == "recreate", false),
+		ValidArgsFunction: nodeCompletion(name == "plan" || name == "up" || name == "reload" || name == "resize" || name == "recreate", false),
 	}
 	switch name {
 	case "plan":
@@ -131,6 +144,8 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 		command.Flags().BoolVarP(&options.NoWait, "no-wait", "n", false, "return once QEMU is running, without waiting for the guest to boot")
 		command.Flags().BoolVar(&options.Rollback, "rollback", false, "remove safe artifacts from nodes that fail to prepare")
 		noFileCompletions(command, "mirror", "no-wait", "rollback")
+	case "resize":
+		command.Flags().StringVarP(&options.ConfigPath, "file", "f", "", "desired inventory; defaults to the discovered inventory, then the applied state")
 	case "start", "restart":
 		command.Flags().BoolVarP(&options.NoWait, "no-wait", "n", false, "return once QEMU is running, without waiting for the guest to boot")
 		noFileCompletions(command, "no-wait")

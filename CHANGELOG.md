@@ -6,6 +6,16 @@ Notable user-visible changes. This project follows
 
 ## Unreleased
 
+### Added
+
+- Add `barn resize` for CPU and memory changes from an edited inventory. Barn
+  hot-plugs supported increases and automatically uses a stop/start fallback
+  for decreases, older VMs, or platforms without the required QEMU support;
+  VM identity, disks, and SSH keys are preserved.
+- Add `--image` to `barn init` and generated `barn setup` templates so a lab
+  can select an image alias, channel, or exact version when its inventory is
+  created.
+
 ### Fixed
 
 - Accept symlinked parent directories of `BARN_HOME` for Mac commands, including
