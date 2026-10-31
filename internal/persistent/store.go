@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"syscall"
 	"time"
@@ -24,6 +25,7 @@ const (
 	Schema       = 1
 	rootName     = "disks"
 	markerName   = "ownership.json"
+	pendingName  = ".pending.json"
 	diskFileName = "disk.qcow2"
 )
 
@@ -52,6 +54,12 @@ type Record struct {
 	Filesystem  string    `json:"filesystem,omitempty"`
 	OwnerUID    int       `json:"owner_uid"`
 	PreservedAt time.Time `json:"preserved_at"`
+}
+
+type pendingRecord struct {
+	Schema int    `json:"schema"`
+	Record Record `json:"record"`
+	Source string `json:"source"`
 }
 
 func key(node, name string) string { return node + "\x00" + name }
@@ -163,6 +171,32 @@ func decodeMarker(path string) (Record, error) {
 	return record, nil
 }
 
+func decodePending(path string) (pendingRecord, error) {
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return pendingRecord{}, os.ErrNotExist
+	} else if err != nil {
+		return pendingRecord{}, err
+	}
+	if err := validateFile(path, 16<<10); err != nil {
+		return pendingRecord{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return pendingRecord{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var pending pendingRecord
+	if err := decoder.Decode(&pending); err != nil {
+		return pendingRecord{}, fmt.Errorf("decode persistent disk pending marker: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return pendingRecord{}, errors.New("persistent disk pending marker contains trailing JSON")
+	}
+	return pending, nil
+}
+
 func recordIdentity(record Record) Identity {
 	return Identity{Node: record.Node, Name: record.Name, Serial: record.Serial, Size: record.Size, Mount: record.Mount, Filesystem: record.Filesystem}
 }
@@ -186,6 +220,151 @@ func validateRecord(root string, record Record) error {
 
 func sameIdentity(record Record, expected Identity) bool {
 	return record.Node == expected.Node && record.Name == expected.Name && record.Serial == expected.Serial && record.Size == expected.Size && record.Mount == expected.Mount
+}
+
+func validatePending(root, directory string, pending pendingRecord) error {
+	if pending.Schema != Schema || pending.Source == "" || !filepath.IsAbs(pending.Source) || filepath.Clean(pending.Source) != pending.Source {
+		return errors.New("persistent disk pending marker schema or source is invalid")
+	}
+	if err := validateRecordIdentity(root, pending.Record); err != nil {
+		return err
+	}
+	_, expectedDisk, _, err := paths(root, recordIdentity(pending.Record))
+	if err != nil {
+		return err
+	}
+	if pending.Record.Path != expectedDisk || filepath.Dir(expectedDisk) != directory || filepath.Clean(pending.Source) == expectedDisk {
+		return errors.New("persistent disk pending marker path is not canonical")
+	}
+	inside, err := fsutil.IsWithin(root, pending.Source)
+	if err != nil || !inside {
+		return errors.New("persistent disk pending source escapes the deployment root")
+	}
+	return nil
+}
+
+func validateRecordIdentity(root string, record Record) error {
+	if record.Schema != Schema || record.OwnerUID != os.Geteuid() || record.PreservedAt.IsZero() {
+		return errors.New("persistent disk marker schema, owner, or timestamp is invalid")
+	}
+	if _, _, _, err := paths(root, recordIdentity(record)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func pendingMarkerData(pending pendingRecord) ([]byte, error) {
+	data, err := json.MarshalIndent(pending, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+// recoverPending reconciles the only two durable boundaries between moving a
+// disk and publishing its ownership marker. It returns true when an unfinished
+// pre-rename directory was removed and should not be counted by Inventory.
+func recoverPending(root, directory, nodeDir string) (bool, error) {
+	pendingPath := filepath.Join(directory, pendingName)
+	pending, err := decodePending(pendingPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := validatePending(root, directory, pending); err != nil {
+		return false, err
+	}
+	target := pending.Record.Path
+	markerPath := filepath.Join(directory, markerName)
+	_, targetErr := os.Lstat(target)
+	_, sourceErr := os.Lstat(pending.Source)
+	if targetErr != nil && !errors.Is(targetErr, os.ErrNotExist) {
+		return false, targetErr
+	}
+	if sourceErr != nil && !errors.Is(sourceErr, os.ErrNotExist) {
+		return false, sourceErr
+	}
+	if sourceErr == nil {
+		if err := ValidateSource(root, pending.Source); err != nil {
+			return false, err
+		}
+	}
+	if targetErr == nil && sourceErr == nil {
+		return false, errors.New("persistent disk pending marker finds both source and retained disk")
+	}
+	if errors.Is(targetErr, os.ErrNotExist) && errors.Is(sourceErr, os.ErrNotExist) {
+		return false, errors.New("persistent disk pending marker finds neither source nor retained disk")
+	}
+	if _, markerErr := os.Lstat(markerPath); markerErr == nil {
+		if targetErr != nil {
+			return false, errors.New("persistent disk ownership marker exists without its disk")
+		}
+		marker, decodeErr := decodeMarker(markerPath)
+		if decodeErr != nil || !reflect.DeepEqual(marker, pending.Record) {
+			if decodeErr != nil {
+				return false, decodeErr
+			}
+			return false, errors.New("persistent disk pending and ownership markers differ")
+		}
+		if err := validateRecord(root, marker); err != nil {
+			return false, err
+		}
+		if err := os.Remove(pendingPath); err != nil {
+			return false, err
+		}
+		return false, fsutil.SyncDir(directory)
+	} else if !errors.Is(markerErr, os.ErrNotExist) {
+		return false, markerErr
+	}
+	if targetErr == nil {
+		if err := ValidateSource(root, target); err != nil {
+			return false, err
+		}
+		if err := os.Chmod(target, 0o600); err != nil {
+			return false, err
+		}
+		if err := validateRecord(root, pending.Record); err != nil {
+			return false, err
+		}
+		data, err := json.MarshalIndent(pending.Record, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		if err := fsutil.AtomicWrite(markerPath, append(data, '\n'), 0o600); err != nil {
+			return false, err
+		}
+		if err := os.Remove(pendingPath); err != nil {
+			return false, err
+		}
+		return false, fsutil.SyncDir(directory)
+	}
+	// The process died before rename. The source is still authoritative, so
+	// discard only the pending marker and the empty directory it introduced.
+	if err := os.Remove(pendingPath); err != nil {
+		return false, err
+	}
+	if err := removeFinderMetadata(directory); err != nil {
+		return false, err
+	}
+	if err := os.Remove(directory); err != nil {
+		return false, err
+	}
+	if entries, readErr := os.ReadDir(nodeDir); readErr == nil {
+		if len(entries) == 1 && entries[0].Name() == finderMetadataName {
+			if err := removeFinderMetadata(nodeDir); err != nil {
+				return false, err
+			}
+			entries = nil
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(nodeDir); err != nil {
+				return false, err
+			}
+		}
+	}
+	return true, fsutil.SyncDir(filepath.Dir(nodeDir))
 }
 
 const finderMetadataName = ".DS_Store"
@@ -265,7 +444,6 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 				}
 				continue
 			}
-			diskCount++
 			if !naming.ValidNodeName(diskEntry.Name()) {
 				return nil, fmt.Errorf("persistent disk store has unexpected disk entry %q", diskEntry.Name())
 			}
@@ -274,6 +452,18 @@ func Inventory(deploymentRoot string) ([]Record, error) {
 				return nil, err
 			}
 			entries, err := os.ReadDir(diskDir)
+			if err != nil {
+				return nil, err
+			}
+			diskCount++
+			recovered, recoverErr := recoverPending(deploymentRoot, diskDir, nodeDir)
+			if recoverErr != nil {
+				return nil, recoverErr
+			}
+			if recovered {
+				continue
+			}
+			entries, err = os.ReadDir(diskDir)
 			if err != nil {
 				return nil, err
 			}
@@ -420,7 +610,19 @@ func Preserve(root string, identity Identity, source string) (Record, error) {
 	if err := validateDirectory(directory); err != nil {
 		return Record{}, err
 	}
+	record := Record{Schema: Schema, Node: identity.Node, Name: identity.Name, Path: target, Serial: identity.Serial, Size: identity.Size, Mount: identity.Mount, Filesystem: identity.Filesystem, OwnerUID: os.Geteuid(), PreservedAt: time.Now().UTC()}
+	pendingData, err := pendingMarkerData(pendingRecord{Schema: Schema, Record: record, Source: filepath.Clean(source)})
+	if err != nil {
+		return Record{}, err
+	}
+	if err := fsutil.AtomicWrite(filepath.Join(directory, pendingName), pendingData, 0o600); err != nil {
+		return Record{}, err
+	}
+	if err := fsutil.SyncDir(directory); err != nil {
+		return Record{}, err
+	}
 	if err := os.Rename(source, target); err != nil {
+		_ = os.Remove(filepath.Join(directory, pendingName))
 		cleanupEmptyParents(root, directory)
 		return Record{}, fmt.Errorf("preserve persistent disk: %w", err)
 	}
@@ -428,6 +630,7 @@ func Preserve(root string, identity Identity, source string) (Record, error) {
 	defer func() {
 		if rollback {
 			_ = os.Remove(marker)
+			_ = os.Remove(filepath.Join(directory, pendingName))
 			_ = os.Rename(target, source)
 			cleanupEmptyParents(root, directory)
 		}
@@ -438,7 +641,6 @@ func Preserve(root string, identity Identity, source string) (Record, error) {
 	if err := fsutil.SyncDir(filepath.Dir(source)); err != nil {
 		return Record{}, err
 	}
-	record := Record{Schema: Schema, Node: identity.Node, Name: identity.Name, Path: target, Serial: identity.Serial, Size: identity.Size, Mount: identity.Mount, Filesystem: identity.Filesystem, OwnerUID: os.Geteuid(), PreservedAt: time.Now().UTC()}
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return Record{}, err
@@ -447,6 +649,9 @@ func Preserve(root string, identity Identity, source string) (Record, error) {
 		return Record{}, err
 	}
 	if err := validateRecord(root, record); err != nil {
+		return Record{}, err
+	}
+	if err := os.Remove(filepath.Join(directory, pendingName)); err != nil {
 		return Record{}, err
 	}
 	rollback = false

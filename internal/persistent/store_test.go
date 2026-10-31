@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func persistentFixture(t *testing.T) (string, Identity, string) {
@@ -181,5 +182,75 @@ func TestSourcePermissionCompatibilityRejectsWritableOrLinkedDisks(t *testing.T)
 	}
 	if err := ValidateSource(root, source); err == nil {
 		t.Fatal("hardlinked disk accepted")
+	}
+}
+
+func TestInventoryRecoversPendingPreserveAfterRename(t *testing.T) {
+	root, identity, source := persistentFixture(t)
+	directory, target, marker, err := paths(root, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(directory), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record := Record{Schema: Schema, Node: identity.Node, Name: identity.Name, Path: target, Serial: identity.Serial, Size: identity.Size, Mount: identity.Mount, Filesystem: identity.Filesystem, OwnerUID: os.Geteuid(), PreservedAt: time.Now().UTC()}
+	data, err := pendingMarkerData(pendingRecord{Schema: Schema, Record: record, Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, pendingName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(source, target); err != nil {
+		t.Fatal(err)
+	}
+	records, err := Inventory(root)
+	if err != nil || len(records) != 1 || records[0].Path != target {
+		t.Fatalf("recovered inventory = %#v, %v", records, err)
+	}
+	if _, err := os.Lstat(marker); err != nil {
+		t.Fatalf("recovered ownership marker missing: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(directory, pendingName)); !os.IsNotExist(err) {
+		t.Fatalf("pending marker remains: %v", err)
+	}
+}
+
+func TestInventoryDiscardsPendingPreserveBeforeRename(t *testing.T) {
+	root, identity, source := persistentFixture(t)
+	directory, target, _, err := paths(root, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(directory), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record := Record{Schema: Schema, Node: identity.Node, Name: identity.Name, Path: target, Serial: identity.Serial, Size: identity.Size, Mount: identity.Mount, Filesystem: identity.Filesystem, OwnerUID: os.Geteuid(), PreservedAt: time.Now().UTC()}
+	data, err := pendingMarkerData(pendingRecord{Schema: Schema, Record: record, Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, pendingName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, finderMetadataName), []byte("finder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records, err := Inventory(root)
+	if err != nil || len(records) != 0 {
+		t.Fatalf("pre-rename recovery inventory = %#v, %v", records, err)
+	}
+	if _, err := os.Lstat(source); err != nil {
+		t.Fatalf("source disk was not preserved during recovery: %v", err)
+	}
+	if _, err := os.Lstat(directory); !os.IsNotExist(err) {
+		t.Fatalf("empty pending directory remains: %v", err)
 	}
 }
