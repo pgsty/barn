@@ -56,6 +56,19 @@ func TestProgressStopsWithParentCancellation(t *testing.T) {
 	item.Stop(ErrCancelled)
 }
 
+func TestInterruptContextCancelsOnSIGHUP(t *testing.T) {
+	ctx, stop := interruptContext(context.Background())
+	defer stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("SIGHUP did not cancel the command context")
+	}
+}
+
 func TestFollowLogsReturnsCancelled(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("BARN_HOME", root)

@@ -2453,16 +2453,17 @@ func runContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	return executeCLI(ctx, prepared, preparedStdout, preparedStderr)
 }
 
-// interruptSignals is the one delivery channel for SIGINT and SIGTERM. It is
+// interruptSignals is the one delivery channel for SIGINT, SIGHUP, and SIGTERM. It is
 // package-level so a child that must own SIGINT for a while (an SSH session)
 // can suspend and re-arm the same registration.
 var interruptSignals = make(chan os.Signal, 1)
 
-// interruptContext cancels the returned context on the first SIGINT or
-// SIGTERM. The stop function unregisters the signals and cancels the context.
+// interruptContext cancels the returned context on the first interrupt,
+// hangup, or termination signal. The stop function unregisters the signals and
+// cancels the context.
 func interruptContext(parent context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parent)
-	signal.Notify(interruptSignals, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(interruptSignals, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 	go func() {
 		select {
 		case <-interruptSignals:
