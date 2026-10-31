@@ -12,6 +12,7 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/cloudinit"
+	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/process"
 	"github.com/pgsty/barn/internal/runtimepath"
@@ -38,6 +39,36 @@ type NativeLifecycle struct {
 	PrivateKey      string
 	KnownHosts      string
 	DarwinSocket    string
+}
+
+func (l NativeLifecycle) stageControlSSH(ctx context.Context, node state.NodeState) error {
+	runner, ok := l.VM.Runner.(execx.StdinRunner)
+	if !ok {
+		return errors.New("guest SSH runner cannot stream control key material")
+	}
+	privateKey, err := os.ReadFile(l.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("read deployment private key: %w", err)
+	}
+	config := cloudinit.RenderControlSSHConfig(l.Resolved.SSHUser, deploymentHosts(l.Resolved))
+	for _, file := range []struct {
+		path string
+		data []byte
+	}{
+		{path: "/var/lib/barn/control-id_ed25519", data: privateKey},
+		{path: "/var/lib/barn/control-ssh-config", data: []byte(config)},
+	} {
+		install := fmt.Sprintf("set -eu; umask 077; cat > %s; chown root:root %s; chmod 0600 %s", file.path, file.path, file.path)
+		args := vm.SSHArgsForInstance(l.VM.SSHUser, l.PrivateKey, l.KnownHosts, l.VM.HostKeyAlias, node.SSHPort,
+			"sudo", "-n", "sh", "-c", install)
+		if args == nil {
+			return errors.New("invalid SSH arguments while staging control key material")
+		}
+		if _, err := runner.RunWithStdin(ctx, l.SSHPath, file.data, args...); err != nil {
+			return fmt.Errorf("stage %s: %w", file.path, err)
+		}
+	}
+	return nil
 }
 
 func (l NativeLifecycle) PrepareStart(node state.NodeState) (state.NodeState, error) {
@@ -186,6 +217,14 @@ func (l NativeLifecycle) WaitReady(ctx context.Context, node state.NodeState, ti
 		}
 		if checkErr != nil {
 			stages = append(stages, "control-ssh")
+		}
+	}
+	if control && (updateAll || slices.Contains(stages, "control-ssh")) {
+		stageCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		stageErr := l.stageControlSSH(stageCtx, node)
+		cancel()
+		if stageErr != nil {
+			return nil, stageErr
 		}
 	}
 	if !updateAll && len(stages) == 0 && len(warnings) == 0 {

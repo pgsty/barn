@@ -73,9 +73,16 @@ func (r *setupRetryRunner) Run(_ context.Context, _ string, args ...string) (exe
 	return execx.Result{Stdout: data}, err
 }
 
+func (r *setupRetryRunner) RunWithStdin(_ context.Context, _ string, _ []byte, _ ...string) (execx.Result, error) {
+	return execx.Result{}, nil
+}
+
 func TestUpReportsDisappearedControlKeyWithoutFailingManagementSSH(t *testing.T) {
-	public, _ := testSSHKeyPair(t)
+	public, private := testSSHKeyPair(t)
 	key := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(key, []byte(private), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(key+".pub", []byte(public), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +101,11 @@ func TestUpReportsDisappearedControlKeyWithoutFailingManagementSSH(t *testing.T)
 func TestUpRetriesOnlyIncompleteGuestSetup(t *testing.T) {
 	for _, scenario := range []string{"healthy", "limited", "old-helper", "start"} {
 		t.Run(scenario, func(t *testing.T) {
-			public, _ := testSSHKeyPair(t)
+			public, private := testSSHKeyPair(t)
 			key := filepath.Join(t.TempDir(), "key")
+			if err := os.WriteFile(key, []byte(private), 0600); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(key+".pub", []byte(public), 0600); err != nil {
 				t.Fatal(err)
 			}

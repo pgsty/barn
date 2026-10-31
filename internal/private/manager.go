@@ -1082,10 +1082,15 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 							return fmt.Errorf("clean dead private runtime for %s: %w", node.Node, err)
 						}
 					}
-					node.Phase = state.Stopped
+					if node.Phase != state.Destroying {
+						node.Phase = state.Stopped
+					}
 					node.Process = state.ProcessIdentity{}
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)
+					if node.Phase == state.Destroying {
+						result.Message = appendStatusMessage(result.Message, fmt.Sprintf("destroy remains pending for %s; rerun barn destroy", node.Node))
+					}
 				}
 			}
 			return nil

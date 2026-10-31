@@ -194,6 +194,14 @@ func FinalizePrepared(deploymentValue Deployment, node string) error {
 	journalPath := filepath.Join(nodeDir, "private-prepare.json")
 	journal, err := ReadPrepareJournal(journalPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// A committed journal may already have been finalized by a retry
+			// after the process was interrupted. The durable node state is the
+			// commit record; absence of the cleanup journal is therefore safe.
+			if _, stateErr := (state.Store{Root: deploymentValue.Root}).ReadNode(node); stateErr == nil {
+				return nil
+			}
+		}
 		return err
 	}
 	if !journal.StateCommitted || journal.StatePath != filepath.Join(nodeDir, "state.json") {
@@ -214,4 +222,12 @@ func FinalizePrepared(deploymentValue Deployment, node string) error {
 		return err
 	}
 	return fsutil.SyncDir(nodeDir)
+}
+
+func finalizePreparedNodes(deploymentValue Deployment, nodes []state.NodeState) error {
+	var returnErr error
+	for _, node := range nodes {
+		returnErr = errors.Join(returnErr, FinalizePrepared(deploymentValue, node.Node))
+	}
+	return returnErr
 }

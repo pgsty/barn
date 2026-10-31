@@ -174,14 +174,14 @@ func (controller Controller) CreateAndStart(ctx context.Context) (_ CreateResult
 	controller.Progress.Report(activity.Event{Phase: "commit", Message: "Committing prepared node state"})
 	result.Commit, err = CommitPrepared(controller.Deployment, controller.Prepare, result.Prepare, controller.Version)
 	if err != nil {
-		return result, err
+		return result, errors.Join(err, finalizePreparedNodes(controller.Deployment, result.Commit.Nodes))
 	}
 	if len(result.Commit.Nodes) == 0 {
 		return result, newPartialError(createFailures(result), len(createNames))
 	}
 	for _, node := range result.Commit.Nodes {
 		if err := FinalizePrepared(controller.Deployment, node.Node); err != nil {
-			return result, err
+			return result, errors.Join(err, finalizePreparedNodes(controller.Deployment, result.Commit.Nodes))
 		}
 	}
 	startNames := make([]string, 0, len(result.Commit.Nodes))

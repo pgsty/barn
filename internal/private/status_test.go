@@ -202,6 +202,42 @@ func TestStatusCleansDeadInterruptedRuntimeBeforeConvergence(t *testing.T) {
 	}
 }
 
+func TestStatusPreservesDeadInterruptedDestroy(t *testing.T) {
+	_, store := statusFixture(t)
+	node, err := store.ReadNode("meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := shortRuntimeBase(t, "barn-dead-destroy-")
+	directory := filepath.Join(base, "barn", node.Node)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	node.Phase = state.Destroying
+	node.Process = state.ProcessIdentity{}
+	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
+	if err := os.WriteFile(node.Runtime.PIDFile, []byte("999999999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteNode(node); err != nil {
+		t.Fatal(err)
+	}
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).Status(context.Background())
+	if err != nil || len(status.Nodes) != 1 || status.Nodes[0].State != state.Destroying {
+		t.Fatalf("dead destroy convergence = %#v, %v", status, err)
+	}
+	if !strings.Contains(status.Message, "rerun barn destroy") {
+		t.Fatalf("dead destroy message = %q", status.Message)
+	}
+	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dead destroy runtime directory remains: %v", err)
+	}
+	persisted, err := store.ReadNode("meta")
+	if err != nil || persisted.Phase != state.Destroying || persisted.Process != (state.ProcessIdentity{}) {
+		t.Fatalf("destroying state = %#v, %v", persisted, err)
+	}
+}
+
 func TestStatusCleansDeadRunningRuntimeBeforeSelfHalt(t *testing.T) {
 	_, store := statusFixture(t)
 	node, err := store.ReadNode("meta")

@@ -62,6 +62,9 @@ func TestCommitPreparedStateAndFinalization(t *testing.T) {
 		if err := FinalizePrepared(deploymentValue, node.Node); err != nil {
 			t.Fatal(err)
 		}
+		if err := FinalizePrepared(deploymentValue, node.Node); err != nil {
+			t.Fatalf("repeated finalization: %v", err)
+		}
 		if _, err := os.Lstat(filepath.Join(filepath.Dir(node.RootDisk), "private-prepare.json")); !os.IsNotExist(err) {
 			t.Fatalf("finalized journal remains for %s: %v", node.Node, err)
 		}

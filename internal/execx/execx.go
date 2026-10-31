@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,13 @@ type Runner interface {
 // FD fallback. File index zero is inherited by the child as descriptor 3.
 type ExtraFilesRunner interface {
 	RunWithExtraFiles(ctx context.Context, binary string, files []*os.File, args ...string) (Result, error)
+}
+
+// StdinRunner is the narrow extension used when a secret must cross an
+// already-authenticated command channel without becoming an argv or shell
+// argument.
+type StdinRunner interface {
+	RunWithStdin(ctx context.Context, binary string, stdin []byte, args ...string) (Result, error)
 }
 
 // OSRunner executes argv directly. Timeout zero means use only the caller's
@@ -150,7 +158,11 @@ func stripANSI(value string) string {
 
 // Run executes binary with args as an argv slice. It never invokes a shell.
 func (r OSRunner) Run(ctx context.Context, binary string, args ...string) (Result, error) {
-	return r.run(ctx, binary, nil, args...)
+	return r.run(ctx, binary, nil, nil, args...)
+}
+
+func (r OSRunner) RunWithStdin(ctx context.Context, binary string, stdin []byte, args ...string) (Result, error) {
+	return r.run(ctx, binary, nil, bytes.NewReader(stdin), args...)
 }
 
 func (r OSRunner) RunWithExtraFiles(ctx context.Context, binary string, files []*os.File, args ...string) (Result, error) {
@@ -162,10 +174,10 @@ func (r OSRunner) RunWithExtraFiles(ctx context.Context, binary string, files []
 			return Result{}, errors.New("external command extra file is nil")
 		}
 	}
-	return r.run(ctx, binary, files, args...)
+	return r.run(ctx, binary, files, nil, args...)
 }
 
-func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, args ...string) (Result, error) {
+func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, stdin io.Reader, args ...string) (Result, error) {
 	if binary == "" {
 		return Result{}, errors.New("external command binary is empty")
 	}
@@ -184,6 +196,7 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, args
 	stderr := newLimitedBuffer(limit)
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.ExtraFiles = files
+	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 

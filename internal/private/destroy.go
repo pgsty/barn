@@ -230,7 +230,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		if _, include := selectedSet[definition.Name]; !include {
 			continue
 		}
-		if node.Phase != state.Stopped && node.Phase != state.Prepared {
+		if node.Phase != state.Stopped && node.Phase != state.Prepared && node.Phase != state.Destroying {
 			return Status{}, interruptedPhaseError(node)
 		}
 		identityValue := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
@@ -239,6 +239,9 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		}
 		if err := checkRuntimeUnused(node); err != nil {
 			return Status{}, err
+		}
+		if err := FinalizePrepared(deploymentValue, node.Node); err != nil {
+			return Status{}, fmt.Errorf("finish committed prepare for %s: %w", node.Node, err)
 		}
 		nodeDir, nodeTargets, err := privateNodeTargets(deploymentValue, node)
 		if err != nil {
