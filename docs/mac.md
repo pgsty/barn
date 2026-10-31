@@ -12,7 +12,7 @@ Linux `destroy` and `purge` leave them alone.
 
 ## Install
 
-Barn 0.9.2 includes the signed, notarized native component in its Apple Silicon
+Barn 0.9.3 includes the signed, notarized native component in its Apple Silicon
 archive. Homebrew installs the CLI, its matching hosts helper, `Barn.app`, and
 QEMU together:
 

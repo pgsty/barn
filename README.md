@@ -26,7 +26,7 @@
 <p align="center">
   <a href="https://barn.pgsty.com/"><img alt="Website" src="https://img.shields.io/badge/Website-barn.pgsty.com-A9573B"></a>
   <a href="https://github.com/pgsty/barn/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/pgsty/barn/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/pgsty/barn/releases/tag/v0.9.2"><img alt="Release: 0.9.2" src="https://img.shields.io/badge/release-0.9.2-AF8250"></a>
+  <a href="https://github.com/pgsty/barn/releases/tag/v0.9.3"><img alt="Release: 0.9.3" src="https://img.shields.io/badge/release-0.9.3-AF8250"></a>
   <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/pgsty/barn?logo=go"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-344F60"></a>
 </p>
@@ -48,14 +48,15 @@ Linux uses QEMU with HVF on macOS or KVM on Linux. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **0.9.2** bundles the Developer ID signed and Apple-notarized native
-Mac component with the Apple Silicon download and Homebrew installation.
-It also makes remote SSH and exec argument boundaries explicit. See the
-[release notes](.github/releases/0.9.2.md).
+Barn **0.9.3** adds resource-only VM resizing, selected-node reconciliation,
+more flexible user paths and shares, safer interrupted-operation recovery, and
+the signed image catalog revision **2026102802**. It includes the signed and
+Apple-notarized native Mac component introduced in 0.9.2. See the
+[release notes](.github/releases/0.9.3.md).
 
-## Install 0.9.2
+## Install 0.9.3
 
-[0.9.2](https://github.com/pgsty/barn/releases/tag/v0.9.2) follows Barn's pre-1.0
+[0.9.3](https://github.com/pgsty/barn/releases/tag/v0.9.3) follows Barn's pre-1.0
 pre-release channel. Select the version explicitly with the download installer;
 GitHub's `releases/latest` does not select pre-releases.
 
@@ -72,8 +73,8 @@ The installer selects the native arm64 or amd64 archive, verifies it, and
 installs into `~/.local/bin` without sudo:
 
 ```bash
-curl -fLO https://github.com/pgsty/barn/releases/download/v0.9.2/install.sh
-BARN_VERSION=0.9.2 bash install.sh
+curl -fLO https://github.com/pgsty/barn/releases/download/v0.9.3/install.sh
+BARN_VERSION=0.9.3 bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 barn version
 ```
@@ -134,7 +135,7 @@ Follow the [Linux quick start](https://barn.pgsty.com/docs/start/tutorial/).
 ## Run a macOS VM
 
 macOS guests require Apple Silicon, macOS 27 or later, and `Barn.app`.
-The 0.9.2 Apple Silicon archive includes the signed, notarized CLI, hosts
+The 0.9.3 Apple Silicon archive includes the signed, notarized CLI, hosts
 helper, and `Barn.app`. Homebrew installs all three and QEMU; `barn mac`
 finds its matching native component automatically. No source build or Xcode
 installation is needed to run the packaged app:
@@ -149,6 +150,11 @@ barn mac ssh
 The first `up` asks before downloading Apple's restore image, verifies it,
 and installs a reusable base. Later machines clone that base with independent
 writable disks. Closing the desktop window keeps the VM running.
+
+`barn mac up --no-wait` returns when the VM process starts and may leave first
+boot provisioning in progress. Run `barn mac up NAME` again before using SSH
+or exec on a newly created machine. `barn mac logs --lines` accepts any
+positive line count.
 
 Name another machine with `barn mac up dev --cpu 8 --memory 16G`.
 Apple allows two macOS VMs running at a time per Mac, including other tools.
@@ -179,7 +185,8 @@ destruction is explicit. Repeating `up` keeps healthy VMs running and retries
 unfinished setup. `--json` and `--yaml` provide structured output for scripts.
 
 Node selectors apply changes independently: after editing two nodes, run
-`barn plan node-1` and `barn recreate node-1`, then repeat for the other node.
+`barn plan node-1` and `barn resize node-1` or `barn recreate node-1`, then
+repeat for the other node.
 Unselected nodes keep their applied configuration, even if omitted from YAML.
 Deployment-wide changes such as the network or SSH user require all affected
 nodes to be selected together.
@@ -201,7 +208,8 @@ Common size spellings such as `8G`, `512m`, and `4gib` work in inventories;
 `GB` retains its decimal meaning. Node counts follow the available subnet
 addresses, and provisioning accepts any positive `--parallel` and `--timeout`.
 Local and catalog images with known sizes can exceed 8 GiB, with size and digest
-checks applied to the actual image. These changes are currently **Unreleased**.
+checks applied to the actual image. Directory symlinks, `~/`, and inventory-
+relative paths are accepted where the command reads user-selected inputs.
 
 **Use disposable test data.** Recreate replaces root and non-persistent disks.
 During guest recovery, Barn may also reset an unrecognized or confirmed damaged
@@ -214,7 +222,7 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 - [Guides](https://barn.pgsty.com/docs/start/) — installation, daily operations, images, automation, and troubleshooting.
 - [Reference](https://barn.pgsty.com/docs/reference/) — configuration, Linux and Mac commands, output, and exit codes.
 - [Platforms and limits](https://barn.pgsty.com/docs/about/status/) — host requirements and guest restrictions.
-- [Release notes](.github/releases/0.9.2.md) — what's new in 0.9.2.
+- [Release notes](.github/releases/0.9.3.md) — what's new in 0.9.3.
 - [Design and validation history](docs/README.md) — original proposals, implementation decisions, and dated acceptance records.
 - [Issues](https://github.com/pgsty/barn/issues) — bug reports and feature requests; use the [security policy](SECURITY.md) for vulnerabilities.
 

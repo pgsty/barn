@@ -4,7 +4,12 @@ Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
 1.0.0 may include incompatible changes between minor versions.
 
-## Unreleased
+## 0.9.3 — 2026-10-31
+
+Barn 0.9.3 is a reliability and workflow release for Linux labs and macOS
+guests. It adds resource-only resizing, selected-node operations, flexible user
+paths and shares, safer interrupted-operation recovery, and embedded catalog
+revision `2026102802`.
 
 ### Added
 
@@ -16,7 +21,22 @@ Notable user-visible changes. This project follows
   can select an image alias, channel, or exact version when its inventory is
   created.
 
+### Changed
+
+- Embed the signed image catalog revision `2026102802`, covering 9 distribution
+  families and 17 architecture-specific artifacts. The default remains
+  Ubuntu 24.04 (`u24:stable`) on the host's native architecture.
+
 ### Fixed
+
+- Preserve committed image identities when an active catalog rotates, so
+  existing nodes remain plannable and reloadable while new and recreated nodes
+  resolve against the current catalog.
+- Recover interrupted Linux and macOS lifecycle, persistent-disk, and
+  replacement operations from their journals; cancellation on hangup leaves a
+  recoverable state for the next command.
+- Make macOS `up --no-wait` report its actual readiness boundary: first-boot
+  provisioning may continue after the VM process starts.
 
 - Accept symlinked parent directories of `BARN_HOME` for Mac commands, including
   roots that do not exist yet, while retaining checks on Mac state paths.
