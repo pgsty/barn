@@ -104,7 +104,15 @@ func TestCatalogSignatureFailuresAreIntegrity(t *testing.T) {
 	if err := os.WriteFile(unknown+".minisig", minisign.Sign(other, unknownData), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for name, path := range map[string]string{"tampered": tampered, "garbage": garbage, "unknown key": unknown} {
+	missing := signedCatalog(t, t.TempDir(), EmbeddedManifestVersion+1, key, nil)
+	if err := os.Remove(missing + ".minisig"); err != nil {
+		t.Fatal(err)
+	}
+	empty := signedCatalog(t, t.TempDir(), EmbeddedManifestVersion+1, key, nil)
+	if err := os.WriteFile(empty+".minisig", nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{"tampered": tampered, "garbage": garbage, "unknown key": unknown, "missing": missing, "empty": empty} {
 		manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data"), Keys: testManifestRoots(t)}
 		_, err := manager.Sync(context.Background(), path, false)
 		if class, reason, _ := failure.Classify(err); class != failure.Integrity || reason != "catalog_signature" {
@@ -113,6 +121,74 @@ func TestCatalogSignatureFailuresAreIntegrity(t *testing.T) {
 		var classified *failure.Error
 		if !errors.As(err, &classified) {
 			t.Errorf("%s: error is not classified: %T", name, err)
+		}
+	}
+}
+
+func TestOfficialMirrorsAdoptNewEmbeddedBaseline(t *testing.T) {
+	for _, repository := range []string{"", "https://repo.pigsty.io/barn", "https://repo.pigsty.cc/barn", "https://custom.example/barn"} {
+		t.Run(repository, func(t *testing.T) {
+			manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data"), Repository: repository, Keys: testManifestRoots(t)}
+			path := signedCatalog(t, t.TempDir(), EmbeddedManifestVersion-1, privateKey(t, developmentPrivateRoot1), nil)
+			// Simulate a catalog accepted by an older binary (rather than an
+			// intentional downgrade by this binary, whose high-water mark is newer).
+			current, err := manager.Sync(context.Background(), path, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current.HighestVersion = current.ActiveVersion
+			if err := manager.writeState(current); err != nil {
+				t.Fatal(err)
+			}
+			catalog, active, err := manager.Current()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if repository == "https://custom.example/barn" {
+				if catalog.Version != EmbeddedManifestVersion-1 {
+					t.Fatal("custom repository inherited official version namespace")
+				}
+			} else {
+				if catalog.Version != EmbeddedManifestVersion || active.Active != "embedded" {
+					t.Fatalf("official repository did not advance: %+v", active)
+				}
+				if _, err := manager.Sync(context.Background(), path, false); err == nil {
+					t.Fatal("old official catalog bypassed new baseline high-water mark")
+				}
+			}
+		})
+	}
+}
+
+func TestIdenticalCatalogMayBeResigned(t *testing.T) {
+	for _, corruptCache := range []bool{false, true} {
+		manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data"), Keys: testManifestRoots(t)}
+		key := privateKey(t, developmentPrivateRoot1)
+		path := signedCatalog(t, t.TempDir(), EmbeddedManifestVersion+1, key, nil)
+		current, err := manager.Sync(context.Background(), path, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if corruptCache {
+			cached := versionSignaturePath(filepath.Join(manager.versions(), current.Active), current.KeyID)
+			if err := os.WriteFile(cached, []byte("broken"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signature := minisign.SignWithComments(key, data, "timestamp:1787486500", "resigned identical catalog")
+		if err := os.WriteFile(path+".minisig", signature, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.Sync(context.Background(), path, false); err != nil {
+			t.Fatalf("resigned catalog refused: %v", err)
+		}
+		_, active, err := manager.Current()
+		if err != nil || active.ActiveDigest != current.ActiveDigest {
+			t.Fatalf("resigned catalog not usable: %+v %v", active, err)
 		}
 	}
 }
