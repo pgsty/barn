@@ -80,12 +80,14 @@ recreate for those changes. The inventory is never modified by this command.`,
 	"recreate": {
 		long: `Destroy and recreate selected nodes from the desired inventory.
 
-This is the explicit path for node-definition drift. On a terminal Barn asks
-you to type recreate; automation must pass --force. Persistent disks follow
-their declared lifecycle policy. A successful recreate also refreshes the SSH
-client configuration.`,
+This is the explicit path for node-definition drift. On a terminal Barn lists
+the nodes it replaces and asks you to type recreate; automation must pass
+--yes (or --force). A whole-deployment recreate refuses an inventory that no
+longer lists an existing node; destroy that node explicitly first. Persistent
+disks follow their declared lifecycle policy. A successful recreate also
+refreshes the SSH client configuration.`,
 		example: `  barn recreate meta           # review and confirm one changed node
-  barn recreate --force meta   # non-interactive recreation
+  barn recreate --yes meta     # non-interactive recreation
   barn recreate --mirror meta  # use the China official repository for downloads
   barn recreate -f pigsty.yml meta`,
 	},
@@ -101,14 +103,16 @@ operation it first records which nodes are actually running.`,
 		long: `Destroy selected nodes, or the whole deployment when no selector is given.
 
 Destroy never infers deletion from a missing inventory entry. On a terminal it
-asks you to type destroy; automation must pass --force. Persistent disks and
-keys are preserved unless their wider deletion flags are explicit. Removing
+asks you to type destroy; automation must pass --yes (or --force). Persistent
+disks and keys are preserved unless their wider deletion flags are explicit.
+Destroying the control node makes the first remaining node the control node;
+run up afterwards to install its control SSH access. Removing
 nodes refreshes the SSH client configuration for the remaining deployment;
 destroying the whole deployment also removes the SSH client configuration
 Barn installed.`,
 		example: `  barn destroy meta             # review and confirm removal of one node
-  barn destroy --force          # remove the deployment, preserving persistent data
-  barn destroy --force --purge  # terminal disposal; image cache remains`,
+  barn destroy --yes            # remove the deployment, preserving persistent data
+  barn destroy --yes --purge    # terminal disposal; image cache remains`,
 	},
 }
 
@@ -154,13 +158,15 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 		command.Flags().StringVarP(&options.Repository, "repo", "r", "", repositoryFlagHelp)
 		command.Flags().BoolVar(&options.Mirror, "mirror", false, mirrorFlagHelp)
 		command.Flags().BoolVar(&options.Force, "force", false, "recreate without the interactive confirmation (required without a terminal)")
+		command.Flags().BoolVar(&options.Force, "yes", false, "same as --force")
 		command.Flags().BoolVarP(&options.NoWait, "no-wait", "n", false, "return once QEMU is running, without waiting for the guest to boot")
-		noFileCompletions(command, "mirror", "force", "no-wait")
+		noFileCompletions(command, "mirror", "force", "yes", "no-wait")
 	case "destroy":
 		command.Flags().BoolVar(&options.Force, "force", false, "destroy without the interactive confirmation (required without a terminal)")
+		command.Flags().BoolVar(&options.Force, "yes", false, "same as --force")
 		command.Flags().BoolVar(&options.DeletePersistent, "delete-persistent", false, "also delete owned persistent data disks")
 		command.Flags().BoolVar(&options.Purge, "purge", false, "terminal disposal: also delete persistent disks, keys, and deployment state")
-		noFileCompletions(command, "force", "delete-persistent", "purge")
+		noFileCompletions(command, "force", "yes", "delete-persistent", "purge")
 	}
 	command.RunE = func(command *cobra.Command, nodes []string) error {
 		outcome, err := runLifecycleCommand(command.Context(), name, options, nodes, stderr)
@@ -173,27 +179,36 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 }
 
 func newPurgeCommand(stdout, stderr io.Writer) *cobra.Command {
+	var confirmed bool
 	command := &cobra.Command{
 		Use:   "purge",
-		Short: "Discard the entire deployment without confirmation",
+		Short: "Discard the entire deployment, including persistent data",
 		Long: `Destroy every virtual machine in the applied deployment and delete its
 root disks, persistent data disks, SSH keys, state, and default SSH client
-configuration without asking for confirmation. The verified image cache and
-host-global network remain installed.
+configuration. The verified image cache and host-global network remain
+installed.
+
+On a terminal, purge states what it deletes and asks you to type purge;
+--yes (or --force) skips the question. Without a terminal it does not ask,
+so existing automation keeps working.
 
 Purge accepts no node selectors and never reads an inventory. It is idempotent
 when no deployment exists, but still refuses ambiguous or unsafe retained
 artifacts rather than deleting them by path alone.`,
-		Example: `  barn purge         # discard the complete local lab
-  barn --json purge  # stable output for automation`,
+		Example: `  barn purge               # review and confirm discarding the local lab
+  barn purge --yes         # discard it without the question
+  barn --json purge --yes  # stable output for automation`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			outcome, err := runPurgeCommand(command.Context(), stderr)
+			outcome, err := runPurgeCommand(command.Context(), confirmed, stderr)
 			if err != nil {
 				return err
 			}
 			return collectCommandOutcome(command.Context(), outcome)
 		},
 	}
+	command.Flags().BoolVar(&confirmed, "yes", false, "purge without the interactive confirmation")
+	command.Flags().BoolVar(&confirmed, "force", false, "same as --yes")
+	noFileCompletions(command, "yes", "force")
 	return command
 }
