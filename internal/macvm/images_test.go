@@ -115,3 +115,63 @@ func TestImageListToleratesFinderFilesAndEmptyBases(t *testing.T) {
 		t.Fatalf("prune %+v %v", report, err)
 	}
 }
+
+func TestPrunePreservesInterruptedRecreateBase(t *testing.T) {
+	m, oldBase := testManager(t)
+	old := testMachine(t, m, "dev", "10.10.30.0/24", false)
+	held := holdStore(t, m.Store)
+	newBase := testBase(t, m.Store, held, "new-default")
+	cfg, err := m.Store.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DefaultBaseID = newBase.ID
+	if err := m.Store.SaveConfig(held, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Store.BeginRecreate(held, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.PruneImages(context.Background(), false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Store.LoadBase(oldBase.ID); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := m.Store.LoadMachine("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.BaseID != oldBase.ID {
+		t.Fatalf("restored unexpected base %s", recovered.BaseID)
+	}
+	if _, err := os.Stat(filepath.Join(m.Store.Root, "slots", "dev", "disk.asif")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPruneRefusesUnreadableRecreateJournal(t *testing.T) {
+	m, _ := testManager(t)
+	held := holdStore(t, m.Store)
+	unused := testBase(t, m.Store, held, "unused")
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	path, err := m.Store.recreateJournalPath("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.PruneImages(context.Background(), false, true); err == nil {
+		t.Fatal("prune ignored malformed recovery record")
+	}
+	if _, err := m.Store.LoadBase(unused.ID); err != nil {
+		t.Fatal("prune removed base before validating recovery record")
+	}
+}
