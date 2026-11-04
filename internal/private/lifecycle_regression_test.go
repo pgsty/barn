@@ -260,3 +260,82 @@ func TestRecreateTargetsNamesEveryAppliedNode(t *testing.T) {
 		t.Fatalf("selected targets=%v err=%v", targets, err)
 	}
 }
+
+func TestRecreateRechecksDeploymentAfterPreflight(t *testing.T) {
+	fixture, nodes := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	store := state.Store{Root: fixture.Deployment.Root}
+	current, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := privateShareCapabilityManager(t, fixture, &rejectingPrivateShareRunner{})
+	manager.HostPreflight = func(context.Context, platform.Profile, *spec.PrivateNetwork, execx.Runner) (Backend, error) {
+		// Model another invocation publishing a newer inventory during preflight.
+		next := current
+		next.Resolved = cloneResolved(current.Resolved)
+		next.Resolved.Nodes[0].CPUs++
+		next.SpecHash, err = spec.Hash(next.Resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.WriteDeployment(next); err != nil {
+			t.Fatal(err)
+		}
+		return Backend{DarwinSocket: "/fixture/vmnet.sock"}, nil
+	}
+	_, err = manager.RecreateResolved(context.Background(), current.Resolved)
+	if class, reason, _ := failure.Classify(err); class != failure.Conflict || reason != "deployment_changed" {
+		t.Fatalf("recreate ignored concurrent change: %v", err)
+	}
+	for _, before := range nodes {
+		after, err := store.ReadNode(before.Node)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Phase != before.Phase {
+			t.Fatalf("stopped %s before rejecting new state", before.Node)
+		}
+		if _, err := os.Stat(before.RootDisk); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRecreateRechecksNewlyCommittedOmittedNode(t *testing.T) {
+	fixture, nodes := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	store := state.Store{Root: fixture.Deployment.Root}
+	current, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.ReadNode("node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(fixture.Deployment.Root, "nodes", "node-1", "state.json")); err != nil {
+		t.Fatal(err)
+	}
+	requested := cloneResolved(current.Resolved)
+	requested.Nodes = requested.Nodes[:1]
+	manager := privateShareCapabilityManager(t, fixture, &rejectingPrivateShareRunner{})
+	manager.HostPreflight = func(context.Context, platform.Profile, *spec.PrivateNetwork, execx.Runner) (Backend, error) {
+		// Committing a pending node does not change the deployment's spec hash.
+		if err := store.WriteNode(pending); err != nil {
+			t.Fatal(err)
+		}
+		return Backend{DarwinSocket: "/fixture/vmnet.sock"}, nil
+	}
+	if _, err := manager.RecreateResolved(context.Background(), requested); !errors.Is(err, ErrNodesRemoved) {
+		t.Fatalf("newly committed node was not protected: %v", err)
+	}
+	for _, node := range nodes {
+		if _, err := store.ReadNode(node.Node); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(node.RootDisk); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

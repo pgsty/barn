@@ -143,7 +143,12 @@ func (m Manager) removeKnownHostEntries(ctx context.Context, deploymentValue Dep
 	return fsutil.SyncDir(keysDir)
 }
 
-func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
+func (m Manager) Destroy(ctx context.Context) (Status, error) {
+	return m.destroy(ctx, nil)
+}
+
+// check runs under the same exclusive lock as every stop and removal.
+func (m Manager) destroy(ctx context.Context, check func(Deployment, state.DeploymentState) error) (_ Status, returnErr error) {
 	deploymentValue, err := m.openDeployment(false)
 	if err != nil {
 		return Status{}, err
@@ -159,6 +164,11 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 	deploymentState, err := store.ReadDeployment()
 	if err != nil || deploymentState.Resolved.Network != "private" {
 		return Status{}, errors.New("the deployment has no valid state")
+	}
+	if check != nil {
+		if err := check(deploymentValue, deploymentState); err != nil {
+			return Status{}, err
+		}
 	}
 	selected, err := selectedNodeNames(deploymentState.Resolved, m.Nodes)
 	if err != nil {
@@ -566,7 +576,17 @@ func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) 
 	if len(selected) != len(deploymentState.Resolved.Nodes) {
 		destroyManager.allowPartialDestroy = true
 	}
-	if _, err := destroyManager.Destroy(ctx); err != nil {
+	if _, err := destroyManager.destroy(ctx, func(latestDeployment Deployment, latest state.DeploymentState) error {
+		if latest.SpecHash != deploymentState.SpecHash {
+			return failure.New(failure.Conflict, errors.New("deployment changed while preparing recreate")).Because("deployment_changed").Then("review the inventory and retry recreate")
+		}
+		// A pending node can become committed without changing the deployment
+		// hash. Recheck omissions and persistent disks after taking the lock.
+		if _, err := recreateScope(latestDeployment.Root, latest.Resolved, requested, m.Nodes); err != nil {
+			return err
+		}
+		return validatePrivateRecreatePersistent(latestDeployment, latest.Resolved, requested)
+	}); err != nil {
 		return Status{}, err
 	}
 	return m.Up(ctx, requested)
