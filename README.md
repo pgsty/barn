@@ -48,17 +48,16 @@ Linux uses QEMU with HVF on macOS or KVM on Linux. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **1.0.0** is prepared as the first stable release (currently a draft). It defines the command-line,
+Barn **1.0.0** is the first stable release, published on 2026-11-05. It defines the command-line,
 structured-output, and exit-code contract that 1.x keeps, hardens destructive
 operations and data-disk recovery, and embeds the signed image catalog revision
 **2026110502**. See the [release notes](.github/releases/1.0.0.md).
 
 ## Install
 
-[1.0.0](https://github.com/pgsty/barn/releases/tag/v1.0.0) is prepared for
-GitHub's regular release channel. Once the draft is published, `releases/latest`
-and the download installer will select it by default. The commands below target
-that public release; draft assets require authenticated GitHub access.
+[1.0.0](https://github.com/pgsty/barn/releases/tag/v1.0.0) is published on
+GitHub's regular release channel. `releases/latest` and the download installer
+select it by default.
 
 **macOS — Homebrew**
 

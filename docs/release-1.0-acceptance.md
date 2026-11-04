@@ -2,7 +2,34 @@
 
 日期：2026-11-04 至 2026-11-05（Asia/Shanghai）。起始源码：`2f3fd1e7e017dd5a6aa75cdfdc2874af2d74a9f2`。
 本文记录本次实际执行的检查；尚未完成的检查不能由历史记录或模拟测试替代。
-生成物、虚拟机数据、下载和完整日志全部放在仓库外；文档站已有候选改动保留。
+生成物、虚拟机数据、下载和完整日志全部放在仓库外。
+
+## 2026-11-05 正式发布完成
+
+正式发布已完成，当前没有已知的 1.0.0 发布阻碍。正式身份和发布渠道如下：
+
+- GitHub [v1.0.0 Release](https://github.com/pgsty/barn/releases/tag/v1.0.0) 已公开，
+  `draft=false`、`prerelease=false`、`published_at=2026-11-04T23:18:10Z`，release ID
+  `434268111`；tag `v1.0.0` 仍指向 `69ef7f1d6ffc7c6fbffffe178b2fa48e799dc02d`。
+- 20 个正式附件的名称、大小与 GitHub server SHA-256 和 draft 验收快照逐项一致，合计
+  `53677925` 字节；公开 URL 的 `release.json`、`checksums.txt`、`install.sh` 均返回 HTTP 200。
+- 公开安装器分别在无 `BARN_VERSION` 和显式 `BARN_VERSION=1.0.0` 下完成隔离安装，
+  两次都运行出 `barn 1.0.0`；没有覆盖用户目录中的现有安装。
+- [Homebrew tap](https://github.com/pgsty/homebrew-infra/commit/8910347) 已推送 1.0.0
+  配方。本机真实 Homebrew 已从 0.9.2 升级到 1.0.0，`brew test pgsty/infra/barn`、
+  focused updater、strict online audit、readall 和 13 个 tap 单测（168 assertions）通过。
+- [文档站源码](https://github.com/pgsty/barn.pgsty.com/commit/34befa8) 已推送并部署到
+  Cloudflare Pages 生产环境；部署地址为
+  `https://36c36bec.barn-pgsty-com.pages.dev`，生产域名
+  `https://barn.pgsty.com/` 的首页、英文/中文 1.0.0 发布页和安装文档均返回 HTTP 200。
+  发布页含正式 Release 链接、目录 revision `2026110502` 和 Debian 13 版本
+  `20261103.2651.1`。
+- 源码 README、CHANGELOG 与 GitHub Release notes 已切换为正式 1.0.0 文案；本报告也
+  记录本次公开发布后的安装、tap 和站点证据。构建产物、下载和镜像仍未进入 Git。
+
+正式发布后再次核对的镜像门禁仍为 revision `2026110502`、catalog SHA-256
+`d41e46d20bc57cb1b071e3919a27a8f7f703df2addca879970a528e7ab004065`、key ID
+`4686B39A40F9B562`；两个官方源签名、内置目录和全新 `BARN_HOME` 的 `barn update` 均通过。
 
 ## 执行计划
 
@@ -20,11 +47,10 @@
 5. **文档与收尾**：构建中英文站点并检查内部链接、命令与版本；核对发布说明与代码。
    保存执行结果和剩余阻碍，列出最终 tag、制品上传、正式发布、tap 与站点切换顺序。
 
-## 2026-11-05 最终 draft 验收结果
+## 2026-11-05 发布前 draft 验收结果
 
-**本轮要求的准备、签名、draft 创建、重新下载与实机验收均已完成，未发现本轮覆盖范围内
-阻碍发布的代码或制品问题。按用户要求保持 draft，未正式发布、未切换 Homebrew tap，
-也未部署候选文档站。公开安装渠道的最后验收须在正式发布后执行。**
+**本节是正式发布前的历史记录。准备、签名、draft 创建、重新下载与实机验收均已完成；
+随后已按上方记录完成正式发布、公开安装渠道验收、Homebrew tap 推送和文档站部署。**
 
 ### 最终身份
 
@@ -88,14 +114,14 @@
   `/Users/vonng/.local/share/barn-acceptance/20261105-draft`，入口为 `acceptance-summary.json`。
   构建产物、VM 磁盘和下载镜像始终在 Git 外；证据归档不包含密钥、登录凭据或 VM 磁盘。
 
-### 后续正式发布时执行
+### 正式发布时执行的收尾动作（已完成）
 
-1. 再次确认官方签名 catalog 未变化；若发生变化，必须先同步并重新构建和验收候选。
-2. 按用户新的发布指令把本 draft 发布为 stable/latest，并切换发布说明、README 与 Changelog
-   的发布状态及实际日期。当前 draft 文案明确标识尚未正式发布。
-3. 公开文件可下载后，将随 draft 生成的 `barn.rb` 更新到 tap，推送并部署文档站候选。
+1. 再次确认官方签名 catalog 未变化，并完成最终目录门禁与全新 `BARN_HOME` 的 `barn update`。
+2. 将 draft Release 发布为 stable/latest，切换 Release notes、README 与 CHANGELOG 的
+   正式发布状态和日期。
+3. 公开文件可下载后，将 `barn.rb` 更新到 tap 并推送，部署正式文档站。
 4. 从公开 URL 复核 `releases/latest`、无版本安装器、固定 1.0.0 安装器和真实 tap 的
-   Homebrew 首次安装/升级。这些公开渠道检查未提前标记为通过。
+   Homebrew 升级；以上证据已记录在本节。
 
 ## 首轮执行记录（旧目录与 RC 演练）
 

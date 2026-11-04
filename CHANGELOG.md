@@ -6,7 +6,7 @@ Notable user-visible changes. This project follows
 compatibility scope is defined in the
 [1.0.0 release notes](.github/releases/1.0.0.md#compatibility).
 
-## 1.0.0 — Unreleased (draft prepared 2026-11-05)
+## 1.0.0 — 2026-11-05
 
 Barn 1.0.0 is the first stable release. It freezes the 0.9.x command-line
 contract, hardens destructive operations, data-disk recovery, catalog
@@ -15,8 +15,8 @@ revision `2026110502` with Debian 13 image `20261103.2651.1`.
 
 ### Changed
 
-- Prepare GitHub's regular release channel. Once the draft is published,
-  `releases/latest` and the download installer without `BARN_VERSION` select 1.0.0.
+- Publish on GitHub's regular release channel. `releases/latest` and the
+  download installer without `BARN_VERSION` select 1.0.0.
 - Update `golang.org/x/net` to 0.62.0 and `go.yaml.in/yaml/v3` to 3.0.6.
 - Print the complete help when `barn` runs without a command, as `barn --help`
   does. `--json` and `--yaml` keep the `actions[]` document and exit 0.
