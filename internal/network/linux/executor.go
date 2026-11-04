@@ -367,7 +367,16 @@ func (e Executor) currentUninstallFacts(ctx context.Context, manifest Manifest) 
 			members = append(members, line)
 		}
 	}
-	return UninstallFacts{BridgeMembers: members, CurrentFiles: currentFiles, CurrentHelper: currentHelper, CurrentOverride: facts.Helper.Override}, nil
+	var safety *NetworkdActivationSafety
+	if ManifestBackend(manifest) == BackendNetworkd {
+		links, linkErr := discoverNetworkdLinks(ctx, e.User, "/sys/class/net")
+		if linkErr != nil {
+			return UninstallFacts{}, linkErr
+		}
+		checked := inspectNetworkdActivation(networkdConfigurationDirectories, links, manifest.Files, true)
+		safety = &checked
+	}
+	return UninstallFacts{BridgeMembers: members, CurrentFiles: currentFiles, CurrentHelper: currentHelper, CurrentOverride: facts.Helper.Override, NetworkdSafety: safety}, nil
 }
 
 func (e Executor) PlanUninstall(ctx context.Context) (UninstallPlan, Manifest, error) {
@@ -424,9 +433,11 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 	if err != nil {
 		return report, err
 	}
-	if _, err := NewUninstallPlan(manifest, uninstallFacts); err != nil {
+	plan, err = NewUninstallPlan(manifest, uninstallFacts)
+	if err != nil {
 		return report, err
 	}
+	report.Plan = plan
 	if ManifestBackend(manifest) == BackendNetworkManager {
 		return e.applyNetworkManagerUninstall(ctx, report, plan)
 	}
@@ -478,9 +489,14 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 			return report, err
 		}
 	}
-	for _, command := range restoreNetworkdCommands(manifest.NetworkdUnits) {
-		if _, err := e.Root.Run(ctx, command.Binary, command.Args...); err != nil {
-			return report, err
+	for _, phase := range plan.Phases {
+		if phase.Name != "restore-networkd-prestate" {
+			continue
+		}
+		for _, command := range phase.Commands {
+			if _, err := e.Root.Run(ctx, command.Binary, command.Args...); err != nil {
+				return report, err
+			}
 		}
 	}
 	if err := e.rootUnlink(ctx, StatePath); err != nil {
@@ -492,7 +508,12 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 		}
 	}
 	report.Applied = true
-	report.Checks["restored"] = "helper, networkd units, paths and bridge"
+	report.Checks["restored"] = "helper, paths and bridge"
+	if plan.PreserveNetworkd {
+		report.Checks["networkd"] = "left unchanged because exclusive Barn use could not be established"
+	} else {
+		report.Checks["networkd"] = "restored to its installation prestate"
+	}
 	return report, nil
 }
 

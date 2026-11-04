@@ -733,6 +733,7 @@ func StrictManifest(data []byte) (Manifest, error) {
 }
 
 type UninstallFacts struct {
+	NetworkdSafety  *NetworkdActivationSafety
 	BridgeMembers   []string
 	CurrentFiles    map[string]string
 	CurrentHelper   Override
@@ -740,6 +741,7 @@ type UninstallFacts struct {
 }
 
 type UninstallPlan struct {
+	PreserveNetworkd  bool           `json:"preserve_networkd,omitempty"`
 	RestoreFiles      []File         `json:"restore_files"`
 	RemoveFiles       []string       `json:"remove_files"`
 	RemoveDirectories []string       `json:"remove_directories"`
@@ -801,7 +803,23 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 		phases = append(phases, CommandPhase{Name: "restore-helper-after-vm-detach", Commands: helperCommands})
 	}
 	phases = append(phases, CommandPhase{Name: "reload-after-network-file-removal", Commands: []Command{{Binary: "/usr/bin/networkctl", Args: []string{"reload"}}}})
-	phases = append(phases, CommandPhase{Name: "restore-networkd-prestate", Commands: restoreNetworkdCommands(manifest.NetworkdUnits)})
+	// A service once enabled for Barn may now manage other host interfaces.
+	// Without proof that networkd is still exclusive to Barn, leave all of
+	// its units in their current state while removing only Barn's files.
+	preserveNetworkd := facts.NetworkdSafety == nil || !facts.NetworkdSafety.Checked || len(facts.NetworkdSafety.Conflicts) != 0
+	if facts.NetworkdSafety != nil {
+		// A link can remain configured after its .network file is removed.
+		// Without runtime ownership proof, any other non-loopback link is
+		// enough to retain the host-wide service state.
+		for _, link := range facts.NetworkdSafety.Links {
+			if !link.BarnOwned && link.Name != "lo" {
+				preserveNetworkd = true
+			}
+		}
+	}
+	if !preserveNetworkd {
+		phases = append(phases, CommandPhase{Name: "restore-networkd-prestate", Commands: restoreNetworkdCommands(manifest.NetworkdUnits)})
+	}
 	removeFiles := make([]string, 0, len(manifest.Files)+1)
 	for _, pathname := range []string{NetDevPath, NetworkPath} {
 		if _, owned := manifest.Files[pathname]; owned {
@@ -824,7 +842,7 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 		commands = append(commands, phase.Commands...)
 	}
 	return UninstallPlan{
-		RestoreFiles: restoreFiles, RemoveFiles: removeFiles, RemoveDirectories: removeDirectories, Commands: commands, Phases: phases,
+		RestoreFiles: restoreFiles, RemoveFiles: removeFiles, RemoveDirectories: removeDirectories, Commands: commands, Phases: phases, PreserveNetworkd: preserveNetworkd,
 	}, nil
 }
 
