@@ -18,7 +18,7 @@ Claude 的修复保留，补上独立复核发现的遗漏。是否发布取决�
 | 旧版本 reset 后升级的 embedded 指针 | 确认。embedded 选择跟随当前二进制，保留 high-water mark | `TestEmbeddedSelectionFromEarlierBinaryAdoptsCurrentBaseline` |
 | 中国官方源没有跟随新内置基线 | 确认。两个官方仓库采用相同基线规则，自定义仓库保持独立版本空间 | `TestOfficialMirrorsAdoptNewEmbeddedBaseline` |
 | 相同目录重新签名遭拒 | 确认。验签成功且目录字节相同时，允许新签名；有效旧签名可复用，坏缓存可用已验证签名替换 | `TestIdenticalCatalogMayBeResigned` 及 equivocation 测试 |
-| 签名失败退出码与文档不一致 | 确认。验签、缺失/空本地签名、equivocation 与活动指针错误分类为 integrity / exit 7；网络获取失败仍按获取错误报告 | `TestCatalogSignatureFailuresAreIntegrity`、CLI error contract |
+| 签名失败退出码与文档不一致 | 确认。验签、缺失/空本地签名、equivocation 与活动指针错误分类为 integrity / exit 7；网络获取失败仍按获取错误报告；缓存签名的权限或 I/O 读取错误属于宿主错误，不归入 integrity | `TestCatalogSignatureFailuresAreIntegrity`、CLI error contract |
 | 隐式 setup 未询问就授权特权操作 | 确认。终端 lifecycle 复用 setup 的计划与一次确认，非终端不自动准备宿主 | `TestImplicitSetup*` 及 setup 原有测试 |
 | 持久盘因工具不支持新特性被格式化 | 确认高风险。未知失败保留数据；只允许无签名盘初始化或明确识别的 ext4/XFS 损坏重置 | `TestDiskRecoveryOutcomes` 检查 mkfs 哨兵和原始数据 |
 | Mac recreate 的隐藏备份未被 prune 计入引用 | 确认。有效重建日志里的旧基础镜像也被引用，损坏日志阻止清理 | `TestPrunePreservesInterruptedRecreateBase`、`TestPruneRefusesUnreadableRecreateJournal` |
@@ -34,8 +34,9 @@ Claude 的修复保留，补上独立复核发现的遗漏。是否发布取决�
 持久盘和缺席节点还要在同一把销毁锁内复核，防止“待创建”节点在预检期间变成已提交状态。
 
 删除控制节点会选取剩余定义中的第一个节点接任。`SpecHash` 表示当前应用定义；
-`GuestSpecHash` 表示 guest 内已有 ready marker，两者不能强制相等。改 hash 前完成已提交的
-prepare 日志清理。先原子发布部署状态，再更新接任节点；下次取得独占部署锁时，只有
+`GuestSpecHash` 表示 guest 内已有 ready marker，两者不能强制相等。接任节点已提交的
+prepare 日志在任何节点被标记删除之前完成清理；无法完成时 destroy 直接拒绝、不删除任何
+内容，并指出接任节点。先原子发布部署状态，再更新接任节点；下次取得独占部署锁时，只有
 “当前定义的 Control 布尔值翻转”能精确生成旧 hash，才允许恢复节点 hash，其他漂移仍由
 现有校验拒绝。恢复不创建缺失状态、不更换 VMUUID、不修改根盘或进程身份。
 
@@ -89,6 +90,8 @@ SIGTERM 转发和 `WaitDelay` 解决正常取消与输出管道拖住的问题�
   日志命令当成阻塞项。后续 CLI 方案见 [Cobra 设计](cobra-cli-design.md)。
 - 单个坏 Mac state 阻塞全局枚举的问题保留为后续改进。健康机器按名称读取仍可使用；显示层
   可支持逐项失败，但 IP 分配和 prune 不能忽略坏记录，否则会误判资源空闲。
+- 损坏的 Mac recreate 日志除阻止 prune 外，也会让 `mac image ls` 和 doctor 的空间估算失败。
+  后续改为列表告警、prune 保持严格；1.0 保持失败关闭。
 - `state.Transaction` 有缓存恢复/prune 读者；Mac 旧 bundle 搜索有历史兼容承诺，不按“死代码”删除。
 - x/net 升级 PR 的既有 CI 失败是许可证清单漂移，不能据此推导为安全漏洞。依赖更新需单独
   验证模块、许可证和构建，不和本轮修复混为一谈。
@@ -136,6 +139,38 @@ SIGTERM 转发和 `WaitDelay` 解决正常取消与输出管道拖住的问题�
 整合（2026-11-04）：Claude 的修复提交与本轮补强逐文件审查后按问题拆分提交，并合并进
 main。main 原有 WIP 中的裸命令帮助改动由同一意图、保留 `actions[]` 的实现取代；Cobra
 提案随本记录收录。合并前的原始 WIP 逐字节保存在分支 `backup/main-wip-20261104`。
+
+### 最终整合验收（2026-11-04）
+
+在 main 合并提交 `605df87` 及两项验收修正之上执行，最终代码提交 `377061c`。合并前 main 的
+未提交工作逐字节保存在 `backup/main-wip-20261104`（`8a4787b`）。
+
+- **独立复核**：对 `v0.9.3..main` 全量差异重新做不受前序结论影响的代码审查，未发现 P0–P2。
+  3 项 P3：删除控制节点时接任节点的 prepare 日志在删除后才处理（已修正为删除前完成，
+  否则拒绝且不删除）；缓存签名的权限/I/O 读取错误被归为 integrity（已修正为宿主错误）；
+  坏的 Mac recreate 日志同时阻止 `mac image ls`（延期，见上文）。
+- **源码门禁**：固定工具版本检查全部通过（Go 1.27.3、GoReleaser 2.18.3 及内置 nFPM 2.47.0、
+  nFPM 2.48.0、Syft 1.55.0、Staticcheck 2026.2.2、deadcode 0.52.0、golangci-lint 2.15.0、
+  govulncheck 1.9.0）；完整 `make check` 与 `goreleaser check` 在最终代码上通过。
+  govulncheck 的结论与上文依赖通告相同。
+- **宿主测试噪声**：一次全量运行中，未改动的 `internal/process` 的
+  `TestNumericIdentityBindsNonASCIIArgvInCLocale` 因 macOS 读取进程 argv 返回 EIO 失败，
+  单独复跑 80 次全部通过，随后完整 `make check` 通过；Homebrew bash 偶发段错误会影响
+  cloudinit 的 stub 测试，系统 bash 下稳定通过。两者都判为测试宿主问题，不作为代码缺陷。
+- **发布链**：本地 GoReleaser 快照（`0.9.4-next`）生成 4 个归档、4 个 DEB/RPM、SPDX 与
+  checksums，归档/包一致性校验通过；快照二进制的版本、提交与构建时间注入正确。快照未附带
+  原生 Mac 组件，不能作为签名或公证证据。
+- **CLI 契约**：裸命令与 `--help` 字节一致，`--json`/`--yaml` 返回 `actions[]`；无效
+  `BARN_OUTPUT`/`BARN_VERBOSE` 下帮助可用、显式参数可覆盖、未覆盖时 exit 2；`--` 之后的
+  `--help`/`-h` 交给远端命令；help、version、completion 无网络访问、无文件写入；坏签名
+  `image sync` exit 7（`catalog_signature`）；真实 PTY 中取消 purge exit 130 且不删除，
+  非终端 purge exit 0。
+- **目录门禁**：清除继承的 `BARN_REPO` 与代理，用新的临时 `BARN_HOME` 对两个官方源执行
+  `barn update`，均 exit 0；revision `2026102802`、key `4686B39A40F9B562`，激活的目录与
+  内置 JSON 字节一致（SHA-256 `dd622ef2222c888a8e1caa4d8111c1c9fceb3f0c848d55c500eb7caa54be66a5`），
+  `EmbeddedManifestVersion` 与内置时间一致，无需同步。打 tag 当天仍须重跑。
+- **站点**：barn.pgsty.com 中英文 CLI/Mac 参考的候选修改与最终行为一致，保持未提交，
+  制品公开后发布。
 
 正式 tag 前仍需以下验收；不能以 stub 测试代替：
 

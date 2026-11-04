@@ -58,6 +58,11 @@ Notable user-visible changes. This project follows
   destroy to finish a mix of prepared nodes and interrupted dead destroys.
 - Let explicit output flags override invalid environment defaults, and keep
   help available even with invalid `BARN_OUTPUT` or `BARN_VERBOSE`.
+- Refuse to destroy the control node, before deleting anything, when its
+  successor's committed prepare record cannot be finished; the error names
+  the successor.
+- Keep permission and I/O errors on a cached catalog signature as runtime
+  failures; only verification mismatches and a missing signature exit 7.
 - State in the destroy confirmation that a whole-deployment destroy removes
   the deployment state.
 
