@@ -223,13 +223,14 @@ func configureHelpOnly(command *cobra.Command, message string, stdout, stderr io
 		// prints the full help on stdout because that is what a person came for.
 		// `barn --help` remains the deliberate, successful way to ask for help.
 		if command.Parent() == nil {
-			// Bare `barn` is someone looking for a starting point, not a mistake.
-			actions := welcomeActions()
+			// Bare `barn` is someone looking for a starting point, not a
+			// mistake. Text prints the complete help, as a Cobra application
+			// does, so the whole command tree is discoverable; structured
+			// output keeps its documented actions[] document for scripts.
 			return collectCommandOutcome(command.Context(), commandOutcome{payload: struct {
 				Actions []welcomeAction `json:"actions"`
-			}{actions}, text: func(out, _ io.Writer) error {
-				printWelcome(out, actions)
-				return nil
+			}{welcomeActions()}, text: func(io.Writer, io.Writer) error {
+				return command.Help()
 			}})
 		}
 		if !structuredOutput(stdout) {

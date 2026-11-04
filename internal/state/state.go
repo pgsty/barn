@@ -105,7 +105,7 @@ type NodeState struct {
 	Generation    uint64         `json:"generation"`
 	SpecHash      string         `json:"spec_hash"`
 	// GuestSpecHash is the hash baked into the guest ready marker. CPU and
-	// memory changes do not rebuild cloud-init, so it can intentionally lag
+	// memory changes and control elections do not rebuild cloud-init, so it can lag
 	// SpecHash while the VM remains the same instance.
 	GuestSpecHash string          `json:"guest_spec_hash,omitempty"`
 	Image         Image           `json:"image"`

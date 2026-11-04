@@ -98,24 +98,31 @@ func versionSignaturePath(manifestPath, keyID string) string {
 	return manifestPath + "." + strings.ToLower(keyID) + ".minisig"
 }
 
+// catalogIntegrity classifies a catalog whose signature, signed revision, or
+// recorded digest does not verify. The documented exit code for a signature or
+// digest mismatch is integrity, never a generic runtime failure.
+func catalogIntegrity(reason string, err error) error {
+	return failure.New(failure.Integrity, err).Because(reason)
+}
+
 func verifyManifest(keys []minisign.PublicKey, data, signatureText []byte) (uint64, error) {
 	if len(signatureText) == 0 || len(signatureText) > MaxSignatureSize {
-		return 0, errors.New("manifest signature size is invalid")
+		return 0, catalogIntegrity("catalog_signature", errors.New("manifest signature size is invalid"))
 	}
 	var signature minisign.Signature
 	if err := signature.UnmarshalText(signatureText); err != nil {
-		return 0, fmt.Errorf("decode minisign signature: %w", err)
+		return 0, catalogIntegrity("catalog_signature", fmt.Errorf("decode minisign signature: %w", err))
 	}
 	for _, key := range keys {
 		if key.ID() != signature.KeyID {
 			continue
 		}
 		if !minisign.Verify(key, data, signatureText) {
-			return 0, errors.New("minisign signature or trusted comment verification failed")
+			return 0, catalogIntegrity("catalog_signature", errors.New("minisign signature or trusted comment verification failed"))
 		}
 		return key.ID(), nil
 	}
-	return 0, fmt.Errorf("manifest signature uses unknown key ID %016X", signature.KeyID)
+	return 0, catalogIntegrity("catalog_signature", fmt.Errorf("manifest signature uses unknown key ID %016X", signature.KeyID))
 }
 
 func validateManifestState(state ManifestState) error {
@@ -282,7 +289,7 @@ func currentBaselineState(state ManifestState) (ManifestState, error) {
 				return ManifestState{}, err
 			}
 			if state.ActiveDigest != manifestDigest(data) {
-				return ManifestState{}, errors.New("signed manifest equivocation with embedded baseline")
+				return ManifestState{}, catalogIntegrity("catalog_equivocation", errors.New("signed manifest equivocation with embedded baseline"))
 			}
 		}
 		return state, nil
@@ -291,8 +298,22 @@ func currentBaselineState(state ManifestState) (ManifestState, error) {
 	if err != nil {
 		return ManifestState{}, err
 	}
-	if state.ActiveVersion != EmbeddedManifestVersion || state.ActiveDigest != manifestDigest(data) {
-		return ManifestState{}, errors.New("embedded manifest state does not match binary baseline")
+	if state.ActiveVersion != EmbeddedManifestVersion {
+		// "embedded" selects the catalog compiled into the running binary. A
+		// reset by an earlier binary recorded that binary's revision; after an
+		// upgrade or downgrade, adopt this binary's catalog and keep the accepted
+		// high-water mark so older signed catalogs still cannot be synced back.
+		baseline, err := embeddedState()
+		if err != nil {
+			return ManifestState{}, err
+		}
+		if state.HighestVersion > baseline.HighestVersion {
+			baseline.HighestVersion = state.HighestVersion
+		}
+		return baseline, nil
+	}
+	if state.ActiveDigest != manifestDigest(data) {
+		return ManifestState{}, catalogIntegrity("catalog_equivocation", errors.New("embedded manifest state does not match binary baseline"))
 	}
 	return state, nil
 }
@@ -316,7 +337,7 @@ func (m ManifestManager) Current() (Catalog, ManifestState, error) {
 	if err != nil {
 		return Catalog{}, ManifestState{}, err
 	}
-	if key == "default" {
+	if key == "default" || officialRepository(m.Repository) {
 		state, err = currentBaselineState(state)
 		if err != nil {
 			return Catalog{}, ManifestState{}, err
@@ -341,7 +362,7 @@ func (m ManifestManager) Current() (Catalog, ManifestState, error) {
 		}
 		signatureText, signatureErr := readLimitedFile(versionSignaturePath(manifestPath, state.KeyID), MaxSignatureSize)
 		if signatureErr != nil {
-			return Catalog{}, ManifestState{}, signatureErr
+			return Catalog{}, ManifestState{}, catalogIntegrity("catalog_signature", signatureErr)
 		}
 		keyID, err = verifyManifest(keys, data, signatureText)
 		if err != nil {
@@ -353,7 +374,7 @@ func (m ManifestManager) Current() (Catalog, ManifestState, error) {
 		return Catalog{}, ManifestState{}, err
 	}
 	if catalog.Version != state.ActiveVersion || manifestDigest(data) != state.ActiveDigest || (state.KeyID != "" && strings.ToUpper(strconv.FormatUint(keyID, 16)) != state.KeyID) {
-		return Catalog{}, ManifestState{}, errors.New("active manifest bytes/signature do not match state pointer")
+		return Catalog{}, ManifestState{}, catalogIntegrity("catalog_state", errors.New("active manifest bytes/signature do not match state pointer"))
 	}
 	return catalog, state, nil
 }
@@ -434,7 +455,7 @@ func (m ManifestManager) readSource(ctx context.Context, source string) ([]byte,
 		}
 		signatureText, err := m.download(ctx, signatureSource, MaxSignatureSize)
 		if err == nil && len(signatureText) == 0 {
-			err = errors.New("catalog signature body is empty")
+			err = catalogIntegrity("catalog_signature", errors.New("catalog signature body is empty"))
 		}
 		if err != nil && m.AllowUnsigned && parsed.Scheme == "https" {
 			return data, nil, manifestSource, nil
@@ -454,7 +475,10 @@ func (m ManifestManager) readSource(ctx context.Context, source string) ([]byte,
 		return data, nil, "local:" + absolute, nil
 	}
 	if err == nil && len(signatureText) == 0 {
-		return nil, nil, "", errors.New("catalog signature file is empty")
+		return nil, nil, "", catalogIntegrity("catalog_signature", errors.New("catalog signature file is empty"))
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		err = catalogIntegrity("catalog_signature", errors.New("image catalog has no detached signature"))
 	}
 	return data, signatureText, "local:" + absolute, err
 }
@@ -467,18 +491,19 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 	if err != nil {
 		return ManifestState{}, fmt.Errorf("fetch catalog %s: %w", source, err)
 	}
+	var keys []minisign.PublicKey
 	keyID := uint64(0)
 	if len(signatureText) != 0 {
-		keys, keyErr := m.keys()
-		if keyErr != nil {
-			return ManifestState{}, keyErr
+		keys, err = m.keys()
+		if err != nil {
+			return ManifestState{}, err
 		}
 		keyID, err = verifyManifest(keys, data, signatureText)
 		if err != nil {
 			return ManifestState{}, err
 		}
 	} else if !m.unsignedAllowed() {
-		return ManifestState{}, errors.New("image catalog has no detached signature")
+		return ManifestState{}, catalogIntegrity("catalog_signature", errors.New("image catalog has no detached signature"))
 	} else if !m.unsignedSourceMatchesRepository(provenance) {
 		return ManifestState{}, errors.New("unsigned catalog source does not match the selected repository catalog.json")
 	}
@@ -502,43 +527,26 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 	}
 	current, err := m.readState()
 	if errors.Is(err, os.ErrNotExist) {
-		if stateKey == "default" {
+		if stateKey == "default" || officialRepository(m.Repository) {
 			current, err = embeddedState()
 		} else {
-			current = ManifestState{}
-			err = nil
+			current, err = ManifestState{}, nil
 		}
 	}
 	if err != nil {
 		return ManifestState{}, err
 	}
-	if stateKey == "default" {
+	if stateKey == "default" || officialRepository(m.Repository) {
 		current, err = currentBaselineState(current)
 		if err != nil {
 			return ManifestState{}, err
-		}
-	} else if officialRepository(m.Repository) {
-		// The global and China production repositories share the embedded
-		// trust baseline even though their accepted catalogs have separate
-		// state slots. A mirror must not make a fresh BARN_HOME accept an
-		// older signed catalog merely because its own high-water mark is zero.
-		baseline, baselineErr := embeddedState()
-		if baselineErr != nil {
-			return ManifestState{}, baselineErr
-		}
-		if current.HighestVersion < baseline.HighestVersion {
-			current.HighestVersion = baseline.HighestVersion
-		}
-		if current.ActiveVersion < baseline.ActiveVersion {
-			current.ActiveVersion = baseline.ActiveVersion
-			current.ActiveDigest = baseline.ActiveDigest
 		}
 	}
 	if current.KeyID != "" && len(signatureText) == 0 && !allowDowngrade {
 		return ManifestState{}, errors.New("repository previously served a signed catalog; refusing an unsigned catalog without --allow-downgrade")
 	}
 	if current.ActiveVersion != 0 && catalog.Version == current.ActiveVersion && digest != current.ActiveDigest {
-		return ManifestState{}, errors.New("manifest version equivocation: same version has different bytes")
+		return ManifestState{}, catalogIntegrity("catalog_equivocation", errors.New("manifest version equivocation: same version has different bytes"))
 	}
 	if catalog.Version < current.HighestVersion && !allowDowngrade {
 		return ManifestState{}, fmt.Errorf("manifest version %d is below accepted high-water mark %d", catalog.Version, current.HighestVersion)
@@ -547,7 +555,7 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 	manifestPath := filepath.Join(m.versions(), filename)
 	if existing, err := os.ReadFile(manifestPath); err == nil {
 		if !bytes.Equal(existing, data) {
-			return ManifestState{}, errors.New("versioned manifest path contains different bytes")
+			return ManifestState{}, catalogIntegrity("catalog_equivocation", errors.New("versioned manifest path contains different bytes"))
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
 		if err := fsutil.AtomicWrite(manifestPath, data, 0o600); err != nil {
@@ -560,7 +568,14 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 		signaturePath := versionSignaturePath(manifestPath, strings.ToUpper(strconv.FormatUint(keyID, 16)))
 		if existing, err := os.ReadFile(signaturePath); err == nil {
 			if !bytes.Equal(existing, signatureText) {
-				return ManifestState{}, errors.New("versioned signature path contains different bytes")
+				// A trusted key may re-sign identical bytes with a new timestamp.
+				// Keep an already valid signature; replace damaged cached bytes
+				// only with the incoming signature verified above.
+				if cachedKey, verifyErr := verifyManifest(keys, data, existing); verifyErr != nil || cachedKey != keyID {
+					if err := fsutil.AtomicWrite(signaturePath, signatureText, 0o600); err != nil {
+						return ManifestState{}, err
+					}
+				}
 			}
 		} else if errors.Is(err, os.ErrNotExist) {
 			if err := fsutil.AtomicWrite(signaturePath, signatureText, 0o600); err != nil {

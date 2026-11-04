@@ -129,7 +129,7 @@ func loadStoppableNodes(store state.Store, names []string) ([]state.NodeState, e
 			if !completeProcess(node.Process) {
 				return nil, failure.WithNext(fmt.Errorf("node %s was interrupted while %s and its process cannot be identified", name, node.Phase), "barn status, then retry")
 			}
-		case state.Stopped, state.Prepared:
+		case state.Stopped, state.Prepared, state.Destroying:
 			if node.Process.PID != 0 {
 				return nil, fmt.Errorf("inactive private node %s retains a process identity", name)
 			}
@@ -187,7 +187,7 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 	outcomes := make([]StopOutcome, len(nodes))
 	for index, node := range nodes {
 		outcomes[index].Node = node.Node
-		if node.Phase == state.Stopped {
+		if node.Phase == state.Stopped || node.Phase == state.Destroying {
 			outcomes[index].Stopped = true
 		}
 	}

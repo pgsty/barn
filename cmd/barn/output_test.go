@@ -634,3 +634,21 @@ func TestLogTextWriterRendersRecordsAndPassesConsoleThrough(t *testing.T) {
 		t.Fatalf("serial console changed: %q", out.String())
 	}
 }
+
+func TestInvalidPresentationEnvironmentCanBeOverridden(t *testing.T) {
+	t.Setenv("BARN_OUTPUT", "invalid")
+	t.Setenv("BARN_VERBOSE", "invalid")
+	for _, args := range [][]string{{"--help"}, {"help", "image"}, {"image", "list", "-h"}, {"version", "--json", "-v"}, {"version", "--yaml", "--verbose=false"}, {"version", "--json=false", "--verbose=false"}} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != exitOK {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, &stdout, &stderr)
+			}
+		})
+	}
+	for _, args := range [][]string{{"version"}, {"exec", "--", "tool", "--help"}, {"validate", "-f", "--help"}} {
+		if _, _, _, err := prepareOutput(args, io.Discard, io.Discard); err == nil {
+			t.Fatalf("ignored invalid environment for %v", args)
+		}
+	}
+}

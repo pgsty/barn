@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const SetupVersion = "20260916.2"
+const SetupVersion = "20261104.1"
 
 // RetryScript updates only Barn's guest setup helpers. This lets existing
 // VMs use current recovery behavior without cloud-init reset or recreation.

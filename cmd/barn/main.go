@@ -166,7 +166,7 @@ func confirmDestructive(force, interactive bool, action string, input io.Reader,
 		return nil
 	}
 	if !interactive {
-		return fmt.Errorf("%s requires --force when stdin is not a terminal", action)
+		return fmt.Errorf("%s requires --yes (or --force) when stdin is not a terminal", action)
 	}
 	if _, err := fmt.Fprintf(output, "Type %q to confirm: ", action); err != nil {
 		return fmt.Errorf("write %s confirmation prompt: %w", action, err)
@@ -1219,14 +1219,15 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		timeout = 0
 		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Resize(ctx, resolved) }
 	case "recreate":
+		// Resolve the exact replacement scope before asking: the prompt names
+		// every applied node the operation destroys, and an inventory that omits
+		// a node is refused before anyone is asked to confirm.
+		targets, scopeErr := manager.RecreateTargets(resolved)
+		if scopeErr != nil {
+			return commandOutcome{}, classifyPrivateLifecycleError(scopeErr, operationID)
+		}
 		if !force && term.IsTerminal(int(os.Stdin.Fd())) {
-			names := nodes
-			if len(names) == 0 {
-				for _, node := range resolved.Nodes {
-					names = append(names, node.Name)
-				}
-			}
-			bestEffortf(stderr, "recreate: %s; root and non-persistent data disks will be replaced; persistent data disks stay\n", strings.Join(names, ", "))
+			bestEffortf(stderr, "recreate: %s; root and non-persistent data disks will be replaced; persistent data disks stay\n", strings.Join(targets, ", "))
 		}
 		if err := confirmCLIAction(force, "recreate", stderr); err != nil {
 			if errors.Is(err, ErrCancelled) {
@@ -1412,11 +1413,31 @@ func recordCancelledLifecycle(parent context.Context, manager privatevm.Manager,
 // can still delete strictly inventoried persistent disks and allowlisted keys.
 // A missing state document never authorizes deletion of retained node
 // artifacts, whose process and path identity can no longer be proven.
-func runPurgeCommand(parent context.Context, stderr io.Writer) (commandOutcome, error) {
+// confirmPurge asks on a terminal before purge deletes anything. Automation
+// without a terminal is not prompted, keeping purge usable in scripts; --yes or
+// --force skips the question on a terminal.
+func confirmPurge(confirmed bool, scope string, stderr io.Writer) error {
+	if confirmed || !term.IsTerminal(int(os.Stdin.Fd())) {
+		return nil
+	}
+	bestEffortln(stderr, scope)
+	if err := confirmCLIAction(false, "purge", stderr); err != nil {
+		if errors.Is(err, ErrCancelled) {
+			return err
+		}
+		return newUsageError(err)
+	}
+	return nil
+}
+
+func runPurgeCommand(parent context.Context, confirmed bool, stderr io.Writer) (commandOutcome, error) {
 	resolved, err := currentDeploymentResolved()
 	if err == nil {
 		if resolved.Network != "private" {
 			return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
+		}
+		if err := confirmPurge(confirmed, strings.Replace(destroyScope(resolved, nil, true, true), "destroy scope:", "purge scope:", 1), stderr); err != nil {
+			return commandOutcome{}, err
 		}
 		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", true, true, true, false, false, stderr)
 	}
@@ -1445,6 +1466,9 @@ func runPurgeCommand(parent context.Context, stderr io.Writer) (commandOutcome, 
 			printPrivateStatus(stdout, status)
 			return nil
 		}}, nil
+	}
+	if err := confirmPurge(confirmed, fmt.Sprintf("purge scope: residual deployment data under %s, including retained persistent data disks and the deployment keys (images stay cached)", root), stderr); err != nil {
+		return commandOutcome{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
@@ -1496,7 +1520,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	if (options.DeletePersistent || options.Purge) && !options.Force && !term.IsTerminal(int(os.Stdin.Fd())) {
 		// On a terminal the interactive destroy confirmation covers the
 		// widened scope; without one, automation must state --force.
-		return commandOutcome{}, newUsageError(errors.New("--delete-persistent and --purge require the separate --force destroy confirmation"))
+		return commandOutcome{}, newUsageError(errors.New("--delete-persistent and --purge require the separate --yes (or --force) destroy confirmation"))
 	}
 	if options.Purge {
 		// A purge is a terminal disposal; retained persistent disks make no
@@ -1605,8 +1629,12 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	return outcome, err
 }
 
+// implicitSetupOptions prepares the host from an interactive lifecycle command.
+// It runs only on a terminal and never assumes --yes: the plan of package and
+// network changes is shown and confirmed once before any privileged step, the
+// same contract as an explicit `barn setup`.
 func implicitSetupOptions(options lifecycleOptions, repository string) setupCLIOptions {
-	return setupCLIOptions{FilePath: options.ConfigPath, Mode: "host", Repo: repository, Yes: true}
+	return setupCLIOptions{FilePath: options.ConfigPath, Mode: "host", Repo: repository}
 }
 
 // Setup can supply missing executables or restore an intact Barn network.
@@ -1674,9 +1702,9 @@ func destroyScope(resolved spec.Resolved, nodes []string, deletePersistent, purg
 	case purge:
 		scope += "; also deletes persistent data disks, the deployment keys, and the deployment state (images stay cached)"
 	case deletePersistent:
-		scope += "; also deletes persistent data disks (keys and state are preserved)"
+		scope += "; also deletes persistent data disks and the deployment state (keys are preserved)"
 	default:
-		scope += "; persistent data disks, keys, and state are preserved"
+		scope += "; removes the deployment state; persistent data disks and keys are preserved"
 	}
 	return scope
 }

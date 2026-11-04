@@ -54,7 +54,13 @@ var deploymentLockWait = 10 * time.Minute
 // acquireDeploymentLock serializes every mutating barn invocation on the
 // one global deployment. flock releases automatically on process exit.
 func acquireDeploymentLock(ctx context.Context, root string, shared bool, progress activity.Reporter) (*lock.File, error) {
-	return waitForLock(ctx, deploymentLockPath(root), shared, progress)
+	held, err := waitForLock(ctx, deploymentLockPath(root), shared, progress)
+	if err == nil && !shared {
+		if err := reconcileControlHashes(root); err != nil {
+			return nil, lock.JoinRelease(err, held, "deployment recovery lock")
+		}
+	}
+	return held, err
 }
 
 // waitForLock takes a Barn lock. While another command holds it, progress
@@ -97,6 +103,9 @@ func tryDeploymentLock(root string, shared bool) (*lock.File, string, error) {
 		return nil, lockHolder(path), nil
 	}
 	if err == nil && !shared {
+		if err := reconcileControlHashes(root); err != nil {
+			return nil, "", lock.JoinRelease(err, held, "deployment recovery lock")
+		}
 		_ = held.Record(currentHolder())
 	}
 	return held, "", err

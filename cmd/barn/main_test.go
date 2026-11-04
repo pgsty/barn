@@ -194,7 +194,7 @@ func TestImplicitSetupKeepsUpRepositorySelection(t *testing.T) {
 	}
 	options := lifecycleOptions{ConfigPath: "/tmp/barn.yml", Mirror: true}
 	setupOptions := implicitSetupOptions(options, repository)
-	if repository != image.ChinaRepositoryURL || setupOptions.Repo != repository || setupOptions.FilePath != options.ConfigPath || setupOptions.Mode != "host" {
+	if repository != image.ChinaRepositoryURL || setupOptions.Repo != repository || setupOptions.FilePath != options.ConfigPath || setupOptions.Mode != "host" || setupOptions.Yes {
 		t.Fatalf("implicit setup options = %#v from repository %q", setupOptions, repository)
 	}
 }
@@ -211,7 +211,7 @@ func TestDestructiveConfirmationTTYAndNonTTY(t *testing.T) {
 	if err := confirmDestructive(false, true, "destroy", strings.NewReader("destory\n"), io.Discard); !errors.Is(err, ErrCancelled) || !strings.Contains(err.Error(), `typed "destory", expected "destroy"; nothing was changed`) {
 		t.Fatalf("mismatched interactive confirmation error = %v, want ErrCancelled", err)
 	}
-	if err := confirmDestructive(false, false, "destroy", strings.NewReader("destroy\n"), io.Discard); err == nil || !strings.Contains(err.Error(), "requires --force") {
+	if err := confirmDestructive(false, false, "destroy", strings.NewReader("destroy\n"), io.Discard); err == nil || !strings.Contains(err.Error(), "requires --yes (or --force)") {
 		t.Fatalf("non-TTY confirmation error = %v", err)
 	}
 	if err := confirmDestructive(true, false, "destroy", strings.NewReader(""), io.Discard); err != nil {
@@ -510,10 +510,10 @@ func TestDestroyScopeStatesWhatIsRemoved(t *testing.T) {
 		t.Fatalf("node scope = %q", got)
 	}
 	whole := destroyScope(resolved, nil, false, false)
-	if !strings.Contains(whole, "2 node(s): meta, node-1") || !strings.Contains(whole, "are preserved") {
+	if !strings.Contains(whole, "2 node(s): meta, node-1") || !strings.Contains(whole, "removes the deployment state; persistent data disks and keys are preserved") {
 		t.Fatalf("whole scope = %q", whole)
 	}
-	if got := destroyScope(resolved, nil, true, false); !strings.Contains(got, "also deletes persistent data disks (keys and state are preserved)") {
+	if got := destroyScope(resolved, nil, true, false); !strings.Contains(got, "also deletes persistent data disks and the deployment state (keys are preserved)") {
 		t.Fatalf("delete-persistent scope = %q", got)
 	}
 	if got := destroyScope(resolved, nil, true, true); !strings.Contains(got, "deployment keys, and the deployment state") {
@@ -763,7 +763,7 @@ func TestImageListJSON(t *testing.T) {
 func TestUsageErrors(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
-	if code := run(nil, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "barn --help") {
+	if code := run(nil, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "Use \"barn [command] --help\"") || stderr.Len() != 0 {
 		t.Fatalf("empty invocation code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	for _, args := range [][]string{{"unknown"}, {"version", "extra"}} {
@@ -865,7 +865,7 @@ func TestDeploymentDestroyUsesPersistedStateWithoutConfiguration(t *testing.T) {
 	if code := run([]string{"destroy"}, &stdout, &stderr); code != exitUsage {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "destroy requires --force") {
+	if !strings.Contains(stderr.String(), "destroy requires --yes (or --force)") {
 		t.Fatalf("deployment destroy dispatch was ambiguous: %s", stderr.String())
 	}
 }

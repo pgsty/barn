@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -48,10 +49,18 @@ type StdinRunner interface {
 
 // OSRunner executes argv directly. Timeout zero means use only the caller's
 // context. OutputLimit zero selects a conservative default.
+//
+// Cancellation sends SIGTERM so sudo can relay it to the privileged command.
+// Killing sudo immediately can leave its command running as an orphan.
+// WaitDelay bounds waiting for the direct child and inherited output pipes;
+// it does not kill all descendants. Zero selects defaultWaitDelay.
 type OSRunner struct {
 	Timeout     time.Duration
 	OutputLimit int
+	WaitDelay   time.Duration
 }
+
+const defaultWaitDelay = 10 * time.Second
 
 // CommandError preserves controlled stderr and the exit code without exposing
 // an unbounded command output. Its message names the program, not the argv;
@@ -199,6 +208,18 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, stdi
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	var terminated atomic.Bool
+	cmd.Cancel = func() error {
+		err := cmd.Process.Signal(syscall.SIGTERM)
+		if err == nil {
+			terminated.Store(true)
+		}
+		return err
+	}
+	cmd.WaitDelay = r.WaitDelay
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = defaultWaitDelay
+	}
 
 	started := time.Now()
 	err := cmd.Run()
@@ -226,9 +247,11 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, stdi
 			commandErr.Signal = unix.SignalName(status.Signal())
 		}
 	}
-	// Only a kill by the runner's own deadline is a timeout; a command that
-	// failed by itself just before the deadline keeps its exit status.
-	if r.Timeout > 0 && commandErr.Signal != "" && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+	// Only termination by the runner's own deadline is a timeout; a command
+	// that failed by itself just before the deadline keeps its exit status. A
+	// command may exit normally after the SIGTERM, so the signal status alone
+	// does not identify the termination.
+	if r.Timeout > 0 && (commandErr.Signal != "" || terminated.Load()) && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
 		commandErr.Timeout = r.Timeout
 		commandErr.Signal = ""
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
 )
@@ -30,6 +31,12 @@ func TestErrorContract(t *testing.T) {
 	write("small.yml", "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_mem: 10 }\n")
 	write("typo.yml", "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_cpus: 2 }\n")
 	write("image.yml", "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: u99 }\n")
+	catalog, err := image.EmbeddedCatalogBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("catalog.json", string(catalog))
+	write("catalog.json.minisig", "untrusted comment: not a signature\nAAAA\n")
 
 	for _, test := range []struct {
 		arguments []string
@@ -50,6 +57,7 @@ func TestErrorContract(t *testing.T) {
 		{arguments: []string{"validate", "-f", "image.yml"}, code: exitUsage, class: "usage", reason: "unknown_image", message: `unknown image "u99"; available: `},
 		{arguments: []string{"image", "info", "bogus"}, code: exitUsage, class: "usage", reason: "unknown_image", message: `unknown image "bogus"`},
 		{arguments: []string{"destroy", "--delete-persistent", "--force"}, code: exitConflict, class: "conflict", message: "no deployment state found", next: "barn purge"},
+		{arguments: []string{"image", "sync", "catalog.json"}, code: exitIntegrity, class: "integrity", reason: "catalog_signature", message: "decode minisign signature"},
 	} {
 		t.Run(strings.Join(test.arguments, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

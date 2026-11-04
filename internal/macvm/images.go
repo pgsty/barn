@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -167,6 +168,27 @@ func (s *Store) ImageList() ([]ImageEntry, error) {
 	}
 	for _, machine := range machines {
 		refs[machine.BaseID] = append(refs[machine.BaseID], machine.Name)
+	}
+	journalRoot, err := s.Path("runtime")
+	if err != nil {
+		return nil, err
+	}
+	journals, err := os.ReadDir(journalRoot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	for _, entry := range journals {
+		if !strings.HasPrefix(entry.Name(), "recreate-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(entry.Name(), "recreate-"), ".json")
+		journal, _, err := s.readRecreateJournal(name)
+		if err != nil {
+			return nil, fmt.Errorf("read pending recreate before image cleanup: %w", err)
+		}
+		if !slices.Contains(refs[journal.Old.BaseID], name) {
+			refs[journal.Old.BaseID] = append(refs[journal.Old.BaseID], name)
+		}
 	}
 	defaultID := ""
 	if cfg, err := s.LoadConfig(); err == nil {

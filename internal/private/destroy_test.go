@@ -309,3 +309,52 @@ func TestPrivatePersistentDeleteIgnoresFinderMetadataInNodesRoot(t *testing.T) {
 		t.Fatalf("Finder metadata blocked persistent deletion: %#v, %v", deleted, err)
 	}
 }
+
+// Destroying the control node elects a peer whose definition gains the control
+// role. Its state must follow the new definition hash while keeping the hash
+// its guest was seeded with, so integrations keep working and readiness still
+// matches the guest marker.
+func TestDestroyControlNodeRehashesElectedPeer(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	root := startConfig.Deployment.Root
+	t.Setenv("BARN_HOME", root)
+	writeDestroyKeyFixtures(t, root)
+	store := state.Store{Root: root}
+	before, err := store.ReadNode("node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).DestroyNodes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status.Message, "node-1 is now the control node") {
+		t.Fatalf("destroy message does not name the elected control node: %q", status.Message)
+	}
+	after, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Resolved.Nodes) != 1 || after.Resolved.Nodes[0].Name != "node-1" || !after.Resolved.Nodes[0].Control {
+		t.Fatalf("remaining deployment = %#v", after.Resolved.Nodes)
+	}
+	node, err := store.ReadNode("node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := spec.NodeHash(after.Resolved, "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if node.SpecHash != expected || node.GuestSpecHash != before.SpecHash || node.VMUUID != before.VMUUID {
+		t.Fatalf("elected node state: spec=%s want %s guest=%s want %s", node.SpecHash, expected, node.GuestSpecHash, before.SpecHash)
+	}
+	if _, _, _, err := (Manager{BarnVersion: "test"}).integrationSnapshot(context.Background()); err != nil {
+		t.Fatalf("integrations rejected the elected control node: %v", err)
+	}
+	// An inventory that now names node-1 as the control node matches exactly.
+	desired := cloneResolved(after.Resolved)
+	if diff := diffResolved(after.Resolved, desired, func(string) bool { return true }); len(diff.Changed) != 0 || len(diff.Removed) != 0 {
+		t.Fatalf("diff after control election = %#v", diff)
+	}
+}

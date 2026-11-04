@@ -2,6 +2,7 @@ package linux
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -351,5 +352,56 @@ func TestAlreadySafeDebianHelperIsNotClaimedForRestoration(t *testing.T) {
 		if command.Binary == "/usr/bin/dpkg-statoverride" {
 			t.Fatal("pre-existing safe helper received a dpkg override command")
 		}
+	}
+}
+
+func TestUninstallPreservesSharedNetworkd(t *testing.T) {
+	facts := debianFacts()
+	facts.NetworkdActive = false
+	facts.NetworkdUnits = networkdFixture("disabled", "inactive")
+	facts.NetworkdActivation = safeInactiveNetworkdActivation()
+	install, err := NewInstallPlan(facts, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentFiles := map[string]string{}
+	for _, f := range install.Files {
+		if f.Path != StatePath {
+			currentFiles[f.Path] = f.Content
+		}
+	}
+	applied := *install.Manifest.AppliedOverride
+	conflicting := inspectNetworkdActivation([]string{filepath.Join("testdata", "networkd-match-eth0")}, activationTestLinks(), nil, false)
+	for _, tc := range []struct {
+		name     string
+		safety   *NetworkdActivationSafety
+		preserve bool
+	}{
+		{"unknown", nil, true},
+		{"adopted eth0", &conflicting, true},
+		{"config removed but interface remains", safeInactiveNetworkdActivation(), true},
+		{"only Barn bridge", &NetworkdActivationSafety{Checked: true, Links: []NetworkdLink{{Name: BridgeName, BarnOwned: true}, {Name: "lo", Type: "loopback"}}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := NewUninstallPlan(install.Manifest, UninstallFacts{CurrentFiles: currentFiles, CurrentHelper: applied, CurrentOverride: &applied, NetworkdSafety: tc.safety})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.PreserveNetworkd != tc.preserve {
+				t.Fatalf("preserve=%v", plan.PreserveNetworkd)
+			}
+			foundRestore := false
+			for _, c := range plan.Commands {
+				if c.Binary == "/usr/bin/systemctl" {
+					foundRestore = true
+				}
+			}
+			if foundRestore == tc.preserve {
+				t.Fatalf("global service commands disagree with preservation: %+v", plan.Commands)
+			}
+			if len(plan.RemoveFiles) == 0 {
+				t.Fatal("preserving shared service prevented Barn cleanup")
+			}
+		})
 	}
 }

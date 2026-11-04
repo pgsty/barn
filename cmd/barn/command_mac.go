@@ -568,8 +568,9 @@ resources, shared folders and address. --update uses the newest prepared base
 	}
 	recreate.Flags().BoolVar(&recreateOptions.Update, "update", false, "use the newest prepared macOS base")
 	recreate.Flags().BoolVar(&recreateForce, "force", false, "skip the confirmation (required without a terminal)")
+	recreate.Flags().BoolVar(&recreateForce, "yes", false, "same as --force")
 	recreate.Flags().BoolVarP(&recreateOptions.NoWait, "no-wait", "n", false, "return once the VM runs, without waiting for SSH")
-	noFileCompletions(recreate, "update", "force", "no-wait")
+	noFileCompletions(recreate, "update", "force", "yes", "no-wait")
 	mac.AddCommand(recreate)
 
 	var destroyForce bool
@@ -596,7 +597,8 @@ unused bases.`,
 		})(cmd, args)
 	}
 	destroy.Flags().BoolVar(&destroyForce, "force", false, "skip the confirmation (required without a terminal)")
-	noFileCompletions(destroy, "force")
+	destroy.Flags().BoolVar(&destroyForce, "yes", false, "same as --force")
+	noFileCompletions(destroy, "force", "yes")
 	mac.AddCommand(destroy)
 
 	var copyPassword bool

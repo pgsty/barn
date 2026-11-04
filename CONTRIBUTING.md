@@ -12,7 +12,9 @@ deployment path should preserve these design choices:
   Barn also reads the documented Pigsty identity and network fields; all
   other inventory fields remain opaque.
 - **Absence never destroys.** Removing a host from the inventory does not delete
-  a machine. Destruction is always explicit and confirmed.
+  a machine. Destruction is explicit. Terminal destruction requires confirmation;
+  `--yes`/`--force` skips it. For script compatibility, non-terminal `purge`
+  remains an explicit no-prompt disposal command.
 - **One helper binary.** Privileged work goes through `barn-hosts-helper` or
   the reviewed network plan, and nowhere else.
 
@@ -39,14 +41,16 @@ Barn data disks contain disposable test data: reuse working filesystems and
 reset unusable ones to the configured filesystem, reporting discarded data.
 This also applies to persistent disks; persistence controls destroy/recreate,
 not retention of corrupt contents. Missing devices, failed probes, busy mounts,
-and host I/O failures are not proof of filesystem damage. Do not reset those
+host I/O failures, unsupported filesystem features, and unknown checker failures
+are not proof of filesystem damage. Require recognized corruption diagnostics
+before resetting a recognized filesystem. Do not reset those
 or change root disks, host shares, or unrelated devices as a recovery action.
 Continue independent work and state exactly which features remain unavailable.
 
 ## Development loop
 
-Use Go 1.27.3. The current release is 0.9.1; to stamp a local candidate,
-run `BARN_VERSION=0.9.1-dev.1 make build`. Unstamped development builds report
+Use Go 1.27.3. To stamp a local candidate, run
+`BARN_VERSION=1.0.0-dev.1 make build`. Unstamped development builds report
 `dev`; formal release versions come from the Git tag.
 
 ```bash

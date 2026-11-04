@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -142,7 +143,12 @@ func (m Manager) removeKnownHostEntries(ctx context.Context, deploymentValue Dep
 	return fsutil.SyncDir(keysDir)
 }
 
-func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
+func (m Manager) Destroy(ctx context.Context) (Status, error) {
+	return m.destroy(ctx, nil)
+}
+
+// check runs under the same exclusive lock as every stop and removal.
+func (m Manager) destroy(ctx context.Context, check func(Deployment, state.DeploymentState) error) (_ Status, returnErr error) {
 	deploymentValue, err := m.openDeployment(false)
 	if err != nil {
 		return Status{}, err
@@ -158,6 +164,11 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 	deploymentState, err := store.ReadDeployment()
 	if err != nil || deploymentState.Resolved.Network != "private" {
 		return Status{}, errors.New("the deployment has no valid state")
+	}
+	if check != nil {
+		if err := check(deploymentValue, deploymentState); err != nil {
+			return Status{}, err
+		}
 	}
 	selected, err := selectedNodeNames(deploymentState.Resolved, m.Nodes)
 	if err != nil {
@@ -310,6 +321,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			return Status{}, err
 		}
 	}
+	elected := ""
 	if partial && m.dropFromSpec {
 		remaining := cloneResolved(deploymentState.Resolved)
 		remaining.Nodes = remaining.Nodes[:0]
@@ -325,6 +337,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			}
 			if !hasControl {
 				remaining.Nodes[0].Control = true
+				elected = remaining.Nodes[0].Name
 			}
 		}
 		remainingHash, hashErr := spec.Hash(remaining)
@@ -332,12 +345,14 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			return Status{}, hashErr
 		}
 		updated := state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: m.BarnVersion, SpecHash: remainingHash, Resolved: remaining, UpdatedAt: time.Now().UTC()}
-		if err := store.WriteDeployment(updated); err != nil {
+		if err := writeElectedControl(store, updated, elected); err != nil {
 			return Status{}, err
 		}
 	}
 	message := "destroyed node artifacts; image cache, keys, and persistent data disks preserved"
 	switch {
+	case partial && m.dropFromSpec && elected != "":
+		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node (update the inventory control role, then run barn up to install its control SSH access); peers, keys, and persistent data disks preserved", elected)
 	case partial && m.dropFromSpec:
 		message = "destroyed and removed the selected node(s); peers, keys, and persistent data disks preserved"
 	case partial:
@@ -351,6 +366,25 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		result.Nodes = append(result.Nodes, NodeStatus{Name: definition.Name, Address: definition.Address, State: state.Absent, Runtime: "inactive"})
 	}
 	return result, nil
+}
+
+// writeElectedControl publishes the remaining deployment first. It is the
+// commit record for the role change; a later exclusive operation can finish
+// the node hash update if this process exits between the two writes.
+func writeElectedControl(store state.Store, updated state.DeploymentState, elected string) error {
+	if elected != "" {
+		if _, err := store.ReadNode(elected); err == nil {
+			if err := FinalizePrepared(Deployment{Root: store.Root}, elected); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err := store.WriteDeployment(updated); err != nil {
+		return err
+	}
+	return reconcileControlHashes(store.Root)
 }
 
 // DestroyNodes destroys only the selected nodes and removes them from the
@@ -417,6 +451,57 @@ func validatePrivateRecreatePersistent(deploymentValue Deployment, current, requ
 	return err
 }
 
+// recreateScope applies the node selection and refuses any stateful node the
+// desired configuration omits. A whole-deployment recreate destroys every
+// applied node and recreates only the desired ones, so an omitted node would
+// otherwise be deleted without being named or recreated. Absence from the
+// inventory never destroys; a node whose state cannot be read counts as
+// stateful so an unreadable record is never deleted by omission.
+func recreateScope(root string, current spec.Resolved, requested spec.Resolved, selectors []string) (spec.Resolved, error) {
+	requested, err := applyNodeSelection(current, requested, selectors)
+	if err != nil {
+		return spec.Resolved{}, err
+	}
+	store := state.Store{Root: root}
+	hasState := func(name string) bool {
+		_, readErr := store.ReadNode(name)
+		return !errors.Is(readErr, os.ErrNotExist)
+	}
+	if removed := diffResolved(current, requested, hasState).Removed; len(removed) != 0 {
+		return spec.Resolved{}, failure.WithNext(fmt.Errorf("%w: %s; recreate would delete them without recreating them, and Barn never destroys a node because it left the inventory", ErrNodesRemoved, strings.Join(removed, ", ")), "barn destroy "+strings.Join(removed, " ")+", or add them back to the inventory")
+	}
+	return requested, nil
+}
+
+func (m Manager) recreateDeployment() (Deployment, state.DeploymentState, error) {
+	deploymentValue, err := m.openDeployment(false)
+	if err != nil {
+		return Deployment{}, state.DeploymentState{}, err
+	}
+	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
+	if err != nil || deploymentState.Resolved.Network != "private" {
+		return Deployment{}, state.DeploymentState{}, errors.New("the deployment has no valid state")
+	}
+	return deploymentValue, deploymentState, nil
+}
+
+// RecreateTargets names the applied nodes a recreate destroys and replaces. It
+// applies the same scope checks as RecreateResolved, so a confirmation prompt
+// never lists less than the operation would delete.
+func (m Manager) RecreateTargets(requested spec.Resolved) ([]string, error) {
+	if err := validateResolved(requested); err != nil {
+		return nil, err
+	}
+	deploymentValue, deploymentState, err := m.recreateDeployment()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := recreateScope(deploymentValue.Root, deploymentState.Resolved, requested, m.Nodes); err != nil {
+		return nil, err
+	}
+	return selectedNodeNames(deploymentState.Resolved, m.Nodes)
+}
+
 // RecreateResolved validates the complete desired private spec and persistent
 // attachment contract before the first stop/destroy mutation.
 func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) (Status, error) {
@@ -424,15 +509,11 @@ func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) 
 	if err := validateResolved(requested); err != nil {
 		return Status{}, err
 	}
-	deploymentValue, err := m.openDeployment(false)
+	deploymentValue, deploymentState, err := m.recreateDeployment()
 	if err != nil {
 		return Status{}, err
 	}
-	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
-	if err != nil || deploymentState.Resolved.Network != "private" {
-		return Status{}, errors.New("the deployment has no valid state")
-	}
-	requested, err = applyNodeSelection(deploymentState.Resolved, requested, m.Nodes)
+	requested, err = recreateScope(deploymentValue.Root, deploymentState.Resolved, requested, m.Nodes)
 	if err != nil {
 		return Status{}, err
 	}
@@ -475,7 +556,17 @@ func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) 
 	if len(selected) != len(deploymentState.Resolved.Nodes) {
 		destroyManager.allowPartialDestroy = true
 	}
-	if _, err := destroyManager.Destroy(ctx); err != nil {
+	if _, err := destroyManager.destroy(ctx, func(latestDeployment Deployment, latest state.DeploymentState) error {
+		if latest.SpecHash != deploymentState.SpecHash {
+			return failure.New(failure.Conflict, errors.New("deployment changed while preparing recreate")).Because("deployment_changed").Then("review the inventory and retry recreate")
+		}
+		// A pending node can become committed without changing the deployment
+		// hash. Recheck omissions and persistent disks after taking the lock.
+		if _, err := recreateScope(latestDeployment.Root, latest.Resolved, requested, m.Nodes); err != nil {
+			return err
+		}
+		return validatePrivateRecreatePersistent(latestDeployment, latest.Resolved, requested)
+	}); err != nil {
 		return Status{}, err
 	}
 	return m.Up(ctx, requested)

@@ -200,40 +200,21 @@ func rejectedPresentationAlias(argument string) bool {
 	return false
 }
 
-// environmentDefaults reads the two presentation environment variables that
-// command-line flags override: BARN_OUTPUT (text, json, yaml) and
-// BARN_VERBOSE (a boolean).
-func environmentDefaults() (outputFormat, bool, error) {
-	format := outputText
-	if value, set := os.LookupEnv("BARN_OUTPUT"); set && strings.TrimSpace(value) != "" {
-		format = outputFormat(strings.ToLower(strings.TrimSpace(value)))
-		switch format {
-		case outputText, outputJSON, outputYAML:
-		default:
-			return "", false, fmt.Errorf("BARN_OUTPUT must be text, json, or yaml, got %q", format)
-		}
-	}
-	verbose := false
-	if value, set := os.LookupEnv("BARN_VERBOSE"); set && strings.TrimSpace(value) != "" {
-		parsed, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			return "", false, fmt.Errorf("BARN_VERBOSE must be true or false, got %q", value)
-		}
-		verbose = parsed
-	}
-	return format, verbose, nil
-}
-
 // prepareOutput removes the cross-command presentation flags before the
 // existing command-local flag parsers run. A literal -- ends presentation flag
 // parsing so remote command arguments remain byte-for-byte untouched.
 func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer, io.Writer, error) {
 	clean := make([]string, 0, len(args))
-	format, verbose, err := environmentDefaults()
-	if err != nil {
-		return nil, stdout, stderr, err
+	format := outputFormat(strings.ToLower(strings.TrimSpace(os.Getenv("BARN_OUTPUT"))))
+	if format == "" {
+		format = outputText
 	}
-	formatFromCLI := false
+	var verbose bool
+	var verboseErr error
+	if value := strings.TrimSpace(os.Getenv("BARN_VERBOSE")); value != "" {
+		verbose, verboseErr = strconv.ParseBool(value)
+	}
+	formatFromCLI, help := false, false
 	passthrough := false
 	values := commandFlagValues(args)
 	for index, argument := range args {
@@ -250,6 +231,12 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 			clean = append(clean, argument)
 			continue
 		}
+		if argument == "--help" || argument == "-h" || argument == "--help=true" {
+			help = true
+		}
+		if argument == "help" && len(clean) == 0 {
+			help = true
+		}
 		if rejectedPresentationAlias(argument) {
 			return nil, stdout, stderr, fmt.Errorf("unsupported presentation flag %q; use --json, --yaml, or --verbose", argument)
 		}
@@ -263,7 +250,7 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 				}
 				format = outputJSON
 				formatFromCLI = true
-			} else if format == outputJSON {
+			} else if format == outputJSON || format != outputYAML && format != outputText {
 				format = outputText
 				formatFromCLI = true
 			}
@@ -279,7 +266,7 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 				}
 				format = outputYAML
 				formatFromCLI = true
-			} else if format == outputYAML {
+			} else if format == outputYAML || format != outputJSON && format != outputText {
 				format = outputText
 				formatFromCLI = true
 			}
@@ -289,17 +276,28 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 			if err != nil {
 				return nil, stdout, stderr, err
 			}
-			verbose = enabled
+			verbose, verboseErr = enabled, nil
 			continue
 		}
 		if matched, enabled, err := parseBooleanOption(argument, "-v"); matched {
 			if err != nil {
 				return nil, stdout, stderr, err
 			}
-			verbose = enabled
+			verbose, verboseErr = enabled, nil
 			continue
 		}
 		clean = append(clean, argument)
+	}
+	if help {
+		format, verbose, verboseErr = outputText, false, nil
+	}
+	switch format {
+	case outputText, outputJSON, outputYAML:
+	default:
+		return nil, stdout, stderr, fmt.Errorf("BARN_OUTPUT must be text, json, or yaml, got %q", format)
+	}
+	if verboseErr != nil {
+		return nil, stdout, stderr, fmt.Errorf("BARN_VERBOSE must be true or false, got %q", os.Getenv("BARN_VERBOSE"))
 	}
 	_, stderrFile := writerFile(stderr)
 	state := &outputContext{

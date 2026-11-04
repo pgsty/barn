@@ -22,7 +22,7 @@ reachable as an individual command:
 
 1. **Installing missing packages during `barn setup`.** On Linux, setup runs
    the system package manager (`apt-get` or `dnf`) through `sudo` for QEMU,
-   firmware, and OpenSSH after printing the exact plan and asking once. On
+   firmware, and OpenSSH after printing the plan and asking once. On
    macOS, Homebrew runs as the invoking user and never needs root.
 2. **Installing the host-global fixed-IP network.** `barn network install`
    prints the complete privileged plan and requires interactive confirmation
@@ -34,6 +34,12 @@ reachable as an individual command:
    `/opt/barn/libexec/barn-hosts-helper`. It is the only component that
    ever writes the system hosts file; `barn hosts install --yes` invokes it
    through `sudo -n` with a digest-matched, marker-bounded plan.
+
+On a terminal, `up`, `start`, `restart`, and `reload` may offer to prepare a
+host that lacks a dependency or an intact Barn network. That runs the same
+setup, with the same plan and the same single confirmation; it never assumes
+`--yes`. Without a terminal these commands report what is missing and never
+prepare the host themselves; run `barn setup --yes` for unattended preparation.
 
 Everything else — image cache, deployment state, SSH material, QEMU processes —
 is owned by the invoking user under `$BARN_HOME` and never needs root.
