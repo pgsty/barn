@@ -763,7 +763,7 @@ func TestImageListJSON(t *testing.T) {
 func TestUsageErrors(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
-	if code := run(nil, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "barn --help") {
+	if code := run(nil, &stdout, &stderr); code != exitOK || !strings.Contains(stdout.String(), "Use \"barn [command] --help\"") || stderr.Len() != 0 {
 		t.Fatalf("empty invocation code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	for _, args := range [][]string{{"unknown"}, {"version", "extra"}} {

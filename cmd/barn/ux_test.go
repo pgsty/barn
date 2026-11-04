@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -127,14 +128,46 @@ func TestResizeRestartFailureSuggestsStart(t *testing.T) {
 	}
 }
 
-func TestBareCommandKeepsTheNextStepsCompact(t *testing.T) {
+func TestBareCommandPrintsFullHelp(t *testing.T) {
 	t.Setenv("BARN_HOME", t.TempDir())
 	var out, errOut bytes.Buffer
 	if code := run(nil, &out, &errOut); code != exitOK {
 		t.Fatalf("bare barn must succeed: %d", code)
 	}
-	if !strings.Contains(out.String(), "barn up") || !strings.Contains(out.String(), "barn --help") || strings.Count(out.String(), "\n") > 8 || errOut.Len() != 0 {
-		t.Fatalf("noisy onboarding: %s %s", out.String(), errOut.String())
+	for _, want := range []string{"Usage:", "Setup:", "Lifecycle:", "Guest Access:", "barn up", "Use \"barn [command] --help\""} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("bare barn help missing %q:\n%s", want, out.String())
+		}
+	}
+	var help bytes.Buffer
+	if code := run([]string{"--help"}, &help, io.Discard); code != exitOK || help.String() != out.String() {
+		t.Errorf("bare barn differs from barn --help (code %d)", code)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("bare barn help wrote stderr: %s", errOut.String())
+	}
+}
+
+// Structured output keeps the documented actions[] document: one JSON value on
+// stdout, never help text.
+func TestBareCommandStructuredOutputKeepsActions(t *testing.T) {
+	t.Setenv("BARN_HOME", t.TempDir())
+	for _, format := range []string{"--json", "--yaml"} {
+		var out, errOut bytes.Buffer
+		if code := run([]string{format}, &out, &errOut); code != exitOK || errOut.Len() != 0 {
+			t.Fatalf("%s bare barn code=%d stderr=%s", format, code, errOut.String())
+		}
+		if strings.Contains(out.String(), "Usage:") || !strings.Contains(out.String(), "barn up") {
+			t.Fatalf("%s bare barn = %s", format, out.String())
+		}
+		if format == "--json" {
+			var document struct {
+				Actions []welcomeAction `json:"actions"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &document); err != nil || len(document.Actions) == 0 {
+				t.Fatalf("bare barn JSON = %v %s", err, out.String())
+			}
+		}
 	}
 }
 
