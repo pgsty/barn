@@ -50,11 +50,10 @@ type StdinRunner interface {
 // OSRunner executes argv directly. Timeout zero means use only the caller's
 // context. OutputLimit zero selects a conservative default.
 //
-// Cancellation sends SIGTERM rather than SIGKILL: sudo relays SIGTERM to the
-// privileged command, whereas a SIGKILL'd sudo leaves that command running as
-// an orphan. WaitDelay bounds how long the command, or a descendant still
-// holding its output pipes, may outlive cancellation before it is killed and
-// the pipes are closed; zero selects defaultWaitDelay.
+// Cancellation sends SIGTERM so sudo can relay it to the privileged command.
+// Killing sudo immediately can leave its command running as an orphan.
+// WaitDelay bounds waiting for the direct child and inherited output pipes;
+// it does not kill all descendants. Zero selects defaultWaitDelay.
 type OSRunner struct {
 	Timeout     time.Duration
 	OutputLimit int
@@ -211,8 +210,11 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, stdi
 	cmd.Stderr = stderr
 	var terminated atomic.Bool
 	cmd.Cancel = func() error {
-		terminated.Store(true)
-		return cmd.Process.Signal(syscall.SIGTERM)
+		err := cmd.Process.Signal(syscall.SIGTERM)
+		if err == nil {
+			terminated.Store(true)
+		}
+		return err
 	}
 	cmd.WaitDelay = r.WaitDelay
 	if cmd.WaitDelay <= 0 {
