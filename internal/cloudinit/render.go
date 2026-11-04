@@ -369,7 +369,8 @@ filesystem_unusable() {
       # A filesystem made by a newer e2fsprogs is healthy data this guest's tools
       # cannot read, never evidence of damage.
       if grep -Eqi 'unsupported feature|too new|revision too high|newer version' "${probe_error}"; then return 1; fi
-      [[ "${status}" == 4 || "${status}" == 12 ]]
+      [[ "${status}" == 4 || "${status}" == 12 ]] || return 1
+      grep -Eqi 'Filesystem still has errors|UNEXPECTED INCONSISTENCY|Root inode is not a directory|bad magic number|corrupt.*(inode|superblock)|invalid.*(inode|superblock)' "${probe_error}"
       ;;
     xfs)
       command -v xfs_repair >/dev/null 2>&1 || return 1
@@ -379,8 +380,11 @@ filesystem_unusable() {
       # An older xfs_repair exits 1 for a healthy filesystem with features it
       # does not know, for example a persistent disk formatted by a newer
       # distribution. That is an unsupported filesystem, not damage.
-      if grep -Eqi 'unknown .*features|unsupported .*feature|more recent xfs_repair|newer xfs_repair' "${probe_error}"; then return 1; fi
-      [[ "${status}" == 1 ]]
+      if grep -Eqi 'unknown .*features|unsupported .*feature|features not understood|more recent|newer|out of memory|allocat.*memory' "${probe_error}"; then return 1; fi
+      [[ "${status}" == 1 ]] || return 1
+      # Exit 1 also covers unsupported formats and operational failures.
+      # Only recognized damage authorizes discarding existing test data.
+      grep -Eqi 'bad magic number|would (reset|rebuild|clear|correct)|would have modified' "${probe_error}"
       ;;
     *) return 1 ;;
   esac

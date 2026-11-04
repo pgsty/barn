@@ -26,6 +26,9 @@ func TestDiskRecoveryOutcomes(t *testing.T) {
 		// filesystem newer than the guest's tools, is never reformatted.
 		{"partition-table", false, false, true}, {"xfs-newer-features", false, false, true},
 		{"ext4-newer-features", false, false, true},
+		{"no-uuid", false, false, true}, {"xfs-bad-version", false, false, true}, {"xfs-not-understood", false, false, true},
+		{"xfs-unknown-error", false, false, true}, {"ext4-unknown-error", false, false, true},
+		{"xfs-mixed-io", false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -53,6 +56,7 @@ case "$(basename "$0")" in
  timeout) shift 2; exec "$@" ;;
  blkid)
   test "$CASE" != probe-error || exit 4
+  if [[ "$CASE" == no-uuid ]]; then printf 'TYPE=ext4\n'; exit 0; fi
   if [[ "$CASE" == partition-table ]]; then printf 'PTTYPE=gpt\nPTUUID=0f1e2d3c\n'; exit 0; fi
   if [[ "$CASE" == new || "$CASE" == unrecognized || "$CASE" == readonly || "$CASE" == io-error ]]; then test -f "$FIXTURE/formatted" || exit 2; fi
   printf 'UUID=test-uuid\nTYPE=%s\n' "${FS_TYPE:-ext4}" ;;
@@ -66,18 +70,23 @@ case "$(basename "$0")" in
  dd) [[ "$CASE" != io-error ]] ;;
  mount)
   [[ "$CASE" != mount-permission ]] || exit 32
-  if [[ "$CASE" == corrupt || "$CASE" == corrupt-abort || "$CASE" == check-io-error || "$CASE" == xfs-corrupt || "$CASE" == xfs-newer-features || "$CASE" == ext4-newer-features ]]; then test -f "$FIXTURE/formatted" || exit 32; fi
+  if [[ "$CASE" == corrupt || "$CASE" == corrupt-abort || "$CASE" == check-io-error || "$CASE" == xfs-corrupt || "$CASE" == xfs-newer-features || "$CASE" == ext4-newer-features || "$CASE" == xfs-not-understood || "$CASE" == xfs-unknown-error || "$CASE" == ext4-unknown-error || "$CASE" == xfs-mixed-io || "$CASE" == xfs-bad-version ]]; then test -f "$FIXTURE/formatted" || exit 32; fi
   touch "$FIXTURE/mounted" ;;
  e2fsck)
   case "$CASE" in
-   corrupt) exit 4;;
+   corrupt) echo 'Filesystem still has errors'; exit 4;;
+   ext4-unknown-error) echo 'unknown failure'; exit 4;;
    corrupt-abort) echo 'Root inode is not a directory; aborting.'; exit 12;;
    check-io-error) echo 'Input/output error while reading'; exit 12;;
    ext4-newer-features) echo '/dev/vdb has unsupported feature(s): orphan_file'; exit 12;;
   esac ;;
  xfs_repair)
   case "$CASE" in
-   xfs-corrupt) exit 1;;
+   xfs-corrupt) echo 'bad primary superblock - bad magic number'; exit 1;;
+   xfs-bad-version) echo 'bad primary superblock - bad version number'; exit 1;;
+   xfs-not-understood) echo 'Superblock has features not understood by this program.'; exit 1;;
+   xfs-unknown-error) echo 'unknown failure'; exit 1;;
+   xfs-mixed-io) printf 'bad primary superblock\nInput/output error while reading\n'; exit 1;;
    xfs-newer-features) printf 'Superblock has unknown incompatible features (0x20) enabled.\nUsing a more recent xfs_repair is recommended.\n'; exit 1;;
   esac ;;
  mkfs.ext4|mkfs.xfs) printf fresh > "$DEVICE"; touch "$FIXTURE/formatted" ;;
@@ -91,12 +100,12 @@ esac
 				}
 			}
 			fs := "ext4"
-			if tc.name == "xfs-corrupt" || tc.name == "xfs-newer-features" {
+			if strings.HasPrefix(tc.name, "xfs-") {
 				fs = "xfs"
 			}
 			script := renderDiskScript([]Disk{{Serial: serial, Mount: filepath.Join(dir, "data"), Filesystem: fs, Fresh: tc.fresh}})
 			script = strings.NewReplacer("/dev/disk/by-id", devdir, "/var/lib/barn", dir, "/etc/fstab", filepath.Join(dir, "fstab"), "/usr/local/libexec/barn-warning", filepath.Join(bin, "barn-warning"), `[[ -b "${dev}" ]]`, `[[ -f "${dev}" ]]`).Replace(script)
-			cmd := exec.Command("bash")
+			cmd := exec.Command("/bin/bash")
 			cmd.Stdin = strings.NewReader(script)
 			cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin", "CASE="+tc.name, "FIXTURE="+dir, "DEVICE="+device, "FS_TYPE="+fs)
 			out, err := cmd.CombinedOutput()
