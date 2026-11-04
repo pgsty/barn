@@ -79,8 +79,9 @@ cannot be used for the formal local release. The local release path runs the
 same archive, package, SBOM, checksum, and helper-pair checks as CI. After
 validating the complete output, push the source and tag, upload its files to a
 draft GitHub Release, check the uploaded bytes, and publish the draft.
-Pre-1.0 releases keep the prerelease flag. Update the Homebrew tap only after
-the public assets are available.
+Mark versions below 1.0.0 and versions with a prerelease suffix as GitHub
+pre-releases; publish stable releases as the latest release. Update the
+Homebrew tap only after the public assets are available.
 
 Create the profile with `xcrun notarytool store-credentials` using your own Apple
 credentials. Keep private keys and passwords outside the repository. The app

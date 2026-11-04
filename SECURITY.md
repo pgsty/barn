@@ -11,8 +11,10 @@ Include the Barn version (`barn --json version`), the host platform, and the
 smallest reproduction you have. You should get an acknowledgement within five
 working days.
 
-Barn is pre-1.0. Fixes land in the next tagged release; there is no separate
-backport line yet.
+## Supported versions
+
+Security fixes land in the latest 1.x patch release. Only the latest 1.x
+release is supported; 0.x releases receive no further fixes.
 
 ## Privilege boundary
 
@@ -72,9 +74,11 @@ into that exact Barn build, so a mismatched or substituted helper is not run.
 
 - Release archives, Linux packages, SPDX SBOMs, the Homebrew formula, the
   installer, and the release metadata are all listed in `checksums.txt`.
-- GitHub Actions checks out the exact tag, runs the complete source gates,
-  builds the release assets, and creates a draft Release only after package,
-  archive, SBOM, and checksum verification succeeds.
+- Release assets are built from the exact tag, by the tag workflow when its
+  Mac signing secrets are configured and otherwise by the documented local
+  release path. Source CI must pass on the release commit first, and both paths
+  create the draft Release only after package, archive, SBOM, and checksum
+  verification succeeds.
 - Archive and package payloads bind the tagged commit and its
   `SOURCE_DATE_EPOCH`; binaries use `-trimpath` and an empty Go build ID.
 - The Go toolchain, GoReleaser, nFPM, Syft, Staticcheck, and govulncheck are

@@ -2,12 +2,22 @@
 
 Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
-1.0.0 may include incompatible changes between minor versions.
+1.0.0 may include incompatible changes between minor versions. The 1.x
+compatibility scope is defined in the
+[1.0.0 release notes](.github/releases/1.0.0.md#compatibility).
 
-## Unreleased
+## 1.0.0 — 2026-11-04
+
+Barn 1.0.0 is the first stable release. It freezes the 0.9.x command-line
+contract, hardens destructive operations, data-disk recovery, catalog
+integrity, and process cancellation, and keeps embedded catalog revision
+`2026102802`.
 
 ### Changed
 
+- Publish on GitHub's regular release channel. `releases/latest` and the
+  download installer without `BARN_VERSION` select 1.0.0.
+- Update `golang.org/x/net` to 0.62.0 and `go.yaml.in/yaml/v3` to 3.0.6.
 - Print the complete help when `barn` runs without a command, as `barn --help`
   does. `--json` and `--yaml` keep the `actions[]` document and exit 0.
 - Ask before `barn purge` deletes anything on a terminal; type `purge`, or pass

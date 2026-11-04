@@ -26,7 +26,7 @@
 <p align="center">
   <a href="https://barn.pgsty.com/"><img alt="Website" src="https://img.shields.io/badge/Website-barn.pgsty.com-A9573B"></a>
   <a href="https://github.com/pgsty/barn/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/pgsty/barn/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/pgsty/barn/releases/tag/v0.9.3"><img alt="Release: 0.9.3" src="https://img.shields.io/badge/release-0.9.3-AF8250"></a>
+  <a href="https://github.com/pgsty/barn/releases/tag/v1.0.0"><img alt="Release: 1.0.0" src="https://img.shields.io/badge/release-1.0.0-AF8250"></a>
   <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/pgsty/barn?logo=go"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-344F60"></a>
 </p>
@@ -48,17 +48,16 @@ Linux uses QEMU with HVF on macOS or KVM on Linux. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **0.9.3** adds resource-only VM resizing, selected-node reconciliation,
-more flexible user paths and shares, safer interrupted-operation recovery, and
-the signed image catalog revision **2026102802**. It includes the signed and
-Apple-notarized native Mac component introduced in 0.9.2. See the
-[release notes](.github/releases/0.9.3.md).
+Barn **1.0.0** is the first stable release. It defines the command-line,
+structured-output, and exit-code contract that 1.x keeps, hardens destructive
+operations and data-disk recovery, and embeds the signed image catalog revision
+**2026102802**. See the [release notes](.github/releases/1.0.0.md).
 
-## Install 0.9.3
+## Install
 
-[0.9.3](https://github.com/pgsty/barn/releases/tag/v0.9.3) follows Barn's pre-1.0
-pre-release channel. Select the version explicitly with the download installer;
-GitHub's `releases/latest` does not select pre-releases.
+[1.0.0](https://github.com/pgsty/barn/releases/tag/v1.0.0) is published on
+GitHub's regular release channel, so `releases/latest` and the download
+installer select it by default.
 
 **macOS — Homebrew**
 
@@ -73,13 +72,14 @@ The installer selects the native arm64 or amd64 archive, verifies it, and
 installs into `~/.local/bin` without sudo:
 
 ```bash
-curl -fLO https://github.com/pgsty/barn/releases/download/v0.9.3/install.sh
-BARN_VERSION=0.9.3 bash install.sh
+curl -fLO https://github.com/pgsty/barn/releases/latest/download/install.sh
+bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 barn version
 ```
 
 Add the PATH line to your shell configuration when using the download installer.
+Set `BARN_VERSION=1.0.0` to pin a version.
 DEB/RPM packages and manual archives are also available; see
 [installation](https://barn.pgsty.com/docs/start/installation/) for requirements
 and upgrades.
@@ -93,8 +93,9 @@ barn ssh
 
 On a first interactive run, with no inventory or existing deployment, `up`
 creates a one-node `barn.yml`, prepares host dependencies and networking,
-downloads the verified Ubuntu 24.04 image, and waits for SSH. It shows host
-changes and asks for administrator access when needed. Run `exit` to return
+downloads the verified Ubuntu 24.04 image, and waits for SSH. It shows the
+host changes and asks once before applying them; sudo may still ask for your
+password. Without a terminal, run `barn setup --yes` first. Run `exit` to return
 from the guest to your host.
 
 The default VM has 2 vCPUs, 4 GiB of memory, a 64 GiB root disk, and a
@@ -135,7 +136,7 @@ Follow the [Linux quick start](https://barn.pgsty.com/docs/start/tutorial/).
 ## Run a macOS VM
 
 macOS guests require Apple Silicon, macOS 27 or later, and `Barn.app`.
-The 0.9.3 Apple Silicon archive includes the signed, notarized CLI, hosts
+The Apple Silicon archive includes the signed, notarized CLI, hosts
 helper, and `Barn.app`. Homebrew installs all three and QEMU; `barn mac`
 finds its matching native component automatically. No source build or Xcode
 installation is needed to run the packaged app:
@@ -212,9 +213,11 @@ checks applied to the actual image. Directory symlinks, `~/`, and inventory-
 relative paths are accepted where the command reads user-selected inputs.
 
 **Use disposable test data.** Recreate replaces root and non-persistent disks.
-During guest recovery, Barn may also reset an unrecognized or confirmed damaged
-data filesystem, including one marked persistent. Persistence controls retention
-across destroy/recreate, not backup or recovery of corrupt contents.
+During guest recovery, Barn initializes blank data disks and resets an ext4 or
+XFS filesystem only when the checker reports recognized corruption, including on
+a disk marked persistent. Partition tables, unsupported features, and unknown
+checker failures leave the data in place with a warning. Persistence controls
+retention across destroy/recreate, not backup or recovery of corrupt contents.
 See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 
 ## Documentation and help
@@ -222,7 +225,7 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 - [Guides](https://barn.pgsty.com/docs/start/) — installation, daily operations, images, automation, and troubleshooting.
 - [Reference](https://barn.pgsty.com/docs/reference/) — configuration, Linux and Mac commands, output, and exit codes.
 - [Platforms and limits](https://barn.pgsty.com/docs/about/status/) — host requirements and guest restrictions.
-- [Release notes](.github/releases/0.9.3.md) — what's new in 0.9.3.
+- [Release notes](.github/releases/1.0.0.md) — what's new in 1.0.0 and the 1.x compatibility scope.
 - [Design and validation history](docs/README.md) — original proposals, implementation decisions, and dated acceptance records.
 - [Issues](https://github.com/pgsty/barn/issues) — bug reports and feature requests; use the [security policy](SECURITY.md) for vulnerabilities.
 

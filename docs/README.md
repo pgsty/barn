@@ -2,13 +2,14 @@
 
 Current usage is documented on [the Barn website](https://barn.pgsty.com/docs/).
 The [Mac guide](mac.md) and [Mac release checklist](mac-release.md) describe
-the native component. [0.9.3 release notes](../.github/releases/0.9.3.md) record
-the latest published baseline; the [1.0 audit](release-1.0-hardening.md) tracks
-the candidate changes and remaining release gates.
+the native component. [1.0.0 release notes](../.github/releases/1.0.0.md) record
+the current stable release and its compatibility scope; the
+[1.0 audit](release-1.0-hardening.md) records the pre-release review and its
+release gates.
 
 ## Release history
 
-The [changelog](../CHANGELOG.md) retains the changes from 0.1.0 through 0.9.3, plus unreleased changes.
+The [changelog](../CHANGELOG.md) retains the changes from 0.1.0 through 1.0.0.
 Original release notes are available for
 [0.1.0](../.github/releases/0.1.0.md),
 [0.2.0](../.github/releases/0.2.0.md),
@@ -20,8 +21,9 @@ Original release notes are available for
 [0.8.0](../.github/releases/0.8.0.md),
 [0.9.0](../.github/releases/0.9.0.md),
 [0.9.1](../.github/releases/0.9.1.md),
-[0.9.2](../.github/releases/0.9.2.md), and
-[0.9.3](../.github/releases/0.9.3.md).
+[0.9.2](../.github/releases/0.9.2.md),
+[0.9.3](../.github/releases/0.9.3.md), and
+[1.0.0](../.github/releases/1.0.0.md).
 
 Historical notes use Barn naming throughout. Their dates, version numbers,
 results, and limitations retain their original meaning. Old release downloads

@@ -100,9 +100,9 @@ make catalog-verify CATALOG_PUBLIC_KEY=/absolute/private/barn-catalog-next.pub C
 ```
 
 Catalog Minisign signatures are consumed by Barn and remain independent of
-application delivery. Application archives and packages are built by GitHub
-Actions and listed in `checksums.txt`; no separate application-release signing
-or provenance bundle is produced.
+application delivery. Application archives and packages are built by the tag
+workflow or the local release path and listed in `checksums.txt`; no separate
+application-release signing or provenance bundle is produced.
 
 The native macOS guest app is built on macOS 27 and attached to the ordinary
 Darwin arm64 archive before its SBOM/checksums are finalized. It is optional:
@@ -242,8 +242,9 @@ Before tagging, require source CI to pass the release commit and a packaging
 snapshot to pass the latest packaging changes. Push `v<version>` to run the tag
 workflow. It verifies the final assets
 and creates a draft; inspect those assets, publish the draft, then verify
-anonymous downloads and the installer. Pre-1.0 versions remain GitHub
-pre-releases and need an explicit `BARN_VERSION` for installation.
+anonymous downloads and the installer. Versions below 1.0.0 and versions
+with a prerelease suffix are GitHub pre-releases and need an explicit
+`BARN_VERSION`; stable releases are marked latest.
 
 ## Commits and pull requests
 
