@@ -311,6 +311,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			return Status{}, err
 		}
 	}
+	elected := ""
 	if partial && m.dropFromSpec {
 		remaining := cloneResolved(deploymentState.Resolved)
 		remaining.Nodes = remaining.Nodes[:0]
@@ -326,6 +327,7 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			}
 			if !hasControl {
 				remaining.Nodes[0].Control = true
+				elected = remaining.Nodes[0].Name
 			}
 		}
 		remainingHash, hashErr := spec.Hash(remaining)
@@ -333,12 +335,14 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 			return Status{}, hashErr
 		}
 		updated := state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: m.BarnVersion, SpecHash: remainingHash, Resolved: remaining, UpdatedAt: time.Now().UTC()}
-		if err := store.WriteDeployment(updated); err != nil {
+		if err := writeElectedControl(store, updated, elected); err != nil {
 			return Status{}, err
 		}
 	}
 	message := "destroyed node artifacts; image cache, keys, and persistent data disks preserved"
 	switch {
+	case partial && m.dropFromSpec && elected != "":
+		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node (run barn up to install its control SSH access); peers, keys, and persistent data disks preserved", elected)
 	case partial && m.dropFromSpec:
 		message = "destroyed and removed the selected node(s); peers, keys, and persistent data disks preserved"
 	case partial:
@@ -352,6 +356,45 @@ func (m Manager) Destroy(ctx context.Context) (_ Status, returnErr error) {
 		result.Nodes = append(result.Nodes, NodeStatus{Name: definition.Name, Address: definition.Address, State: state.Absent, Runtime: "inactive"})
 	}
 	return result, nil
+}
+
+// writeElectedControl commits the deployment that remains after a node destroy.
+// When the destroyed node was the control node, the elected peer's definition
+// now carries the control role, which is part of its node hash. Its state keeps
+// the hash the guest was seeded with as GuestSpecHash (as resize does) and
+// records the new definition hash, so integrations and later operations accept
+// the node and up converges its control SSH access in place.
+func writeElectedControl(store state.Store, updated state.DeploymentState, elected string) error {
+	if elected == "" {
+		return store.WriteDeployment(updated)
+	}
+	node, err := store.ReadNode(elected)
+	if errors.Is(err, os.ErrNotExist) {
+		return store.WriteDeployment(updated)
+	}
+	if err != nil {
+		return err
+	}
+	old := node
+	if node.GuestSpecHash == "" {
+		node.GuestSpecHash = node.SpecHash
+	}
+	if node.SpecHash, err = spec.NodeHash(updated.Resolved, elected); err != nil {
+		return err
+	}
+	node.UpdatedAt = updated.UpdatedAt
+	if err := store.WriteNode(node); err != nil {
+		return err
+	}
+	if err := store.WriteDeployment(updated); err != nil {
+		// The node must not claim a control-role hash that the applied
+		// deployment does not contain.
+		if restoreErr := store.WriteNode(old); restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore node %s state after deployment write failure: %w", elected, restoreErr))
+		}
+		return err
+	}
+	return nil
 }
 
 // DestroyNodes destroys only the selected nodes and removes them from the
