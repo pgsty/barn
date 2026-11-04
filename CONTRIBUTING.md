@@ -45,8 +45,8 @@ Continue independent work and state exactly which features remain unavailable.
 
 ## Development loop
 
-Use Go 1.27.3. The current release is 0.9.1; to stamp a local candidate,
-run `BARN_VERSION=0.9.1-dev.1 make build`. Unstamped development builds report
+Use Go 1.27.3. To stamp a local candidate, run
+`BARN_VERSION=<next-version>-dev.1 make build`. Unstamped development builds report
 `dev`; formal release versions come from the Git tag.
 
 ```bash

@@ -36,7 +36,7 @@ the same tar representation used for distribution.
 `BARN_MAC_PAYLOAD=/absolute/native.tar.gz make release-snapshot` exercises this
 complete composition locally. The payload version must match the snapshot
 version selected by `.goreleaser.yaml`: the next patch after the latest tag
-with `-next` (for example, `0.9.1-next`).
+with `-next` (for example, `1.0.1-next` after the `v1.0.0` tag).
 Use `uncommitted` for a dirty checkout, or its full commit for clean source.
 Snapshot builds support ad-hoc signing and are explicitly not notarized releases.
 
@@ -47,7 +47,7 @@ keychain, select an identity from `security find-identity -v -p codesigning`:
 
 ```sh
 export BARN_CODESIGN_IDENTITY='Developer ID Application: your organization (TEAMID)'
-BARN_VERSION=0.9.1-next BARN_COMMIT=uncommitted bash packaging/build-mac-app.sh
+BARN_VERSION=1.0.1-next BARN_COMMIT=uncommitted bash packaging/build-mac-app.sh
 codesign --verify --deep --strict bin/Barn.app
 codesign -d --verbose=4 bin/Barn.app
 bin/Barn.app/Contents/MacOS/barn-mac-runner probe
@@ -68,7 +68,7 @@ export BARN_NOTARY_PROFILE=barn-release
 export BARN_MAC_REQUIRE_NOTARIZATION=1
 export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
 export BARN_BUILD_DATE="$(date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
-VERSION=0.9.2
+VERSION=1.0.0
 COMMIT="$(git rev-parse HEAD)"
 python3 packaging/mac-release.py build "$VERSION" "$COMMIT" "$SOURCE_DATE_EPOCH" /absolute/native.tar.gz
 BARN_MAC_PAYLOAD=/absolute/native.tar.gz make release-local VERSION="$VERSION" OUTPUT=/absolute/new-release-directory

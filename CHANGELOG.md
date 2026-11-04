@@ -4,6 +4,49 @@ Notable user-visible changes. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
 1.0.0 may include incompatible changes between minor versions.
 
+## Unreleased
+
+### Changed
+
+- Print the complete help when `barn` runs without a command, as `barn --help`
+  does. `--json` and `--yaml` keep the `actions[]` document and exit 0.
+- Ask before `barn purge` deletes anything on a terminal; type `purge`, or pass
+  `--yes` (or `--force`). Without a terminal purge does not ask, as before.
+- Accept `--yes` as the confirmation flag of `destroy`, `recreate`,
+  `mac destroy`, and `mac recreate`. `--force` keeps working; `mac stop --force`
+  still means power off.
+- Confirm the host-preparation plan once on a terminal when `up`, `start`,
+  `restart`, or `reload` prepares the host, as `barn setup` does. These
+  commands no longer install packages or the Barn network without that
+  confirmation.
+
+### Fixed
+
+- Refuse a whole-deployment `recreate` whose inventory no longer lists an
+  existing node, before any node stops. Previously the omitted node was
+  destroyed and not recreated. The confirmation now lists every node the
+  operation replaces.
+- Keep a deployment usable after destroying its control node. The peer that
+  becomes the control node keeps a consistent state, so `ssh-config`, `hosts`,
+  `exec`, and `provision` keep working, and `up` installs its control SSH
+  access.
+- Stop privileged commands on timeout or interruption. Barn sends SIGTERM,
+  which `sudo` relays to the package manager or network command, and stops
+  waiting after a bounded grace period instead of leaving a root process
+  running and the timeout ineffective.
+- Keep catalog commands working after `barn image reset` on an earlier
+  version followed by an upgrade. The reset selection now follows the running
+  binary's embedded catalog and keeps the accepted high-water mark.
+- Exit 7 (`integrity`, reason `catalog_signature` or `catalog_equivocation`)
+  when an image catalog signature or signed revision does not verify, as
+  documented, instead of exit 1.
+- Never reformat a data disk that holds a partition table or a signature
+  without a filesystem, or a healthy filesystem made by newer `xfsprogs` or
+  `e2fsprogs` than the guest's own tools. This includes persistent disks
+  reattached to an older guest image.
+- State in the destroy confirmation that a whole-deployment destroy removes
+  the deployment state.
+
 ## 0.9.3 — 2026-10-31
 
 Barn 0.9.3 is a reliability and workflow release for Linux labs and macOS

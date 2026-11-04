@@ -12,8 +12,8 @@ Linux `destroy` and `purge` leave them alone.
 
 ## Install
 
-Barn 0.9.3 includes the signed, notarized native component in its Apple Silicon
-archive. Homebrew installs the CLI, its matching hosts helper, `Barn.app`, and
+Since 0.9.2, the Apple Silicon archive includes the signed, notarized native
+component. Homebrew installs the CLI, its matching hosts helper, `Barn.app`, and
 QEMU together:
 
 ```sh
@@ -137,7 +137,7 @@ to copy files with `scp` or `rsync` onto the guest's own disk when you need the 
 
 ## SSH
 
-Barn 1.0 (unreleased) requires `--` before a remote command. Before it, pass
+Since 0.9.2, Barn requires `--` before a remote command. Before it, pass
 Barn flags and at most one existing machine name. `ssh` without a command
 opens an interactive session; `exec` requires a command. An empty first remote
 argument is rejected; later empty arguments are preserved by `exec`.
