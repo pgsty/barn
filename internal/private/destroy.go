@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -417,6 +418,57 @@ func validatePrivateRecreatePersistent(deploymentValue Deployment, current, requ
 	return err
 }
 
+// recreateScope applies the node selection and refuses any stateful node the
+// desired configuration omits. A whole-deployment recreate destroys every
+// applied node and recreates only the desired ones, so an omitted node would
+// otherwise be deleted without being named or recreated. Absence from the
+// inventory never destroys; a node whose state cannot be read counts as
+// stateful so an unreadable record is never deleted by omission.
+func recreateScope(root string, current spec.Resolved, requested spec.Resolved, selectors []string) (spec.Resolved, error) {
+	requested, err := applyNodeSelection(current, requested, selectors)
+	if err != nil {
+		return spec.Resolved{}, err
+	}
+	store := state.Store{Root: root}
+	hasState := func(name string) bool {
+		_, readErr := store.ReadNode(name)
+		return !errors.Is(readErr, os.ErrNotExist)
+	}
+	if removed := diffResolved(current, requested, hasState).Removed; len(removed) != 0 {
+		return spec.Resolved{}, failure.WithNext(fmt.Errorf("%w: %s; recreate would delete them without recreating them, and Barn never destroys a node because it left the inventory", ErrNodesRemoved, strings.Join(removed, ", ")), "barn destroy "+strings.Join(removed, " ")+", or add them back to the inventory")
+	}
+	return requested, nil
+}
+
+func (m Manager) recreateDeployment() (Deployment, state.DeploymentState, error) {
+	deploymentValue, err := m.openDeployment(false)
+	if err != nil {
+		return Deployment{}, state.DeploymentState{}, err
+	}
+	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
+	if err != nil || deploymentState.Resolved.Network != "private" {
+		return Deployment{}, state.DeploymentState{}, errors.New("the deployment has no valid state")
+	}
+	return deploymentValue, deploymentState, nil
+}
+
+// RecreateTargets names the applied nodes a recreate destroys and replaces. It
+// applies the same scope checks as RecreateResolved, so a confirmation prompt
+// never lists less than the operation would delete.
+func (m Manager) RecreateTargets(requested spec.Resolved) ([]string, error) {
+	if err := validateResolved(requested); err != nil {
+		return nil, err
+	}
+	deploymentValue, deploymentState, err := m.recreateDeployment()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := recreateScope(deploymentValue.Root, deploymentState.Resolved, requested, m.Nodes); err != nil {
+		return nil, err
+	}
+	return selectedNodeNames(deploymentState.Resolved, m.Nodes)
+}
+
 // RecreateResolved validates the complete desired private spec and persistent
 // attachment contract before the first stop/destroy mutation.
 func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) (Status, error) {
@@ -424,15 +476,11 @@ func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) 
 	if err := validateResolved(requested); err != nil {
 		return Status{}, err
 	}
-	deploymentValue, err := m.openDeployment(false)
+	deploymentValue, deploymentState, err := m.recreateDeployment()
 	if err != nil {
 		return Status{}, err
 	}
-	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
-	if err != nil || deploymentState.Resolved.Network != "private" {
-		return Status{}, errors.New("the deployment has no valid state")
-	}
-	requested, err = applyNodeSelection(deploymentState.Resolved, requested, m.Nodes)
+	requested, err = recreateScope(deploymentValue.Root, deploymentState.Resolved, requested, m.Nodes)
 	if err != nil {
 		return Status{}, err
 	}

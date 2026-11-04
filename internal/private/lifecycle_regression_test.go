@@ -194,3 +194,69 @@ func TestPlanMixedRunningStoppedAndInvalidImage(t *testing.T) {
 		t.Fatal("unknown image accepted")
 	}
 }
+
+// A whole-deployment recreate destroys every applied node, so an inventory that
+// omits a stateful node must be refused before any stop, delete, or prompt.
+func TestWholeRecreateRefusesNodeOmittedFromInventory(t *testing.T) {
+	fixture, nodes := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	writeDestroyKeyFixtures(t, fixture.Deployment.Root)
+	store := state.Store{Root: fixture.Deployment.Root}
+	current, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := cloneResolved(current.Resolved)
+	requested.Nodes = requested.Nodes[:1]
+	manager := planFixtureManager(t)
+	preflights := 0
+	manager.HostPreflight = func(context.Context, platform.Profile, *spec.PrivateNetwork, execx.Runner) (Backend, error) {
+		preflights++
+		return Backend{DarwinSocket: "/fixture/vmnet.sock"}, nil
+	}
+	if _, err := manager.RecreateTargets(requested); !errors.Is(err, ErrNodesRemoved) || !strings.Contains(err.Error(), "node-1") {
+		t.Fatalf("recreate targets accepted an omitted node: %v", err)
+	}
+	_, err = manager.RecreateResolved(context.Background(), requested)
+	if !errors.Is(err, ErrNodesRemoved) || !strings.Contains(err.Error(), "node-1") {
+		t.Fatalf("whole recreate with an omitted node: %v", err)
+	}
+	if class, reason, next := failure.Classify(err); class != failure.Conflict || reason != "nodes_removed" || !strings.Contains(next, "barn destroy node-1") {
+		t.Fatalf("classification = %s/%s/%q", class, reason, next)
+	}
+	if preflights != 0 {
+		t.Fatalf("recreate reached host preflight %d time(s) before refusing", preflights)
+	}
+	for _, node := range nodes {
+		if _, err := os.Stat(node.RootDisk); err != nil {
+			t.Fatalf("node %s root disk was removed: %v", node.Node, err)
+		}
+		if _, err := store.ReadNode(node.Node); err != nil {
+			t.Fatalf("node %s state was removed: %v", node.Node, err)
+		}
+	}
+	if _, err := store.ReadDeployment(); err != nil {
+		t.Fatalf("deployment state was removed: %v", err)
+	}
+}
+
+// Whole-deployment recreate of a complete inventory names every applied node
+// it replaces, which is what the confirmation prompt shows.
+func TestRecreateTargetsNamesEveryAppliedNode(t *testing.T) {
+	fixture, _ := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	current, err := (state.Store{Root: fixture.Deployment.Root}).ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := planFixtureManager(t)
+	targets, err := manager.RecreateTargets(cloneResolved(current.Resolved))
+	if err != nil || strings.Join(targets, ",") != "meta,node-1" {
+		t.Fatalf("targets=%v err=%v", targets, err)
+	}
+	manager.Nodes = []string{"node-1"}
+	targets, err = manager.RecreateTargets(cloneResolved(current.Resolved))
+	if err != nil || strings.Join(targets, ",") != "node-1" {
+		t.Fatalf("selected targets=%v err=%v", targets, err)
+	}
+}

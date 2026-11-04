@@ -1219,14 +1219,15 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		timeout = 0
 		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Resize(ctx, resolved) }
 	case "recreate":
+		// Resolve the exact replacement scope before asking: the prompt names
+		// every applied node the operation destroys, and an inventory that omits
+		// a node is refused before anyone is asked to confirm.
+		targets, scopeErr := manager.RecreateTargets(resolved)
+		if scopeErr != nil {
+			return commandOutcome{}, classifyPrivateLifecycleError(scopeErr, operationID)
+		}
 		if !force && term.IsTerminal(int(os.Stdin.Fd())) {
-			names := nodes
-			if len(names) == 0 {
-				for _, node := range resolved.Nodes {
-					names = append(names, node.Name)
-				}
-			}
-			bestEffortf(stderr, "recreate: %s; root and non-persistent data disks will be replaced; persistent data disks stay\n", strings.Join(names, ", "))
+			bestEffortf(stderr, "recreate: %s; root and non-persistent data disks will be replaced; persistent data disks stay\n", strings.Join(targets, ", "))
 		}
 		if err := confirmCLIAction(force, "recreate", stderr); err != nil {
 			if errors.Is(err, ErrCancelled) {
