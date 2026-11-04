@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The release scripts run under the first bash on PATH. macOS /bin/bash 3.2
+# cannot parse verify-linux-packages.sh and exits 0 at the parse error,
+# skipping the remaining package checks. Every release path runs this first.
+(( BASH_VERSINFO[0] >= 4 )) || { printf 'bash %s is too old for the release tools; put bash 4 or later first in PATH\n' "${BASH_VERSION}" >&2; exit 3; }
+
 mode=${1:-all}
 case ${mode} in go|packages|goreleaser|quality|all) ;; *) printf 'usage: %s go|packages|goreleaser|quality|all\n' "$0" >&2; exit 2 ;; esac
 root=$(cd "$(dirname "$0")" && pwd -P)
