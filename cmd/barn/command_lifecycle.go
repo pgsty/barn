@@ -106,10 +106,10 @@ Destroy never infers deletion from a missing inventory entry. On a terminal it
 asks you to type destroy; automation must pass --yes (or --force). Persistent
 disks and keys are preserved unless their wider deletion flags are explicit.
 Destroying the control node makes the first remaining node the control node;
-run up afterwards to install its control SSH access. Removing
-nodes refreshes the SSH client configuration for the remaining deployment;
-destroying the whole deployment also removes the SSH client configuration
-Barn installed.`,
+update the inventory control role, then run up to install its control SSH
+access. Removing nodes refreshes the SSH client configuration for the
+remaining deployment; destroying the whole deployment also removes the SSH
+client configuration Barn installed.`,
 		example: `  barn destroy meta             # review and confirm removal of one node
   barn destroy --yes            # remove the deployment, preserving persistent data
   barn destroy --yes --purge    # terminal disposal; image cache remains`,

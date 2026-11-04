@@ -352,7 +352,7 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 	message := "destroyed node artifacts; image cache, keys, and persistent data disks preserved"
 	switch {
 	case partial && m.dropFromSpec && elected != "":
-		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node (run barn up to install its control SSH access); peers, keys, and persistent data disks preserved", elected)
+		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node (update the inventory control role, then run barn up to install its control SSH access); peers, keys, and persistent data disks preserved", elected)
 	case partial && m.dropFromSpec:
 		message = "destroyed and removed the selected node(s); peers, keys, and persistent data disks preserved"
 	case partial:
@@ -368,43 +368,23 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 	return result, nil
 }
 
-// writeElectedControl commits the deployment that remains after a node destroy.
-// When the destroyed node was the control node, the elected peer's definition
-// now carries the control role, which is part of its node hash. Its state keeps
-// the hash the guest was seeded with as GuestSpecHash (as resize does) and
-// records the new definition hash, so integrations and later operations accept
-// the node and up converges its control SSH access in place.
+// writeElectedControl publishes the remaining deployment first. It is the
+// commit record for the role change; a later exclusive operation can finish
+// the node hash update if this process exits between the two writes.
 func writeElectedControl(store state.Store, updated state.DeploymentState, elected string) error {
-	if elected == "" {
-		return store.WriteDeployment(updated)
-	}
-	node, err := store.ReadNode(elected)
-	if errors.Is(err, os.ErrNotExist) {
-		return store.WriteDeployment(updated)
-	}
-	if err != nil {
-		return err
-	}
-	old := node
-	if node.GuestSpecHash == "" {
-		node.GuestSpecHash = node.SpecHash
-	}
-	if node.SpecHash, err = spec.NodeHash(updated.Resolved, elected); err != nil {
-		return err
-	}
-	node.UpdatedAt = updated.UpdatedAt
-	if err := store.WriteNode(node); err != nil {
-		return err
+	if elected != "" {
+		if _, err := store.ReadNode(elected); err == nil {
+			if err := FinalizePrepared(Deployment{Root: store.Root}, elected); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	if err := store.WriteDeployment(updated); err != nil {
-		// The node must not claim a control-role hash that the applied
-		// deployment does not contain.
-		if restoreErr := store.WriteNode(old); restoreErr != nil {
-			return errors.Join(err, fmt.Errorf("restore node %s state after deployment write failure: %w", elected, restoreErr))
-		}
 		return err
 	}
-	return nil
+	return reconcileControlHashes(store.Root)
 }
 
 // DestroyNodes destroys only the selected nodes and removes them from the
