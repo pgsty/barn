@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -138,5 +139,37 @@ func TestCommandErrorNamesProgramRunThroughSudo(t *testing.T) {
 	err := &CommandError{Binary: "/usr/bin/sudo", Args: []string{"-n", "--", "/opt/barn/libexec/barn-hosts-helper", "--target", "/etc/hosts"}, ExitCode: 1, Stderr: "bad target"}
 	if got, want := err.Error(), "barn-hosts-helper (via sudo) exited with status 1: bad target"; got != want {
 		t.Fatalf("message = %q, want %q", got, want)
+	}
+}
+
+// A descendant that keeps the output pipe open (as a privileged command does
+// under a SIGKILL'd sudo) must not hold the runner past its deadline.
+func TestOSRunnerTimeoutIsBoundedByDescendantHoldingPipes(t *testing.T) {
+	t.Parallel()
+	started := time.Now()
+	_, err := (OSRunner{Timeout: 200 * time.Millisecond, WaitDelay: 200 * time.Millisecond}).Run(context.Background(), "/bin/sh", "-c", "/bin/sleep 5 & /bin/sleep 5")
+	elapsed := time.Since(started)
+	var commandErr *CommandError
+	if !errors.As(err, &commandErr) || commandErr.Timeout != 200*time.Millisecond {
+		t.Fatalf("timeout error = %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("runner waited %s for a descendant holding its pipes", elapsed)
+	}
+}
+
+// Cancellation must deliver SIGTERM, which sudo relays to the privileged
+// command; a command that exits cleanly on SIGTERM is still a timeout.
+func TestOSRunnerCancellationSendsSIGTERM(t *testing.T) {
+	t.Parallel()
+	marker := filepath.Join(t.TempDir(), "terminated")
+	script := "trap 'echo term > \"$1\"; exit 0' TERM; /bin/sleep 5 & wait"
+	_, err := (OSRunner{Timeout: 200 * time.Millisecond, WaitDelay: 500 * time.Millisecond}).Run(context.Background(), "/bin/sh", "-c", script, "sh", marker)
+	var commandErr *CommandError
+	if !errors.As(err, &commandErr) || commandErr.Timeout != 200*time.Millisecond {
+		t.Fatalf("clean exit after SIGTERM was not reported as a timeout: %v", err)
+	}
+	if data, readErr := os.ReadFile(marker); readErr != nil || strings.TrimSpace(string(data)) != "term" {
+		t.Fatalf("child did not receive SIGTERM: %q %v", data, readErr)
 	}
 }
