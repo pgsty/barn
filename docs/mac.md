@@ -95,7 +95,7 @@ running machines to stop instead of stopping anything itself.
 | `mac doctor` | Check macOS, the Mac component, disk space, the base and every machine. |
 
 `recreate` and `destroy` describe what they delete and ask you to type the
-command name; `--force` confirms without a terminal. Sizes are binary:
+command name; `--yes` (or `--force`) confirms without a terminal. Sizes are binary:
 `16G`, `16GiB` and `16GB` all mean 16 GiB, and a byte count also works; memory
 is a whole number of MiB. Every command supports `--json`, and long
 operations show progress on stderr with the same display as the Linux commands.
@@ -224,7 +224,9 @@ Runtime sockets live in a short private directory under `/tmp`. `mac ls` and
 `mac image ls` report allocated blocks; APFS clones share blocks, so these
 numbers are not exclusive usage and should not be added up. `mac image prune`
 lists bases that no machine uses and that are not the default, and deletes them
-with `--yes`; `--installers` adds downloaded restore images.
+with `--yes`; `--installers` adds downloaded restore images. Bases referenced
+by interrupted recreate journals stay pinned until recovery cleanup completes;
+an invalid journal blocks pruning.
 
 Updates are explicit. `mac image update` asks Apple for the newest macOS 27 and
 prepares it as the default base; existing machines keep theirs until

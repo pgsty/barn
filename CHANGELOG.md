@@ -28,22 +28,36 @@ Notable user-visible changes. This project follows
   operation replaces.
 - Keep a deployment usable after destroying its control node. The peer that
   becomes the control node keeps a consistent state, so `ssh-config`, `hosts`,
-  `exec`, and `provision` keep working, and `up` installs its control SSH
-  access.
-- Stop privileged commands on timeout or interruption. Barn sends SIGTERM,
-  which `sudo` relays to the package manager or network command, and stops
-  waiting after a bounded grace period instead of leaving a root process
-  running and the timeout ineffective.
+  `exec`, and `provision` keep working. Update the inventory's control role
+  before running `up` to install its control SSH access. Interrupted control
+  hash writes recover on
+  the next exclusive deployment operation; guest seed hashes are preserved.
+- Send SIGTERM on command cancellation so `sudo` can forward it, and bound
+  waiting for the direct child and inherited pipes with a 10-second grace
+  period. Descendants that ignore or do not receive SIGTERM still require
+  external supervision; this is not a process-tree termination guarantee.
 - Keep catalog commands working after `barn image reset` on an earlier
   version followed by an upgrade. The reset selection now follows the running
   binary's embedded catalog and keeps the accepted high-water mark.
 - Exit 7 (`integrity`, reason `catalog_signature` or `catalog_equivocation`)
   when an image catalog signature or signed revision does not verify, as
   documented, instead of exit 1.
-- Never reformat a data disk that holds a partition table or a signature
-  without a filesystem, or a healthy filesystem made by newer `xfsprogs` or
-  `e2fsprogs` than the guest's own tools. This includes persistent disks
-  reattached to an older guest image.
+- Preserve data disks with a partition table or an incomplete signature.
+  Require recognized corruption diagnostics before resetting an ext4 or XFS
+  filesystem; unsupported features and unknown checker failures leave data
+  intact and report a warning. Existing guests receive the updated helper on
+  their next `up` readiness check.
+- Preserve base images referenced by interrupted Mac recreates during pruning.
+  A malformed recovery journal prevents cleanup until its references are known.
+- Apply the embedded catalog upgrade baseline to both official repositories.
+  Accept a new trusted signature over identical catalog bytes, including repair
+  of a damaged cached signature, while still rejecting revision equivocation.
+- Preserve global networkd unit state when other host links exist or exclusive
+  Barn ownership cannot be established during network uninstall.
+- Recheck recreate scope under the destruction lock after preflight, and allow
+  destroy to finish a mix of prepared nodes and interrupted dead destroys.
+- Let explicit output flags override invalid environment defaults, and keep
+  help available even with invalid `BARN_OUTPUT` or `BARN_VERBOSE`.
 - State in the destroy confirmation that a whole-deployment destroy removes
   the deployment state.
 

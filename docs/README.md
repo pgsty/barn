@@ -2,12 +2,13 @@
 
 Current usage is documented on [the Barn website](https://barn.pgsty.com/docs/).
 The [Mac guide](mac.md) and [Mac release checklist](mac-release.md) describe
-the current native component. The [0.9.1 release checklist](release-0.9.1.md)
-and [release notes](../.github/releases/0.9.1.md) record the release baseline.
+the native component. [0.9.3 release notes](../.github/releases/0.9.3.md) record
+the latest published baseline; the [1.0 audit](release-1.0-hardening.md) tracks
+the candidate changes and remaining release gates.
 
 ## Release history
 
-The [changelog](../CHANGELOG.md) retains the changes from 0.1.0 through 0.9.1.
+The [changelog](../CHANGELOG.md) retains the changes from 0.1.0 through 0.9.3, plus unreleased changes.
 Original release notes are available for
 [0.1.0](../.github/releases/0.1.0.md),
 [0.2.0](../.github/releases/0.2.0.md),
@@ -16,8 +17,11 @@ Original release notes are available for
 [0.5.0](../.github/releases/0.5.0.md),
 [0.6.0](../.github/releases/0.6.0.md),
 [0.7.0](../.github/releases/0.7.0.md),
-[0.8.0](../.github/releases/0.8.0.md), and
-[0.9.0](../.github/releases/0.9.0.md).
+[0.8.0](../.github/releases/0.8.0.md),
+[0.9.0](../.github/releases/0.9.0.md),
+[0.9.1](../.github/releases/0.9.1.md),
+[0.9.2](../.github/releases/0.9.2.md), and
+[0.9.3](../.github/releases/0.9.3.md).
 
 Historical notes use Barn naming throughout. Their dates, version numbers,
 results, and limitations retain their original meaning. Old release downloads
@@ -27,6 +31,8 @@ are no longer available; use the current installation guide for installation.
 
 | Record | Scope |
 | --- | --- |
+| [1.0 release audit and hardening](release-1.0-hardening.md) | Final decisions, corrections to the review, regression coverage, and release acceptance gates |
+| [Cobra CLI redesign proposal](cobra-cli-design.md) | 2026-11-04 command and flag inventory, UX contracts, compatibility, architecture, and staged migration; architecture proposal with candidate UX fixes tracked separately |
 | [macOS feasibility study](../MACOS-VM-RESEARCH-20260921.md) | 2026-09-21 research, platform constraints, and implementation options |
 | [Mac product proposal](../MACOS-VM-PRODUCT-20260921.md) | Original two-slot design and its trade-offs |
 | [Initial Mac acceptance](history/mac-implementation-20260928.md) | 2026-09-26–28 native tests, failures, reviews, and evidence paths |
