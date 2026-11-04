@@ -3,8 +3,10 @@ package private
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
@@ -144,5 +146,81 @@ func TestDestroyingNodeWithLivePIDIsNotStoppable(t *testing.T) {
 	}
 	if _, err := os.Stat(nodes[0].RootDisk); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A control successor whose prepare journal cannot be finished must refuse the
+// destroy before anything is deleted: the old control node, its disks, and the
+// deployment definition stay intact, and the error names the successor.
+func TestControlDestroyRefusesUnfinishableSuccessorJournalBeforeDeleting(t *testing.T) {
+	for name, damage := range map[string]func(t *testing.T, store state.Store, deployment Deployment){
+		"uncommitted journal": func(t *testing.T, _ state.Store, deployment Deployment) {
+			dir, err := deployment.NodeDir("node-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "private-prepare.json")
+			journal, err := ReadPrepareJournal(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			journal.StateCommitted = false
+			journal.StatePath = ""
+			if err := writePrepareJournal(path, journal); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"journal older than a resize": func(t *testing.T, store state.Store, _ Deployment) {
+			current, err := store.ReadDeployment()
+			if err != nil {
+				t.Fatal(err)
+			}
+			peer, err := store.ReadNode("node-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := current.Resolved.Nodes[1]
+			target.CPUs++
+			if _, _, err := commitResize(store, current, peer, target, peer.Invocation, false, "test", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deployment, prepare, outcomes := commitFixture(t, &fakePrivateDisks{})
+			if _, err := CommitPrepared(deployment, prepare, outcomes, "test"); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("BARN_HOME", deployment.Root)
+			writeDestroyKeyFixtures(t, deployment.Root)
+			store := state.Store{Root: deployment.Root}
+			if err := FinalizePrepared(deployment, "meta"); err != nil {
+				t.Fatal(err)
+			}
+			damage(t, store, deployment)
+			meta, err := store.ReadNode("meta")
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := store.ReadDeployment()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = (Manager{BarnVersion: "test", Nodes: []string{"meta"}}).DestroyNodes(context.Background())
+			if err == nil || !strings.Contains(err.Error(), "successor node-1") {
+				t.Fatalf("destroy of the control node = %v, want a refusal naming node-1", err)
+			}
+			if _, err := os.Stat(meta.RootDisk); err != nil {
+				t.Fatalf("control node root disk was deleted before the refusal: %v", err)
+			}
+			after, err := store.ReadNode("meta")
+			if err != nil || after.Phase != meta.Phase {
+				t.Fatalf("control node state changed before the refusal: %#v %v", after, err)
+			}
+			deploymentAfter, err := store.ReadDeployment()
+			if err != nil || deploymentAfter.SpecHash != before.SpecHash {
+				t.Fatalf("deployment changed before the refusal: %v", err)
+			}
+		})
 	}
 }

@@ -262,6 +262,23 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		targets[node.Node] = nodeTargets
 		nodeDirs[node.Node] = nodeDir
 	}
+	// Destroying the control node elects a successor whose committed prepare
+	// journal must be finished before its hash changes. Do that before any
+	// node is marked or deleted, so a journal that cannot be finished refuses
+	// the destroy instead of failing after the old control node is gone.
+	successor := ""
+	if partial && m.dropFromSpec {
+		successor = controlSuccessor(deploymentState.Resolved, selectedSet)
+	}
+	if successor != "" {
+		if _, err := store.ReadNode(successor); err == nil {
+			if err := FinalizePrepared(deploymentValue, successor); err != nil {
+				return Status{}, fmt.Errorf("will not destroy the control node: its successor %s has an unfinished prepare record: %w", successor, err)
+			}
+		} else if !missingPath(err) {
+			return Status{}, err
+		}
+	}
 	persistentIdentities, err := validatePrivatePersistentState(deploymentValue, deploymentState, allNodes)
 	if err != nil {
 		return Status{}, err
@@ -330,22 +347,16 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 				remaining.Nodes = append(remaining.Nodes, definition)
 			}
 		}
-		if len(remaining.Nodes) != 0 {
-			hasControl := false
-			for _, definition := range remaining.Nodes {
-				hasControl = hasControl || definition.Control
-			}
-			if !hasControl {
-				remaining.Nodes[0].Control = true
-				elected = remaining.Nodes[0].Name
-			}
+		if successor != "" {
+			remaining.Nodes[0].Control = true
+			elected = successor
 		}
 		remainingHash, hashErr := spec.Hash(remaining)
 		if hashErr != nil {
 			return Status{}, hashErr
 		}
 		updated := state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: m.BarnVersion, SpecHash: remainingHash, Resolved: remaining, UpdatedAt: time.Now().UTC()}
-		if err := writeElectedControl(store, updated, elected); err != nil {
+		if err := writeElectedControl(store, updated); err != nil {
 			return Status{}, err
 		}
 	}
@@ -368,19 +379,30 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 	return result, nil
 }
 
-// writeElectedControl publishes the remaining deployment first. It is the
-// commit record for the role change; a later exclusive operation can finish
-// the node hash update if this process exits between the two writes.
-func writeElectedControl(store state.Store, updated state.DeploymentState, elected string) error {
-	if elected != "" {
-		if _, err := store.ReadNode(elected); err == nil {
-			if err := FinalizePrepared(Deployment{Root: store.Root}, elected); err != nil {
-				return err
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+// controlSuccessor names the node that becomes the control node when the
+// selected nodes are removed: the first remaining node, if none of the
+// remaining nodes is already the control node.
+func controlSuccessor(resolved spec.Resolved, removed map[string]struct{}) string {
+	first := ""
+	for _, definition := range resolved.Nodes {
+		if _, gone := removed[definition.Name]; gone {
+			continue
+		}
+		if definition.Control {
+			return ""
+		}
+		if first == "" {
+			first = definition.Name
 		}
 	}
+	return first
+}
+
+// writeElectedControl publishes the remaining deployment first. It is the
+// commit record for the role change; a later exclusive operation can finish
+// the node hash update if this process exits between the two writes. The
+// successor's prepare journal was finished before anything was destroyed.
+func writeElectedControl(store state.Store, updated state.DeploymentState) error {
 	if err := store.WriteDeployment(updated); err != nil {
 		return err
 	}
