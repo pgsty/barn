@@ -361,8 +361,13 @@ func (m ManifestManager) Current() (Catalog, ManifestState, error) {
 			return Catalog{}, ManifestState{}, keyErr
 		}
 		signatureText, signatureErr := readLimitedFile(versionSignaturePath(manifestPath, state.KeyID), MaxSignatureSize)
+		if errors.Is(signatureErr, os.ErrNotExist) {
+			// The state pointer names a signed catalog whose signature is gone.
+			// Other read failures are host errors, not verification failures.
+			return Catalog{}, ManifestState{}, catalogIntegrity("catalog_state", signatureErr)
+		}
 		if signatureErr != nil {
-			return Catalog{}, ManifestState{}, catalogIntegrity("catalog_signature", signatureErr)
+			return Catalog{}, ManifestState{}, signatureErr
 		}
 		keyID, err = verifyManifest(keys, data, signatureText)
 		if err != nil {

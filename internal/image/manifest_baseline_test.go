@@ -192,3 +192,39 @@ func TestIdenticalCatalogMayBeResigned(t *testing.T) {
 		}
 	}
 }
+
+// Exit 7 means a verification mismatch. A cached signature that is gone breaks
+// the active state pointer (integrity); one the host cannot read is a host
+// error and keeps the runtime classification.
+func TestCachedSignatureReadFailuresAreClassifiedByCause(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read a mode 0000 file")
+	}
+	manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data"), Keys: testManifestRoots(t)}
+	path := signedCatalog(t, t.TempDir(), EmbeddedManifestVersion+1, privateKey(t, developmentPrivateRoot1), nil)
+	synced, err := manager.Sync(context.Background(), path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached := versionSignaturePath(filepath.Join(manager.versions(), synced.Active), synced.KeyID)
+	if err := os.Chmod(cached, 0); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = manager.Current()
+	if err == nil {
+		t.Fatal("unreadable cached signature was accepted")
+	}
+	if class, _, _ := failure.Classify(err); class == failure.Integrity {
+		t.Fatalf("unreadable cached signature classified as integrity: %v", err)
+	}
+	if err := os.Chmod(cached, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(cached); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = manager.Current()
+	if class, reason, _ := failure.Classify(err); class != failure.Integrity || reason != "catalog_state" {
+		t.Fatalf("missing cached signature = %v (%s/%s)", err, class, reason)
+	}
+}
