@@ -20,39 +20,82 @@
 5. **文档与收尾**：构建中英文站点并检查内部链接、命令与版本；核对发布说明与代码。
    保存执行结果和剩余阻碍，列出最终 tag、制品上传、正式发布、tap 与站点切换顺序。
 
-## 2026-11-05 最新目录与最终 draft 复验
+## 2026-11-05 最终 draft 验收结果
 
-用户要求创建 `v1.0.0` draft Release 并重新下载验收，**不得正式发布**。
-文档站与 Homebrew tap 的公开切换因此留到发布草稿之后；本地站点保留可发布候选内容。
-本轮工作目录为 `/tmp/barn-1.0.0-draft-20261105`，正式制品与 VM 数据均在仓库外。
+**本轮要求的准备、签名、draft 创建、重新下载与实机验收均已完成，未发现本轮覆盖范围内
+阻碍发布的代码或制品问题。按用户要求保持 draft，未正式发布、未切换 Homebrew tap，
+也未部署候选文档站。公开安装渠道的最后验收须在正式发布后执行。**
 
-- 两个官方源均已验证 Minisign 签名，当前 revision 为 `2026110502`，key ID 为
-  `4686B39A40F9B562`。内置 catalog、版本常量、内置日期 `2026-11-05`、
-  `repo.yaml` 与 Debian 13 构建输入已同步。
-- catalog SHA-256 为 `d41e46d20bc57cb1b071e3919a27a8f7f703df2addca879970a528e7ab004065`；
-  `repo.yaml` SHA-256 为 `b1c994afbb848fc9e927233314206e4a6c49caa14abddf60130a65824ef5838b`。
-- 默认值仍为 `u24 / stable / native / uefi`，9 个发行版系列、17 个 stable artifact。
-  Debian 13 两个架构更新为 `20261103.2651.1`；amd64 为 539885568 字节，
-  arm64 为 595853312 字节，两者虚拟容量均为 3221225472 字节。
-- M3 已用本轮目录测试构建执行全新 `barn update`、`image pull d13`、实际 VM 启动、
-  SSH、Debian 13/trixie 身份、固定地址、XFS 数据哨兵、stop/start/restart、destroy。
-  machine-id 与数据在重启后保持；destroy 后返回 `no_deployment`，无残留 QEMU。
-  两个架构的 qcow2 摘要、容量、格式均核对，arm64 的 `qemu-img check` 通过。
-- 更新后的中英文文档采用新目录，0.9.3 等历史记录保留原 revision；本站 OINK 基线已为
-  `v1.5.0`，本轮重新构建和检查，不能用首轮 `v1.4.0` 的结果代替。
+### 最终身份
 
-本轮源码冻结前已通过 `make check`、`make mac-native-test`、`make catalog-check`，
-并验证全部锁定工具版本。初始 shell 的 deadcode 较旧，改用隔离工具目录后重跑
-`make deadcode vuln` 通过；可达符号和导入包漏洞为零，所需模块仍有一条未被调用的公告。
-目录检查工具的全量下载超时放宽到每个镜像 30 分钟，并输出逐镜像进度；常规 HEAD 门禁
-保留 2 分钟超时，相关测试、vet 和 staticcheck 通过。两个本地完整下载尝试分别遇到
-HTTP/2 中断和两分钟超时，保留失败日志并在 M3 用 HTTP/1.1 重跑。
-站点已用 OINK `1.5.0`、Hugo Extended `0.169.0` 和独立模块缓存构建通过，219 个
-HTML 页面的内部链接与资源校验通过；仅有仓库明确接受的 LibSass 弃用提示。
+- 正式 tag：`v1.0.0`，指向 `69ef7f1d6ffc7c6fbffffe178b2fa48e799dc02d`；
+  annotated tag object：`c5a2ea58ae869eeb1bab3f9e5878993efd15a84a`。
+- 构建时间：`2026-11-04T17:54:45Z`，`SOURCE_DATE_EPOCH=1793814885`。
+- [GitHub draft Release](https://github.com/pgsty/barn/releases/tag/untagged-c823e218fe5c6d084280)，
+  release ID `434268111`；复核为 `draft=true`、`prerelease=false`、`published_at=null`。
+- Apple Developer ID：PGSTY PTE. LTD.，team `G9G4RB4WRU`；本轮公证接受 ID：
+  `b508cf6f-4857-4af1-8f1d-ad3d03e15d23`。旧 RC 的签名未复用。
+- 文档站候选提交：`393cd64791dd0ef618c00b3f5352e51a75ab2b9a`，保留既有
+  OINK 1.5.0 提交 `9a89083`，两个本地提交均未推送，避免提前公开候选内容。
 
-本轮剩余步骤：提交与 hosted CI、正式 tag 的 Developer ID 签名及 Apple 公证、
-完整发布组装、上传 draft、重新下载所有资产逐文件校验，再用下载的 Linux amd64
-产物在 M3 全流程验收。最后复核草稿仍未发布并保存证据。
+### 本轮验收矩阵
+
+| 项目 | 最终结果 |
+|---|---|
+| 源码与工具链 | `make check`、`make mac-native-test`、完整锁定工具链检查通过；修正环境中的旧 deadcode 后，额外用固定版本运行 `make deadcode vuln` 通过 |
+| Hosted CI | [源码与 Mac](https://github.com/pgsty/barn/actions/runs/41881906207)、[完整打包](https://github.com/pgsty/barn/actions/runs/41881906313) 均在最终提交上通过；tag workflow 按预期跳过未配置 secrets 的自动签名，本轮使用本地正式签名路径 |
+| 当前 catalog | 两个官方源均验签并激活，revision `2026110502`；内置 JSON、版本常量、内置日期、repo.yaml 及 Debian 13 构建输入同步；默认值 `u24 / stable / native / uefi` |
+| 全目录实际字节 | M3 对两个官方源分别下载流校验全部 17 个 stable artifact，共 34 次大小与 SHA-256 校验全部通过；未保留这些全量镜像下载 |
+| 正式组装 | 在干净源码和正式 tag 上运行 `release-local.sh`：四平台归档、四个 DEB/RPM、八个 SPDX、Homebrew 配方、installer、release.json、checksums 共 20 个文件，合计 53677925 字节 |
+| GitHub 上传与重新下载 | 全部 20 个 GitHub server digest 与上传前 SHA-256 一致；从 draft 实际重新下载到 M3 并回传本机；逐文件大小、摘要与本地制品一致，19 项 checksums 全通过 |
+| 下载件深度复核 | 四平台归档、包与归档的 CLI/helper 字节一致性、配对摘要、架构、权限、依赖、时间戳、版本/提交身份、SPDX 命名空间和内容全部通过 |
+| Mac 签名与公证 | 下载件中的 CLI/helper/app 均为 PGSTY Developer ID；Apple Accepted、app staple 和 Gatekeeper 校验通过；安装与 Homebrew 移动布局后再次校验通过 |
+| Mac 真实安装与 VM | 原始下载 installer 完成隔离目录的 0.9.3 → 1.0.0 升级及重复安装；旧 release 保留。旧 VM 的 instance、machine-id、SSH 公钥、数据哨兵保持；新 VM 启动、SSH、写入、stop/start、身份与数据保留、destroy 通过；原有测试 VM 最终停止 |
+| Homebrew 配方 | 用真实 Homebrew Ruby/Formula 运行下载配方的原始 install/test，重定向至隔离 prefix；1.0.0 布局、helper 配对、Developer ID、staple、Gatekeeper 全通过；未改动用户 Cellar/tap |
+| M3 实机 | 下载的 Linux amd64 CLI/helper 完成全新 BARN_HOME 的 update、image pull、init、plan、setup、双 Debian 13 启动和 SSH；固定 IP、dba/admin、XFS 数据盘正确；stop/start/restart 保留身份和数据；远程 argv 与退出码 17 保持 |
+| M3 保护与恢复 | 缺节点的整套 recreate 返回 `nodes_removed`/4，运行 PID 不变；删除控制节点后接任与默认 SSH 通过；destroy 后重新 up 生成新 machine-id，持久盘哨兵保留；最终 no_deployment、无测试 QEMU；原 Barn 状态与 SSH 配置内容核对保留/恢复 |
+| 文档站 | OINK 1.5.0、Hugo Extended 0.169.0、独立且经过校验的模块缓存构建通过；219 个 HTML 页面的内部链接与资源通过；中英文渲染结果含新目录和 Debian 13 版本 |
+
+### 当前目录摘要
+
+- 官方源：`https://repo.pigsty.io/barn`、`https://repo.pigsty.cc/barn`。
+- revision：`2026110502`；key ID：`4686B39A40F9B562`；内置日期：`2026-11-05`。
+- catalog SHA-256：`d41e46d20bc57cb1b071e3919a27a8f7f703df2addca879970a528e7ab004065`。
+- repo.yaml SHA-256：`b1c994afbb848fc9e927233314206e4a6c49caa14abddf60130a65824ef5838b`。
+- 9 个发行版系列，17 个 stable artifact。Debian 13 两个架构均为 `20261103.2651.1`：
+  amd64 为 539885568 字节，arm64 为 595853312 字节，虚拟容量均为 3221225472 字节。
+  两个 qcow2 的摘要、格式和容量均验证；arm64 的 `qemu-img check` 通过。
+
+### 失败记录、边界与证据
+
+- 本地全目录下载先遇 HTTP/2 中断，HTTP/1.1 重试又触发原先两分钟超时。目录工具现在只在
+  `-verify-bytes` 下允许每个镜像 30 分钟，并输出逐镜像进度；普通 HEAD 门禁仍为两分钟。
+  工具测试、vet、staticcheck 和最终 CI 均通过；M3 的两个官方源全量字节重跑通过。
+- 本机从 GitHub 下载速率较低，保留部分下载，改由 M3 使用限时附件 URL 下载全部制品，
+  没有把 GitHub 登录凭据复制到 M3；校验 GitHub 摘要后回传本机并再次完整验证。
+- M3 首次脚本把成功命令的可省略空 `stdout` 视为缺字段而停止。产品命令退出 0；修正
+  验收脚本后在同一隔离部署继续完成全部步骤，初次失败和后续通过的证据分别保留。
+- Mac installer 的 curl shim 仅把下载运输替换为已核验的 draft 文件；原始 installer、
+  二进制、签名与 VM 均真实执行。这不代表尚未公开的 latest 下载 URL 已验收。
+- 运行覆盖为 darwin/arm64 和 linux/amd64；darwin/amd64 与 linux/arm64 完成交叉构建、
+  归档、包、架构、依赖和配对验证，未做这两类物理宿主的全矩阵启动。
+  首轮 Mac GUI/剪贴板、15 阶段流程、磁盘故障、网络卸载及取消实验保留在下方历史记录；
+  本轮最终包增加了安装升级和核心 VM 流程复验，不把旧 RC 的每个实验改写为最终包实验。
+- catalog 有 Minisign 签名，Apple Silicon 载荷有 Developer ID 与 Apple 公证。
+  Git tag、通用 checksums/release envelope 仍按既有策略不附独立密码学签名或 attestation；
+  `release.json` 的 `signed:false, attested:false` 如实反映该范围。
+- 完整工作目录：`/tmp/barn-1.0.0-draft-20261105`。轻量证据、摘要和日志归档保存于
+  `/Users/vonng/.local/share/barn-acceptance/20261105-draft`，入口为 `acceptance-summary.json`。
+  构建产物、VM 磁盘和下载镜像始终在 Git 外；证据归档不包含密钥、登录凭据或 VM 磁盘。
+
+### 后续正式发布时执行
+
+1. 再次确认官方签名 catalog 未变化；若发生变化，必须先同步并重新构建和验收候选。
+2. 按用户新的发布指令把本 draft 发布为 stable/latest，并切换发布说明、README 与 Changelog
+   的发布状态及实际日期。当前 draft 文案明确标识尚未正式发布。
+3. 公开文件可下载后，将随 draft 生成的 `barn.rb` 更新到 tap，推送并部署文档站候选。
+4. 从公开 URL 复核 `releases/latest`、无版本安装器、固定 1.0.0 安装器和真实 tap 的
+   Homebrew 首次安装/升级。这些公开渠道检查未提前标记为通过。
 
 ## 首轮执行记录（旧目录与 RC 演练）
 
