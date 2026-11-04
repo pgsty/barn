@@ -92,6 +92,16 @@ read only from inherited `CATALOGSIGN_PASSWORD` (empty is allowed), never from a
 command-line argument. Production private keys never enter this repository or
 CI; they stay on the repository host.
 
+`make catalog-check` (`tools/catalogcheck`) is the online pre-release gate.
+It activates each official mirror's signed catalog in a fresh temporary data
+root, requires exact agreement with the embedded catalog, and checks every
+stable artifact's HTTP availability and byte count. Formal native builds and
+the local/CI release paths run this before building release assets. Use
+`go run ./tools/catalogcheck -verify-bytes` to also stream and hash all stable
+artifacts from both mirrors without retaining downloads. If the catalog has
+changed, verify it first, then synchronize the embedded JSON, revision, date,
+and repository source; never bypass the gate to ship removed image references.
+
 ```bash
 make catalog-export CATALOG_OUTPUT=./out/catalog.json
 make catalog-keygen CATALOG_KEY_DIR=/absolute/private CATALOG_KEY_NAME=barn-catalog-next
@@ -234,9 +244,9 @@ through the [documentation history](docs/README.md).
   same-revision differences are rejected as signed equivocation.
 
 For a new version, move the current changes from `Unreleased` into a dated
-Changelog section, update README installation links, and add bilingual notes at
-`.github/releases/<version>.md`. Publish the matching documentation after the
-application assets are public.
+Changelog section, update README installation links, and add an English-only
+release note without a top-level heading at `.github/releases/<version>.md`.
+Publish the matching bilingual documentation after the application assets are public.
 
 Before tagging, require source CI to pass the release commit and a packaging
 snapshot to pass the latest packaging changes. Push `v<version>` to run the tag

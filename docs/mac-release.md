@@ -62,6 +62,12 @@ following steps before distributing it to users.
 Formal builds require a Developer ID Application identity and a stored
 `notarytool` profile:
 
+The formal native builder and `release-local` both enforce `make catalog-check`
+before building. This verifies both official catalogs with the runtime keys,
+requires exact agreement with the embedded catalog, and checks every stable
+image URL and byte count. A changed catalog must be synchronized and tested
+before release; see [the contributor instructions](../CONTRIBUTING.md).
+
 ```sh
 export BARN_CODESIGN_IDENTITY='Developer ID Application: your organization (TEAMID)'
 export BARN_NOTARY_PROFILE=barn-release

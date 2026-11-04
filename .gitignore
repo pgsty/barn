@@ -9,4 +9,5 @@
 *.test
 *.out
 *.log
+__pycache__/
 /release-assets/

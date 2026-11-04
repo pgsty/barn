@@ -147,6 +147,7 @@ trap cleanup EXIT
 printf 'building GoReleaser archives, RPMs, and DEBs for Barn %s\n' "${version}"
 (
   cd "${repo}"
+  make catalog-check
   SOURCE_DATE_EPOCH=${source_epoch} BARN_COMMIT=${commit} BARN_BUILD_DATE=${build_date} \
     goreleaser release --skip=publish --parallelism 1
 )

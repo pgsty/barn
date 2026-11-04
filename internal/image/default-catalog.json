@@ -1,6 +1,6 @@
 {
   "schema": 3,
-  "revision": 2026102802,
+  "revision": 2026110502,
   "defaults": {
     "image": "u24",
     "channel": "stable",
@@ -51,29 +51,29 @@
       ],
       "boot": "uefi",
       "channels": {
-        "stable": "20261026.2643.1"
+        "stable": "20261103.2651.1"
       },
       "versions": {
-        "20261026.2643.1": {
+        "20261103.2651.1": {
           "status": "supported",
           "variants": {
             "amd64": {
-              "file": "images/d13-20261026.2643.1-amd64.qcow2",
-              "sha256": "2ebcddcc3f2b5ad52f09d021c06b5fc23d984b78c5e9e2c1c94c37891fc0db48",
+              "file": "images/d13-20261103.2651.1-amd64.qcow2",
+              "sha256": "3d23da279db3b16c4057d35ba7bce5a4c4a56c94467c50f62e39257e58b45584",
               "format": "qcow2",
-              "artifact_size": 537919488,
+              "artifact_size": 539885568,
               "virtual_size": 3221225472,
               "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-amd64-20261026-2643.qcow2 sha256:7740a80114c1b5e6456c65713c76f4006e8b00eb50d8a122924ba823b9959fc5; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:6a524fc862baf58087f018c5e65ed703bd644cbfb2c7efcb3db9f8757dda130b; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-amd64-20261103-2651.qcow2 sha256:ee845b8abcc5107441c452a5454a5711b1dabec34b64bc5f370688003d7bf2ff; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:1725f9fc9e8e03a0607044caaae04b87528a841d93d4edc1551edf1d17138234; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt by package post-install; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-11-05; independent rebuild compared: normalization markers match; no bit-reproducibility claim; upstream is build provenance only"
             },
             "arm64": {
-              "file": "images/d13-20261026.2643.1-arm64.qcow2",
-              "sha256": "c3c2fb7b4ae5218f5c02423c0ca67ddd5ada65e9829f50e7f8f50d86aa6a5dba",
+              "file": "images/d13-20261103.2651.1-arm64.qcow2",
+              "sha256": "24e2fb8bf997e3e0b4e4c429081a161eed3611f7bc5c2a75ddbbca43f98fb474",
               "format": "qcow2",
-              "artifact_size": 609026048,
+              "artifact_size": 595853312,
               "virtual_size": 3221225472,
               "source_user": "dba",
-              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261026-2643/debian-13-generic-arm64-20261026-2643.qcow2 sha256:b47770b9b9ed7b26034c0c706a1b3f5558010954ba7bc657a3b84272b260933f; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:7ebd6a46f8f80ae09ee6260ae5722437b6300319ecd612cc3b243df9760b720e; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only"
+              "provenance": "Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-arm64-20261103-2651.qcow2 sha256:4592af9065146cae1ddfd4f1518ba184d3ecf11c9115be9c1d7a1d28912f41a1; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:9e9d747022cb6fad31b75b99e4e5abc8e3f3adeb2058cc58ae9740ca8e5465db; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt by package post-install; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-11-05; independent rebuild compared: normalization markers match; no bit-reproducibility claim; upstream is build provenance only"
             }
           }
         }

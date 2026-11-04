@@ -1,8 +1,8 @@
 {
   "artifact_base_url": "https://repo.pigsty.cc/barn",
-  "manifest_version": 2026093001,
+  "manifest_version": 2026110502,
   "schema": 1,
-  "source_date_epoch": 1790640000,
+  "source_date_epoch": 1793836800,
   "targets": [
     {
       "arch": "amd64",
@@ -136,11 +136,11 @@
         "schema": 1
       },
       "profile": "d13",
-      "release": "20260914.2601.2",
-      "source_filename": "d13-20260914.2601.1-amd64.source.qcow2",
-      "source_sha256": "b6e3a4dac69b38d55a763b1752e8fd7bb12e3948672a79fee4ef13fa53839d2f",
-      "source_sha512": "a733e7d49442a03e70d03e4eb5aaf3967f3efc69ef70952f9bb10fc1ee2c4876eb95956b5ad2d31350e5fada768feb651352535fb8cd1233f61998a5a7d2e93c",
-      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-amd64-20260914-2601.qcow2"
+      "release": "20261103.2651.1",
+      "source_filename": "debian-13-generic-amd64-20261103-2651.qcow2",
+      "source_sha256": "ee845b8abcc5107441c452a5454a5711b1dabec34b64bc5f370688003d7bf2ff",
+      "source_sha512": "1207e6e3efaff8ee77ab7a32c156a3eea6a9e53f94cfc48efbd1f49ba554ca36ac62ab27395aa813a1775a8c0a393b1a1ce5377d9e5670f6113e3110c57fee4b",
+      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-amd64-20261103-2651.qcow2"
     },
     {
       "arch": "arm64",
@@ -182,11 +182,11 @@
         "schema": 1
       },
       "profile": "d13",
-      "release": "20260914.2601.2",
-      "source_filename": "d13-20260914.2601.1-arm64.source.qcow2",
-      "source_sha256": "3fa2da19de8343bc144517d15bab29a90352482640d326939c9756af4f553f7b",
-      "source_sha512": "bef60fa5c4f5511cf83fe1ade0279edd5318dccbbb44f14eb0aa7f3b467e038d7a7c0b6f837be0ad1c3b2e06c5ed8e27adfdf0fd111a201b8f4c9347cd414863",
-      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20260914-2601/debian-13-generic-arm64-20260914-2601.qcow2"
+      "release": "20261103.2651.1",
+      "source_filename": "debian-13-generic-arm64-20261103-2651.qcow2",
+      "source_sha256": "4592af9065146cae1ddfd4f1518ba184d3ecf11c9115be9c1d7a1d28912f41a1",
+      "source_sha512": "878f563f6c95af7fe1e8e51cd39470a1cdb570dddbee22377c85a347bce9d521d95f2cf0f825a38bc0a757889034fac6d83e932f04a3a122ab08cea68cc9ff8a",
+      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-arm64-20261103-2651.qcow2"
     },
     {
       "arch": "amd64",

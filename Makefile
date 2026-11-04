@@ -3,7 +3,7 @@
 	amd arm cross build-cross cross-check \
 	module-check shell-check maintenance-check test race vet staticcheck deadcode errcheck vuln check license-check \
 	image-pipeline-test image-pipeline-native-test install-test \
-	catalog-export catalog-keygen catalog-sign catalog-verify \
+	catalog-export catalog-keygen catalog-sign catalog-verify catalog-check \
 	release-check release-snapshot release-local gr-check gr-snapshot gr-local release-dev
 
 SNAPSHOT_DIST ?= .goreleaser-snapshot
@@ -124,6 +124,10 @@ install-test:
 catalog-export:
 	@test -n "$(CATALOG_OUTPUT)" || { echo "CATALOG_OUTPUT is required" >&2; exit 2; }
 	go run ./tools/catalogexport "$(CATALOG_OUTPUT)"
+
+# Online release gate; ordinary source tests remain independent of the mirrors.
+catalog-check:
+	go run ./tools/catalogcheck
 
 catalog-keygen:
 	@test -n "$(CATALOG_KEY_DIR)" || { echo "CATALOG_KEY_DIR is required" >&2; exit 2; }

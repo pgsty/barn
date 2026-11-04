@@ -107,6 +107,8 @@ def build(args):
     output = Path(args.output).absolute()
     if output.exists() or output.is_symlink():
         raise ValueError("refuse existing Mac payload output")
+    if os.environ.get("BARN_MAC_REQUIRE_NOTARIZATION") == "1":
+        subprocess.run(["go", "run", "./tools/catalogcheck"], cwd=REPO, check=True)
     bin_root = REPO / "bin"
     if bin_root.is_symlink():
         raise ValueError("unsafe bin directory")

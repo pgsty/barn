@@ -1,5 +1,8 @@
 # Barn 1.0 发布审核与修正设计
 
+后续完整实机、签名与发布组装结果见 [1.0.0 最终发布验收](release-1.0-acceptance.md)。
+本文保留专项加固当时的检查范围和未完成记录。
+
 日期：2026-11-04。源码基线：`7b4c95b10c3c515b395124849b27645fe2407758`，
 发布基线：0.9.3；Claude 修复提交：`647902d`（含前序修复）。本文记录 1.0 候选的最终设计、审核结论和验收范围；不是已发布说明。
 
@@ -192,3 +195,12 @@ main。main 原有 WIP 中的裸命令帮助改动由同一意图、保留 `acti
 
 支持策略建议：仅支持最新稳定 1.x 补丁，0.x 不做 backport；是否承诺某条旧分支的维护周期
 由维护者在发版时决定。这里是建议，不是已经对用户作出的服务承诺。
+
+## 2026-11-05 catalog follow-up
+
+The official signed catalog was refreshed to revision `2026110502` after the
+initial acceptance run. The embedded bytes, revision, date, repository source,
+and image-pipeline inputs now match both official mirrors. Debian 13 stable
+is `20261103.2651.1` for amd64 and arm64. The earlier `2026102802` results above
+remain historical evidence; the final release must pass the catalog gate again.
+See [the final acceptance record](release-1.0-acceptance.md) for current results.

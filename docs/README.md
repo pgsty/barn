@@ -34,6 +34,7 @@ are no longer available; use the current installation guide for installation.
 | Record | Scope |
 | --- | --- |
 | [1.0 release audit and hardening](release-1.0-hardening.md) | Final decisions, corrections to the review, regression coverage, and release acceptance gates |
+| [1.0 final acceptance](release-1.0-acceptance.md) | Executed release checks, evidence, and remaining publication gates |
 | [Cobra CLI redesign proposal](cobra-cli-design.md) | 2026-11-04 command and flag inventory, UX contracts, compatibility, architecture, and staged migration; architecture proposal with candidate UX fixes tracked separately |
 | [macOS feasibility study](../MACOS-VM-RESEARCH-20260921.md) | 2026-09-21 research, platform constraints, and implementation options |
 | [Mac product proposal](../MACOS-VM-PRODUCT-20260921.md) | Original two-slot design and its trade-offs |

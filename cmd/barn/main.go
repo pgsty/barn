@@ -1309,8 +1309,14 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	if noWait && err == nil {
 		status.Message = strings.TrimSpace(status.Message + "; guest readiness and metadata refresh skipped (--no-wait)")
 	}
+	metadataRetry := lifecycleRetryCommand(source, nodes, retryOptions)
+	if command == "destroy" {
+		// The selected nodes no longer exist. Retrying up with their names can
+		// recreate them, and the inventory may still name the former control.
+		metadataRetry = "update the inventory to match the remaining nodes and control role, then run " + lifecycleRetryCommand(source, nil, retryOptions)
+	}
 	reconciledSSHConfig, warnings := finishLifecycleIntegrations(ctx, command, deploymentHasNodes, noWait,
-		lifecycleRetryCommand(source, nodes, retryOptions), status, err, fullDeploymentSSHManager(manager), deferredProgressReporter(&progressItem))
+		metadataRetry, status, err, fullDeploymentSSHManager(manager), deferredProgressReporter(&progressItem))
 	if lifecycleSucceeded && (command == "purge" || command == "destroy" && purge) {
 		if purgeErr := purgeDeployment(ctx); purgeErr != nil {
 			if err == nil {

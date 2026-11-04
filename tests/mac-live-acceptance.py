@@ -235,16 +235,27 @@ class Harness:
         return self.remote(slot, ["/bin/sh", "-c", script, "barn-acceptance", *args], expected)
 
     def listing(self, states=None):
-        result = self.cli("ls")
-        require(result.get("root") == str(self.mac) and result.get("schema_version") == 2, "CLI used a different data root or schema")
-        machines = {machine["name"]: machine for machine in result.get("machines", [])}
-        if states:
-            require(set(machines) == set(states), f"Unexpected machines: {sorted(machines)}")
-            for name, state in states.items():
-                require(machines[name]["state"] == state, f"Unexpected state for {name}: {machines[name]['state']}")
-                if state == "running":
-                    require(machines[name]["ready"] and machines[name]["ssh"] == "ready", f"{name} runs without verified SSH")
-        return result, machines
+        # ls makes a bounded, five-second SSH observation. A newly booted Mac
+        # can briefly miss it while background services settle, even after up
+        # reached SSH. Keep every failed observation in the evidence and require
+        # convergence; never retry a missing machine or a wrong lifecycle state.
+        deadline = time.monotonic() + 60
+        while True:
+            result = self.cli("ls")
+            require(result.get("root") == str(self.mac) and result.get("schema_version") == 2, "CLI used a different data root or schema")
+            machines = {machine["name"]: machine for machine in result.get("machines", [])}
+            pending = []
+            if states:
+                require(set(machines) == set(states), f"Unexpected machines: {sorted(machines)}")
+                for name, state in states.items():
+                    require(machines[name]["state"] == state, f"Unexpected state for {name}: {machines[name]['state']}")
+                    if state == "running" and not (machines[name]["ready"] and machines[name]["ssh"] == "ready"):
+                        pending.append(name)
+            if not pending:
+                return result, machines
+            require(time.monotonic() < deadline, f"SSH did not become ready within 60 seconds: {', '.join(pending)}")
+            self.event({"status": "waiting_for_ssh_observation", "machines": pending})
+            time.sleep(1)
 
     def fingerprint(self, path):
         path = canonical_path(str(path), "fingerprinted file")
