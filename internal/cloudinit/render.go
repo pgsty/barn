@@ -366,6 +366,9 @@ filesystem_unusable() {
       # Severe metadata damage (for example an invalid root inode) also sets
       # the abort bit: 4 + 8. Exclude operational read failures before resetting.
       if grep -Eqi 'I/O error|Input/output error|cannot read|could not read|Permission denied|allocat.*memory|out of memory' "${probe_error}"; then return 1; fi
+      # A filesystem made by a newer e2fsprogs is healthy data this guest's tools
+      # cannot read, never evidence of damage.
+      if grep -Eqi 'unsupported feature|too new|revision too high|newer version' "${probe_error}"; then return 1; fi
       [[ "${status}" == 4 || "${status}" == 12 ]]
       ;;
     xfs)
@@ -373,6 +376,10 @@ filesystem_unusable() {
       LC_ALL=C timeout --kill-after=2s 15s xfs_repair -n "${dev}" >"${probe_error}" 2>&1 || status=$?
       # Operational read failures are not evidence that mkfs would help.
       if grep -Eqi 'I/O error|Input/output error|cannot read|could not read|Permission denied' "${probe_error}"; then return 1; fi
+      # An older xfs_repair exits 1 for a healthy filesystem with features it
+      # does not know, for example a persistent disk formatted by a newer
+      # distribution. That is an unsupported filesystem, not damage.
+      if grep -Eqi 'unknown .*features|unsupported .*feature|more recent xfs_repair|newer xfs_repair' "${probe_error}"; then return 1; fi
       [[ "${status}" == 1 ]]
       ;;
     *) return 1 ;;
@@ -406,8 +413,14 @@ init_disk() {
   probe_disk
   mkdir -p "${mountpoint}"
   [[ ! -L "${mountpoint}" ]] || { echo 'data mountpoint is a symlink' >&2; return 1; }
-  if [[ -z "${fstype}" || -z "${uuid}" ]]; then
+  # Only a device with no recognizable signature at all is initialized. A
+  # partition table, or any signature without a filesystem UUID and type, is
+  # data Barn does not manage; leave it for the user rather than mkfs it.
+  if [[ -z "${metadata}" ]]; then
     reset_disk
+  elif [[ -z "${fstype}" || -z "${uuid}" ]]; then
+    echo 'data disk holds a partition table or a signature Barn does not manage; disk not reset' >&2
+    return 1
   fi
   case "${fstype}" in ext4|xfs) ;; *) echo "unsupported existing filesystem ${fstype}; disk not reset" >&2; return 1 ;; esac
   local mounted=false

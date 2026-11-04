@@ -22,6 +22,10 @@ func TestDiskRecoveryOutcomes(t *testing.T) {
 		{"probe-error", false, false, true}, {"missing", false, false, true},
 		{"readonly", false, false, true}, {"busy", false, false, true},
 		{"mount-permission", false, false, true}, {"io-error", false, false, true},
+		// Recognizable data that is not a Barn filesystem, or a healthy
+		// filesystem newer than the guest's tools, is never reformatted.
+		{"partition-table", false, false, true}, {"xfs-newer-features", false, false, true},
+		{"ext4-newer-features", false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -49,6 +53,7 @@ case "$(basename "$0")" in
  timeout) shift 2; exec "$@" ;;
  blkid)
   test "$CASE" != probe-error || exit 4
+  if [[ "$CASE" == partition-table ]]; then printf 'PTTYPE=gpt\nPTUUID=0f1e2d3c\n'; exit 0; fi
   if [[ "$CASE" == new || "$CASE" == unrecognized || "$CASE" == readonly || "$CASE" == io-error ]]; then test -f "$FIXTURE/formatted" || exit 2; fi
   printf 'UUID=test-uuid\nTYPE=%s\n' "${FS_TYPE:-ext4}" ;;
  lsblk)
@@ -61,15 +66,20 @@ case "$(basename "$0")" in
  dd) [[ "$CASE" != io-error ]] ;;
  mount)
   [[ "$CASE" != mount-permission ]] || exit 32
-  if [[ "$CASE" == corrupt || "$CASE" == corrupt-abort || "$CASE" == check-io-error || "$CASE" == xfs-corrupt ]]; then test -f "$FIXTURE/formatted" || exit 32; fi
+  if [[ "$CASE" == corrupt || "$CASE" == corrupt-abort || "$CASE" == check-io-error || "$CASE" == xfs-corrupt || "$CASE" == xfs-newer-features || "$CASE" == ext4-newer-features ]]; then test -f "$FIXTURE/formatted" || exit 32; fi
   touch "$FIXTURE/mounted" ;;
  e2fsck)
   case "$CASE" in
    corrupt) exit 4;;
    corrupt-abort) echo 'Root inode is not a directory; aborting.'; exit 12;;
    check-io-error) echo 'Input/output error while reading'; exit 12;;
+   ext4-newer-features) echo '/dev/vdb has unsupported feature(s): orphan_file'; exit 12;;
   esac ;;
- xfs_repair) if [[ "$CASE" == xfs-corrupt ]]; then exit 1; else exit 0; fi ;;
+ xfs_repair)
+  case "$CASE" in
+   xfs-corrupt) exit 1;;
+   xfs-newer-features) printf 'Superblock has unknown incompatible features (0x20) enabled.\nUsing a more recent xfs_repair is recommended.\n'; exit 1;;
+  esac ;;
  mkfs.ext4|mkfs.xfs) printf fresh > "$DEVICE"; touch "$FIXTURE/formatted" ;;
  barn-warning) printf '%s %s\n' "$1" "$2" >> "$FIXTURE/warnings" ;;
  *) exit 97 ;;
@@ -81,7 +91,7 @@ esac
 				}
 			}
 			fs := "ext4"
-			if tc.name == "xfs-corrupt" {
+			if tc.name == "xfs-corrupt" || tc.name == "xfs-newer-features" {
 				fs = "xfs"
 			}
 			script := renderDiskScript([]Disk{{Serial: serial, Mount: filepath.Join(dir, "data"), Filesystem: fs, Fresh: tc.fresh}})
