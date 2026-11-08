@@ -12,9 +12,10 @@ deployment path should preserve these design choices:
   Barn also reads the documented Pigsty identity and network fields; all
   other inventory fields remain opaque.
 - **Absence never destroys.** Removing a host from the inventory does not delete
-  a machine. Destruction is explicit. Terminal destruction requires confirmation;
-  `--yes`/`--force` skips it. For script compatibility, non-terminal `purge`
-  remains an explicit no-prompt disposal command.
+  a machine. Destruction is explicit. `destroy` and `recreate` require confirmation;
+  `--yes`/`--force` skips it. `purge` is an explicit no-prompt disposal command
+  on terminals and in scripts. Only `purge --ask` displays the scope and asks
+  for `y`/`yes`; it has no confirmation-bypass flags.
 - **One helper binary.** Privileged work goes through `barn-hosts-helper` or
   the reviewed network plan, and nowhere else.
 

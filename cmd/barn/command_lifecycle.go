@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -34,6 +36,7 @@ changes, and destroy for removals. A missing host share fails only its node;
 restore the original directory or mount before retrying it.`,
 		example: `  barn up                           # start your first VM, or continue the current lab
   barn up meta                      # converge only the meta node
+  barn up -I u24 -A amd64            # override the image and guest architecture
   barn up --mirror                  # use the China official repository for downloads
   barn up -f pigsty.yml --rollback  # remove safe artifacts from failed prepares`,
 	},
@@ -168,7 +171,28 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 		command.Flags().BoolVar(&options.Purge, "purge", false, "terminal disposal: also delete persistent disks, keys, and deployment state")
 		noFileCompletions(command, "force", "yes", "delete-persistent", "purge")
 	}
+	if lifecycleReadsConfig(name) {
+		command.Flags().StringVarP(&options.Image, "image", "I", "", "override vm_image/vm_version for selected nodes without editing the inventory")
+		command.Flags().StringVarP(&options.Arch, "arch", "A", "", "override deployment vm_arch: native, amd64 (x86_64, x64), or arm64 (aarch64, a64)")
+		_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
+		_ = command.RegisterFlagCompletionFunc("arch", enumFlagCompletion("native", "amd64", "x86_64", "x64", "arm64", "aarch64", "a64"))
+		command.Long += `
+
+Use --image/-I and --arch/-A to override the inventory for this command.
+Image overrides apply to selected nodes; architecture is deployment-wide.
+To keep these choices, set vm_image and vm_arch in the inventory. Cross-architecture
+guests use slower QEMU TCG emulation. Up never replaces existing VM disks;
+use recreate to apply image or architecture changes to existing nodes.`
+	}
 	command.RunE = func(command *cobra.Command, nodes []string) error {
+		for _, flag := range []string{"image", "arch"} {
+			if command.Flags().Changed(flag) {
+				value, _ := command.Flags().GetString(flag)
+				if strings.TrimSpace(value) == "" {
+					return newUsageError(fmt.Errorf("--%s must not be empty", flag))
+				}
+			}
+		}
 		outcome, err := runLifecycleCommand(command.Context(), name, options, nodes, stderr)
 		if err != nil {
 			return err
@@ -179,7 +203,7 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 }
 
 func newPurgeCommand(stdout, stderr io.Writer) *cobra.Command {
-	var confirmed bool
+	var ask bool
 	command := &cobra.Command{
 		Use:   "purge",
 		Short: "Discard the entire deployment, including persistent data",
@@ -188,27 +212,25 @@ root disks, persistent data disks, SSH keys, state, and default SSH client
 configuration. The verified image cache and host-global network remain
 installed.
 
-On a terminal, purge states what it deletes and asks you to type purge;
---yes (or --force) skips the question. Without a terminal it does not ask,
-so existing automation keeps working.
+Purge deletes immediately by default. Use --ask to review the nodes and
+deletion scope first, then confirm with y/yes or cancel with n/no.
 
 Purge accepts no node selectors and never reads an inventory. It is idempotent
 when no deployment exists, but still refuses ambiguous or unsafe retained
 artifacts rather than deleting them by path alone.`,
-		Example: `  barn purge               # review and confirm discarding the local lab
-  barn purge --yes         # discard it without the question
-  barn --json purge --yes  # stable output for automation`,
+		Example: `  barn purge          # discard the local lab immediately
+  barn purge --ask    # review the lab and confirm with y/yes
+  barn --json purge   # stable output for automation`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			outcome, err := runPurgeCommand(command.Context(), confirmed, stderr)
+			outcome, err := runPurgeCommand(command.Context(), ask, stderr)
 			if err != nil {
 				return err
 			}
 			return collectCommandOutcome(command.Context(), outcome)
 		},
 	}
-	command.Flags().BoolVar(&confirmed, "yes", false, "purge without the interactive confirmation")
-	command.Flags().BoolVar(&confirmed, "force", false, "same as --yes")
-	noFileCompletions(command, "yes", "force")
+	command.Flags().BoolVar(&ask, "ask", false, "show the deletion scope and ask for y/yes before purging")
+	noFileCompletions(command, "ask")
 	return command
 }

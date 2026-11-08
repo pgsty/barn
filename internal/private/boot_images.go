@@ -50,7 +50,7 @@ func (m *Manager) resolveBootImages(ctx context.Context, profile platform.Profil
 				return nil, "", readErr
 			}
 			arch := invocationGuestArch(node.Invocation.Binary, node.Invocation.Args)
-			if readErr == nil && node.Image.Alias != "" && node.Image.Release != "" && node.Image.Digest != "" {
+			if readErr == nil && arch == profile.Arch && node.Image.Alias != "" && node.Image.Release != "" && node.Image.Digest != "" {
 				bootMode := "bios"
 				if node.NVRAM != "" {
 					bootMode = "uefi"

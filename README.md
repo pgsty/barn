@@ -44,7 +44,8 @@ Barn creates local virtual machines for development and testing:
   with a native desktop, SSH, shared folders, and text clipboard sharing.
   Each machine has its own disk, credentials, and private subnet.
 
-Linux uses QEMU with HVF on macOS or KVM on Linux. Mac guests use Apple's
+Linux uses QEMU with HVF on macOS or KVM on Linux for native guests, and TCG
+software emulation for a different guest architecture. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
@@ -110,6 +111,27 @@ normal catalog-backed lifecycle flow:
 ```bash
 barn init full --image el9 -o lab.yml
 ```
+
+`--image` also has the short form `-I`. To override an existing inventory for
+one invocation, use `barn up -I u24`. The override replaces `vm_image` and
+`vm_version` for the selected nodes. The inventory is not rewritten; set
+`vm_image` there and remove any superseded `vm_version` to keep the choice.
+
+Use `--arch/-A` to override the deployment's `vm_arch`. Accepted values are
+`amd64` (`x86_64`, `x64`), `arm64` (`aarch64`, `a64`), and `native`.
+For example, Apple Silicon can run an amd64 Linux guest through QEMU TCG:
+
+```bash
+barn plan -I u24 -A amd64
+barn up -I u24 -A amd64
+```
+
+Cross-architecture guests are slower than native guests; use them for
+compatibility testing, not performance measurements. All nodes in one
+deployment share the guest architecture. To keep it, set `vm_arch` in
+`all.vars`. `plan`, `reload`, `recreate`, and `resize` accept the same overrides.
+Changing an existing VM's image or architecture still requires `recreate`;
+`up` reports the change without replacing its disks.
 
 An existing Pigsty inventory works too:
 
@@ -177,6 +199,8 @@ installation, shared folders, desktop controls, and cleanup.
 | Change CPU or memory | `barn resize meta` |
 | Apply another changed VM definition | `barn recreate meta` |
 | Delete a VM | `barn destroy meta` |
+| Discard the entire Linux lab immediately | `barn purge` |
+| Review the lab before discarding it | `barn purge --ask` |
 | Inspect available images | `barn image list` |
 | Diagnose the host | `barn doctor` |
 
@@ -184,6 +208,12 @@ Barn keeps one Linux deployment per user under `~/.barn`. Changing directories
 does not create another lab. Removing a host from YAML does not delete its VM;
 destruction is explicit. Repeating `up` keeps healthy VMs running and retries
 unfinished setup. `--json` and `--yaml` provide structured output for scripts.
+
+`purge` deletes all Linux VM root and data disks, including persistent disks,
+deployment keys, and state without confirmation. Image caches, the host
+network, and macOS VMs remain. Add `--ask` to see the nodes and deletion scope,
+then answer `y`/`yes` to proceed or `n`/`no` to cancel; Enter also cancels.
+There are no `--yes`, `-y`, or `--force` options on `purge`.
 
 Node selectors apply changes independently: after editing two nodes, run
 `barn plan node-1` and `barn resize node-1` or `barn recreate node-1`, then

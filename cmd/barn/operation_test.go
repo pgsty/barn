@@ -68,7 +68,7 @@ func TestNestedSetupAndLifecycleReuseOperationID(t *testing.T) {
 		t.Fatalf("setup lost parent operation: %v", setupErr)
 	}
 	for range 2 {
-		_, retryErr := runPrivateCommand(ctx, "up", spec.Resolved{}, nil, "", "applied deployment state", false, false, false, false, false, io.Discard)
+		_, retryErr := runPrivateCommand(ctx, "up", spec.Resolved{}, nil, "", "applied deployment state", lifecycleOptions{}, io.Discard)
 		var failure typedCommandError
 		if !errors.As(retryErr, &failure) || failure.commandFailure().OperationID != id {
 			t.Fatalf("retry changed parent operation: %v", retryErr)

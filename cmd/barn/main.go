@@ -67,6 +67,8 @@ type lifecycleOptions struct {
 	ConfigPath       string
 	Repository       string
 	Mirror           bool
+	Image            string
+	Arch             string
 }
 
 func configurationWarnings(resolved spec.Resolved) []string {
@@ -1117,8 +1119,10 @@ type lifecycleResult struct {
 	RolledBack []string                `json:"rolled_back,omitempty"`
 }
 
-func runPrivateCommand(parent context.Context, command string, resolved spec.Resolved, nodes []string, repository, source string, force, deletePersistent, purge, noWait, rollback bool, stderr io.Writer) (commandOutcome, error) {
-	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback}
+func runPrivateCommand(parent context.Context, command string, resolved spec.Resolved, nodes []string, repository, source string, options lifecycleOptions, stderr io.Writer) (commandOutcome, error) {
+	force, deletePersistent, purge := options.Force, options.DeletePersistent, options.Purge
+	noWait, rollback := options.NoWait, options.Rollback
+	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback, Image: options.Image, Arch: options.Arch}
 	if repository == image.DefaultRepositoryURL {
 		retryOptions.Repository = "" // a retry finds the default by itself
 	}
@@ -1151,7 +1155,9 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			return commandOutcome{}, classifyPrivateLifecycleError(err, operationID)
 		}
 		plan.Source = source
-		applyCommand := func(command string) string { return command + inventoryFlag(source) }
+		applyCommand := func(action string, selected []string) string {
+			return lifecycleNodeCommand(action, source, selected, retryOptions)
+		}
 		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
 			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %s RAM, %s virtual disk capacity", plan.CPUs, planSize(plan.Memory), planSize(plan.Storage)))
@@ -1167,27 +1173,27 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 				bestEffortf(stdout, "no changes: %d node(s) (%s) match the applied inventory\n", len(plan.Nodes), strings.Join(plan.Nodes, ", "))
 				return nil
 			case "repair":
-				textField(stdout, 12, "repair", strings.Join(plan.Nodes, ", ")+"  (left mid-transition; apply: "+applyCommand("barn up")+")")
+				textField(stdout, 12, "repair", strings.Join(plan.Nodes, ", ")+"  (left mid-transition; apply: "+applyCommand("up", nodes)+")")
 			}
 			if len(plan.Start) != 0 {
-				textField(stdout, 12, "start", strings.Join(plan.Start, ", ")+"  (apply: "+applyCommand("barn up")+")")
+				textField(stdout, 12, "start", strings.Join(plan.Start, ", ")+"  (apply: "+applyCommand("up", nodes)+")")
 			}
 			if len(plan.Create) != 0 {
-				textField(stdout, 12, "create", strings.Join(plan.Create, ", ")+"  (apply: "+applyCommand("barn up")+")")
+				textField(stdout, 12, "create", strings.Join(plan.Create, ", ")+"  (apply: "+applyCommand("up", nodes)+")")
 			}
 			if len(plan.Recreate) != 0 {
 				detail := strings.Join(plan.Recreate, ", ")
 				if plan.Blocked == "" {
-					detail += "  (apply: " + applyCommand("barn recreate "+strings.Join(plan.Recreate, " ")) + ")"
+					detail += "  (apply: " + applyCommand("recreate", plan.Recreate) + ")"
 				}
 				textField(stdout, 12, "recreate", detail)
 			} else if plan.Action == "recreate" && plan.Blocked == "" {
-				textField(stdout, 12, "recreate", "deployment-level settings changed  (apply: "+applyCommand("barn recreate")+")")
+				textField(stdout, 12, "recreate", "deployment-level settings changed  (apply: "+applyCommand("recreate", nodes)+")")
 			}
 			if len(plan.Resize) != 0 {
 				detail := strings.Join(plan.Resize, ", ")
 				if plan.Blocked == "" && plan.Action == "resize" {
-					detail += "  (apply: " + applyCommand("barn resize "+strings.Join(plan.Resize, " ")) + ")"
+					detail += "  (apply: " + applyCommand("resize", plan.Resize) + ")"
 				}
 				textField(stdout, 12, "resize", detail)
 			}
@@ -1293,6 +1299,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		progressItem = startProgress(ctx, stderr, lifecycleMessage(command))
 	}
 	status, err := operation(ctx)
+	err = lifecycleOverrideRecovery(err, source, nodes, retryOptions)
 	status.OperationID = operationID
 	if errors.Is(parent.Err(), context.Canceled) {
 		progressItem.Stop(ErrCancelled)
@@ -1413,39 +1420,47 @@ func recordCancelledLifecycle(parent context.Context, manager privatevm.Manager,
 	}
 }
 
-// runPurgeCommand is the no-confirmation, whole-deployment disposal path. A
+// confirmPurge asks only when --ask was explicitly requested, including when
+// stdin is a pipe. A missing or negative answer cancels before any mutation.
+func confirmPurge(ask bool, scope string, stdin io.Reader, stderr io.Writer) error {
+	if !ask {
+		return nil
+	}
+	if _, err := fmt.Fprintln(stderr, scope); err != nil {
+		return fmt.Errorf("write purge scope: %w", err)
+	}
+	return confirmPlan("Purge this deployment? [y/N] ", false, stdin, stderr)
+}
+
+func purgeScope(resolved spec.Resolved) string {
+	var scope strings.Builder
+	scope.WriteString(strings.Replace(destroyScope(resolved, nil, true, true), "destroy scope:", "purge scope:", 1))
+	for _, node := range resolved.Nodes {
+		ref := node.Image
+		if ref == "" {
+			ref = resolved.Image
+		}
+		fmt.Fprintf(&scope, "\n  %s  %s  %s/%s  %d vCPU  %s RAM", node.Name, node.Address, ref, lifecycleImageArch(resolved), node.CPUs, planSize(node.Memory))
+	}
+	return scope.String()
+}
+
+// runPurgeCommand is the whole-deployment disposal path. A
 // valid deployment goes through the normal identity-checked destroy engine.
 // When an earlier whole destroy already removed state.json, the residual path
 // can still delete strictly inventoried persistent disks and allowlisted keys.
 // A missing state document never authorizes deletion of retained node
 // artifacts, whose process and path identity can no longer be proven.
-// confirmPurge asks on a terminal before purge deletes anything. Automation
-// without a terminal is not prompted, keeping purge usable in scripts; --yes or
-// --force skips the question on a terminal.
-func confirmPurge(confirmed bool, scope string, stderr io.Writer) error {
-	if confirmed || !term.IsTerminal(int(os.Stdin.Fd())) {
-		return nil
-	}
-	bestEffortln(stderr, scope)
-	if err := confirmCLIAction(false, "purge", stderr); err != nil {
-		if errors.Is(err, ErrCancelled) {
-			return err
-		}
-		return newUsageError(err)
-	}
-	return nil
-}
-
-func runPurgeCommand(parent context.Context, confirmed bool, stderr io.Writer) (commandOutcome, error) {
+func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (commandOutcome, error) {
 	resolved, err := currentDeploymentResolved()
 	if err == nil {
 		if resolved.Network != "private" {
 			return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 		}
-		if err := confirmPurge(confirmed, strings.Replace(destroyScope(resolved, nil, true, true), "destroy scope:", "purge scope:", 1), stderr); err != nil {
+		if err := confirmPurge(ask, purgeScope(resolved), os.Stdin, stderr); err != nil {
 			return commandOutcome{}, err
 		}
-		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", true, true, true, false, false, stderr)
+		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", lifecycleOptions{Force: true, DeletePersistent: true, Purge: true}, stderr)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("read deployment state for purge: %w", err))
@@ -1473,7 +1488,7 @@ func runPurgeCommand(parent context.Context, confirmed bool, stderr io.Writer) (
 			return nil
 		}}, nil
 	}
-	if err := confirmPurge(confirmed, fmt.Sprintf("purge scope: residual deployment data under %s, including retained persistent data disks and the deployment keys (images stay cached)", root), stderr); err != nil {
+	if err := confirmPurge(ask, fmt.Sprintf("purge scope: residual deployment data under %s, including retained persistent data disks and the deployment keys (images stay cached)", root), os.Stdin, stderr); err != nil {
 		return commandOutcome{}, err
 	}
 
@@ -1504,6 +1519,10 @@ func runPurgeCommand(parent context.Context, confirmed bool, stderr io.Writer) (
 }
 
 func runLifecycleCommand(ctx context.Context, command string, options lifecycleOptions, nodes []string, stderr io.Writer) (_ commandOutcome, returnErr error) {
+	options, err := normalizeLifecycleOverrides(options)
+	if err != nil {
+		return commandOutcome{}, newUsageError(err)
+	}
 	if command != "status" && command != "plan" {
 		var id string
 		var err error
@@ -1599,6 +1618,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	if err := validateNodeSelectors(resolvedFile, nodes, selectorSource); err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
+	resolvedFile = applyLifecycleOverrides(resolvedFile, nodes, options)
 	if source == "" {
 		source = "applied deployment state"
 	}
@@ -1606,7 +1626,8 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 		textField(stderr, 10, "inventory", source)
 	}
 	printWarnings(stderr, configurationWarnings(resolvedFile))
-	outcome, err := runPrivateCommand(ctx, command, resolvedFile, nodes, repository, source, options.Force, options.DeletePersistent, options.Purge, options.NoWait, options.Rollback, stderr)
+	printLifecycleOverrides(stderr, options)
+	outcome, err := runPrivateCommand(ctx, command, resolvedFile, nodes, repository, source, options, stderr)
 	canPrepareHost := needsHostSetup(command, err)
 	var networkFailure *privatevm.NetworkPreflightError
 	if !canPrepareHost && command == "up" && errors.As(err, &networkFailure) && errors.Is(persistedErr, os.ErrNotExist) && options.ConfigPath == "" {
@@ -1629,8 +1650,9 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 			if err != nil {
 				return commandOutcome{}, newUsageError(err)
 			}
+			resolvedFile = applyLifecycleOverrides(resolvedFile, nodes, options)
 		}
-		outcome, err = runPrivateCommand(ctx, command, resolvedFile, nodes, repository, source, options.Force, options.DeletePersistent, options.Purge, options.NoWait, options.Rollback, stderr)
+		outcome, err = runPrivateCommand(ctx, command, resolvedFile, nodes, repository, source, options, stderr)
 	}
 	return outcome, err
 }

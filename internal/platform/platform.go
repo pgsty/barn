@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
 )
@@ -160,9 +161,31 @@ func FindFirmwareForBoot(profile Profile, boot string) (Firmware, error) {
 	return Firmware{}, fmt.Errorf("no matching UEFI code/vars pair found for %s/%s", profile.OS, profile.Arch)
 }
 
+// NormalizeArch accepts the inventory and CLI names for a guest architecture.
+// Stored specifications use only native, amd64, or arm64.
+func NormalizeArch(requested string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(requested)) {
+	case "native":
+		return "native", nil
+	case "amd64", "x86_64", "x64":
+		return "amd64", nil
+	case "arm64", "aarch64", "a64":
+		return "arm64", nil
+	default:
+		return "", fmt.Errorf("unsupported guest architecture %q; use native, amd64 (x86_64, x64), or arm64 (aarch64, a64)", requested)
+	}
+}
+
 // GuestArch resolves the deployment-wide guest architecture. An empty value or
 // "native" follows the host; explicit values are stable desired state.
 func GuestArch(requested, hostArch string) (string, error) {
+	if requested != "" {
+		var err error
+		requested, err = NormalizeArch(requested)
+		if err != nil {
+			return "", err
+		}
+	}
 	if requested == "" || requested == "native" {
 		requested = hostArch
 	}

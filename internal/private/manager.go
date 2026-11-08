@@ -2111,6 +2111,16 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	case diff.EnvelopeChanged:
 		result.Action = "recreate"
 		result.Destructive = true
+		// Deployment-level changes replace every existing selected node, even
+		// when its own definition is unchanged. Keep the plan's replacement
+		// list complete so follow-up commands cannot target only a subset.
+		result.Recreate = nil
+		for _, name := range selected {
+			if hasState(name) {
+				result.Recreate = append(result.Recreate, name)
+			}
+		}
+		result.Resize = nil
 		return result, nil
 	case len(diff.Removed) != 0:
 		result.Action = "blocked-removal"

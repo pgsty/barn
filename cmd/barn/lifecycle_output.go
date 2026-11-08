@@ -23,6 +23,7 @@ type lifecycleWarning struct {
 
 type lifecycleRetryOptions struct {
 	Action, Repository string
+	Image, Arch        string
 	NoWait, Rollback   bool
 }
 
@@ -310,7 +311,10 @@ func lifecycleNodeCommand(action, source string, nodes []string, options ...life
 	}
 	if len(options) != 0 {
 		option := options[0]
-		if readsConfig && option.Repository != "" {
+		if readsConfig {
+			command += lifecycleOverrideFlags(option)
+		}
+		if readsConfig && action != "resize" && option.Repository != "" {
 			command += " --repo " + shellQuote(option.Repository)
 		}
 		if startupCommand(action) && option.NoWait {

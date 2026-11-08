@@ -6,6 +6,22 @@ Notable user-visible changes. This project follows
 compatibility scope is defined in the
 [1.0.0 release notes](.github/releases/1.0.0.md#compatibility).
 
+## Unreleased
+
+- Make `barn purge` delete immediately in both terminals and scripts. Replace
+  its `--yes`/`--force` options with opt-in `--ask`, which shows the nodes and
+  deletion scope and accepts `y`/`yes`; `n`/`no`, Enter, or EOF cancels.
+- Add `--image/-I` and `--arch/-A` overrides to `up`, `plan`, `reload`,
+  `recreate`, and `resize`. Overrides leave the inventory intact, apply images only to
+  selected nodes, and remain present in retry commands. Existing VMs still
+  require explicit recreation to change their image or architecture.
+- Add `-I` for `init --image` and `setup --image`. Accept `x86_64`/`x64` as
+  `amd64` and `aarch64`/`a64` as `arm64` in architecture overrides and `vm_arch`.
+  Cross-architecture guests use the existing QEMU TCG compatibility mode.
+- Keep node selectors and overrides in plan follow-up commands. Architecture
+  changes now plan recreation of every existing node and resolve images for
+  the requested architecture instead of reusing the previous guest image.
+
 ## 1.0.0 — 2026-11-05
 
 Barn 1.0.0 is the first stable release. It freezes the 0.9.x command-line

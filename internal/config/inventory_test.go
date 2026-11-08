@@ -335,6 +335,22 @@ all:
 	}
 }
 
+func TestParseInventoryArchitectureAliasesAreEquivalentAcrossHosts(t *testing.T) {
+	for _, values := range []string{"amd64, x86_64, x64", "arm64, aarch64, a64"} {
+		aliases := strings.Split(values, ", ")
+		file := mustParseInventory(t, fmt.Sprintf(`all:
+  hosts:
+    10.10.10.10: { vm_arch: %s }
+    10.10.10.11: { vm_arch: %s }
+    10.10.10.12: { vm_arch: %s }
+`, aliases[0], aliases[1], aliases[2]))
+		resolved, err := file.Resolve()
+		if err != nil || resolved.Arch != aliases[0] {
+			t.Fatalf("architecture aliases %s: %q, %v", values, resolved.Arch, err)
+		}
+	}
+}
+
 func TestParseInventoryExplicitEmptyDisksOverrides(t *testing.T) {
 	file := mustParseInventory(t, `
 all:

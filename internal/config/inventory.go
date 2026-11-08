@@ -16,6 +16,7 @@ import (
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/platform"
 	"github.com/pgsty/barn/internal/spec"
 	"go.yaml.in/yaml/v3"
 )
@@ -860,9 +861,9 @@ func parseInventory(data []byte, directory string) (File, error) {
 		if value, found, err := host.lookupString("vm_arch"); err != nil {
 			return File{}, err
 		} else if found {
-			value = strings.ToLower(strings.TrimSpace(value))
-			if value != "native" && value != "amd64" && value != "arm64" {
-				return File{}, fmt.Errorf("host %s vm_arch must be native, amd64, or arm64", host.address)
+			value, err = platform.NormalizeArch(value)
+			if err != nil {
+				return File{}, fmt.Errorf("host %s vm_arch: %w", host.address, err)
 			}
 			vmArchHosts++
 			if vmArchHosts == 1 {

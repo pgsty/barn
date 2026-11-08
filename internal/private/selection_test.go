@@ -57,6 +57,39 @@ func TestSelectedOperationsLeavePeerChangesPending(t *testing.T) {
 	}
 }
 
+func TestArchitectureChangePlansRecreationOfEveryExistingNode(t *testing.T) {
+	fixture, _ := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	store := state.Store{Root: fixture.Deployment.Root}
+	current, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := cloneResolved(current.Resolved)
+	desired.Arch = "amd64"
+	desired.Nodes[0].CPUs++
+	manager := planFixtureManager(t)
+	plan, err := manager.Plan(context.Background(), desired)
+	if err != nil || plan.Action != "recreate" || strings.Join(plan.Recreate, ",") != "meta,node-1" {
+		t.Fatalf("architecture change omitted a VM from recreation: %+v, %v", plan, err)
+	}
+	for _, entry := range plan.Images {
+		if !strings.HasSuffix(entry, "/amd64") {
+			t.Fatalf("architecture change reused an old architecture's image: %s", entry)
+		}
+	}
+	manager.Nodes = []string{"node-1"}
+	blocked, err := manager.Plan(context.Background(), desired)
+	if err != nil || blocked.Blocked == "" {
+		t.Fatalf("scoped architecture change was not blocked: %+v, %v", blocked, err)
+	}
+	for _, name := range []string{"meta", "node-1"} {
+		if _, err := store.ReadNode(name); err != nil {
+			t.Fatalf("planning modified %s: %v", name, err)
+		}
+	}
+}
+
 func TestSelectionRetainsOmittedPeersAndExcludesUnselectedAdditions(t *testing.T) {
 	current := diffFixtureResolved()
 	desired := cloneResolved(current)

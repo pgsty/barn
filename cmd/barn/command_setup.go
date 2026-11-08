@@ -32,7 +32,7 @@ before any mutation and requests privilege only at the first privileged step.`,
 	}
 	command.Flags().StringVarP(&options.FilePath, "file", "f", "", "inventory to prepare (cannot be combined with a template)")
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "generated template network as a canonical RFC1918 IPv4 /24")
-	command.Flags().StringVar(&options.Image, "image", "", "image reference for a generated template, such as el9, u24:stable, or u24@version")
+	command.Flags().StringVarP(&options.Image, "image", "I", "", "image reference for a generated template, such as el9, u24:stable, or u24@version")
 	command.Flags().StringVarP(&options.Repo, "repo", "r", "", "image repository URL or local directory, also used for socket_vmnet; overrides --mirror and $BARN_REPO")
 	command.Flags().BoolVar(&options.Mirror, "mirror", false, mirrorFlagHelp)
 	command.Flags().StringVarP(&options.Mode, "mode", "m", options.Mode, "macOS fixed-IP network backend: host or shared")
@@ -87,7 +87,7 @@ inventory to stdout for inspection or composition.`,
 		},
 	}
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "rebase the generated template to a canonical RFC1918 IPv4 /24")
-	command.Flags().StringVar(&options.Image, "image", "", "image reference for generated nodes, such as el9, u24:stable, or u24@version")
+	command.Flags().StringVarP(&options.Image, "image", "I", "", "image reference for generated nodes, such as el9, u24:stable, or u24@version")
 	command.Flags().StringVarP(&options.Output, "output", "o", "", "write to this path instead of ./barn.yml; '-' writes to stdout")
 	command.Flags().BoolVar(&options.Force, "force", false, "overwrite an existing inventory file")
 	_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)

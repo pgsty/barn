@@ -56,6 +56,21 @@ func TestResolveRuntimeNativeAndEmulated(t *testing.T) {
 	}
 }
 
+func TestGuestArchitectureAliasesSelectTheSameRuntime(t *testing.T) {
+	t.Parallel()
+	host, _ := Resolve("darwin", "arm64")
+	for alias, canonical := range map[string]string{
+		"amd64": "amd64", "x86_64": "amd64", "x64": "amd64", " X64 ": "amd64",
+		"arm64": "arm64", "aarch64": "arm64", "a64": "arm64", " AARCH64 ": "arm64",
+		"native": "arm64", "": "arm64",
+	} {
+		profile, err := ResolveRuntime(host, alias, false)
+		if err != nil || profile.Arch != canonical || profile.Emulated != (canonical != host.Arch) {
+			t.Errorf("runtime for %q: %+v, %v", alias, profile, err)
+		}
+	}
+}
+
 func TestParseQEMUVersion(t *testing.T) {
 	t.Parallel()
 	for input, want := range map[string]Version{
