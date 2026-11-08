@@ -105,3 +105,22 @@ func TestPlanTableDistinguishesIntentAndMissingNodes(t *testing.T) {
 		t.Fatalf("plan claimed applied changes: %s", &out)
 	}
 }
+
+func TestMacLiveResultUsesMacCommandAndCorrectOperationCount(t *testing.T) {
+	item := &progress{operation: "mac start", stopped: true, started: time.Now(), context: &outputContext{columns: 100}, nodes: map[string]activity.Event{
+		"dev": {Node: "dev", State: "ready", Message: "SSH ready: barn mac ssh dev"},
+	}}
+	got := strings.Join(item.render(time.Now()), "\n")
+	if !strings.Contains(got, "mac boot 1/1 nodes") || !strings.Contains(got, "SSH ready: barn mac ssh dev") || strings.Contains(got, "SSH ready: barn ssh") {
+		t.Fatalf("Mac result = %s", got)
+	}
+	item.operation = "mac destroy"
+	item.nodes["dev"] = activity.Event{Node: "dev", State: "stopped"}
+	if _, done, _ := item.nodeProgress(); done != 0 {
+		t.Fatal("intermediate stop completed destroy")
+	}
+	item.nodes["dev"] = activity.Event{Node: "dev", State: "removed"}
+	if _, done, _ := item.nodeProgress(); done != 1 {
+		t.Fatal("removal did not complete destroy")
+	}
+}

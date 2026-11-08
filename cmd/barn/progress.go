@@ -139,13 +139,13 @@ func (item *progress) Report(event activity.Event) {
 	} else if item.activeItem != "" && event.Message != "" {
 		row := item.items[item.activeItem]
 		row.Message = event.Message
-		if strings.HasPrefix(item.operation, "image ") {
-			switch event.Phase {
-			case "image-download":
-				row.State = "downloading"
-			case "image-verify":
-				row.State = "verifying"
-			}
+		switch event.Phase {
+		case "image-download":
+			row.State = "downloading"
+		case "image-verify":
+			row.State = "verifying"
+		case "image-restore":
+			row.State = "restoring"
 		}
 		item.items[item.activeItem] = row
 	}
@@ -197,7 +197,7 @@ func (item *progress) logEvent(now time.Time) {
 		var completed, started int
 		label, completed, started = item.nodeProgress()
 		result := "ready"
-		switch label {
+		switch strings.TrimPrefix(label, "mac ") {
 		case "provision", "resize":
 			result = "complete"
 		case "stop":
@@ -285,7 +285,7 @@ func compactNodeState(state string) string {
 }
 
 func nodeActivity(event activity.Event, final bool) string {
-	if final && event.Node != "" && (event.State == "ready" || event.State == "limited") {
+	if final && event.Node != "" && (event.State == "ready" || event.State == "limited") && !strings.HasPrefix(event.Message, "SSH ready: ") {
 		return "SSH ready: barn ssh " + event.Node
 	}
 	message := strings.Join(strings.Fields(event.Message), " ")
@@ -417,11 +417,12 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 // or restart. The root operation survives nested progress and cleanup phases.
 func (item *progress) nodeProgress() (label string, completed, started int) {
 	label = item.operation
-	if label == "" || label == "up" || label == "start" {
-		label = "boot"
+	kind := strings.TrimPrefix(label, "mac ")
+	if kind == "" || kind == "up" || kind == "start" {
+		label = strings.TrimSuffix(label, kind) + "boot"
 	}
 	for _, node := range item.nodes {
-		switch label {
+		switch kind {
 		case "provision":
 			if node.State == "success" {
 				completed++

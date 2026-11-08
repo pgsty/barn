@@ -199,6 +199,10 @@ func (m *Manager) Machine(name string) (*Machine, error) {
 // Up creates the machine when needed, starts it and waits for SSH. It never
 // changes an existing machine: create-time options that differ are refused.
 func (m *Manager) Up(ctx context.Context, name string, options UpOptions) (outcome Outcome, retErr error) {
+	m.queueNodes([]string{name})
+	reporter := m
+	m = m.nodeProgress(name)
+	defer func() { reporter.finishNode(name, outcome, retErr) }()
 	if err := m.requireRunner(ctx); err != nil {
 		return outcome, err
 	}
@@ -409,6 +413,7 @@ type runGuest struct {
 }
 
 func (m *Manager) startLocked(ctx context.Context, operation *lock.File, machine *Machine, options StartOptions, action string) (outcome Outcome, retErr error) {
+	m.Report.Report(activity.Event{Phase: "guest-ready", Address: machine.Network.Address, State: "starting", Message: "starting VM"})
 	defer func() {
 		if retErr != nil && !errors.Is(retErr, errReadinessStopped) && ctx.Err() == nil {
 			machine.LastError = retErr.Error()
@@ -574,11 +579,18 @@ func (m *Manager) showWindow(ctx context.Context, machine *Machine) error {
 // Start boots existing, initialized machines. Several machines start
 // concurrently; each result is reported in the order requested.
 func (m *Manager) Start(ctx context.Context, names []string, options StartOptions) (Outcomes, error) {
+	m.queueNodes(names)
 	if err := m.requireRunner(ctx); err != nil {
+		for _, name := range names {
+			m.finishNode(name, Outcome{}, err)
+		}
 		return Outcomes{}, err
 	}
 	return m.each(ctx, names, func(ctx context.Context, name string) (Outcome, error) {
-		return m.startOne(ctx, name, options)
+		child := m.nodeProgress(name)
+		outcome, err := child.startOne(ctx, name, options)
+		m.finishNode(name, outcome, err)
+		return outcome, err
 	})
 }
 
@@ -633,11 +645,18 @@ var stopGrace = 2 * time.Minute
 // Stop shuts machines down normally, powering off one that does not finish
 // within two minutes. force powers off at once.
 func (m *Manager) Stop(ctx context.Context, names []string, force bool) (Outcomes, error) {
+	m.queueNodes(names)
 	if err := m.requireRunner(ctx); err != nil {
+		for _, name := range names {
+			m.finishNode(name, Outcome{}, err)
+		}
 		return Outcomes{}, err
 	}
 	return m.each(ctx, names, func(ctx context.Context, name string) (Outcome, error) {
-		return m.stopOne(ctx, name, force)
+		child := m.nodeProgress(name)
+		outcome, err := child.stopOne(ctx, name, force)
+		m.finishNode(name, outcome, err)
+		return outcome, err
 	})
 }
 
@@ -773,7 +792,11 @@ func (m *Manager) waitStopped(ctx context.Context, machine *Machine, limit time.
 
 // Restart stops a machine normally and starts it again, so configuration
 // changes take effect.
-func (m *Manager) Restart(ctx context.Context, name string, options StartOptions) (Outcome, error) {
+func (m *Manager) Restart(ctx context.Context, name string, options StartOptions) (outcome Outcome, retErr error) {
+	m.queueNodes([]string{name})
+	reporter := m
+	m = m.nodeProgress(name)
+	defer func() { reporter.finishNode(name, outcome, retErr) }()
 	if err := m.requireRunner(ctx); err != nil {
 		return Outcome{}, err
 	}
@@ -788,7 +811,7 @@ func (m *Manager) Restart(ctx context.Context, name string, options StartOptions
 	if err != nil {
 		return Outcome{}, err
 	}
-	outcome, err := m.startOne(ctx, name, options)
+	outcome, err = m.startOne(ctx, name, options)
 	if err == nil {
 		outcome.Action, outcome.Forced = "restarted", stopped.Forced
 	}
@@ -825,13 +848,19 @@ func (m *Manager) Open(ctx context.Context, name string) (outcome Outcome, retEr
 // Destroy powers machines off and removes their directories. Shared images
 // and other machines are untouched.
 func (m *Manager) Destroy(ctx context.Context, names []string) (Outcomes, error) {
+	m.queueNodes(names)
 	if err := m.requireRunner(ctx); err != nil {
+		for _, name := range names {
+			m.finishNode(name, Outcome{}, err)
+		}
 		return Outcomes{}, err
 	}
 	report := Outcomes{Machines: []Outcome{}}
 	var errs []error
 	for _, name := range names {
-		outcome, err := m.destroyOne(ctx, name)
+		child := m.nodeProgress(name)
+		outcome, err := child.destroyOne(ctx, name)
+		m.finishNode(name, outcome, err)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 			continue
@@ -912,6 +941,10 @@ type RecreateOptions struct {
 // Recreate replaces a machine with a fresh instance of the same name,
 // settings, network and account. Update selects the current default base.
 func (m *Manager) Recreate(ctx context.Context, name string, options RecreateOptions) (outcome Outcome, retErr error) {
+	m.queueNodes([]string{name})
+	reporter := m
+	m = m.nodeProgress(name)
+	defer func() { reporter.finishNode(name, outcome, retErr) }()
 	if err := m.requireRunner(ctx); err != nil {
 		return outcome, err
 	}

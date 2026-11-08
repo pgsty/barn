@@ -243,11 +243,28 @@ func compatibleSetupBase(base *BaseImage, metadata RestoreMetadata, diskBytes in
 
 // setupLocked returns a ready base, restoring one when needed. A download
 // from Apple begins only after Confirm approves its plan.
-func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Config, options SetupOptions) (*BaseImage, error) {
+func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Config, options SetupOptions) (_ *BaseImage, returnErr error) {
+	active := "source"
+	step := func(name, state, message string, done bool) {
+		active = name
+		m.Report.Report(activity.Event{Phase: "image-prepare", Item: name, State: state, Message: message, Done: done})
+	}
+	defer func() {
+		if returnErr != nil {
+			state := "failed"
+			if errors.Is(returnErr, context.Canceled) {
+				state = "cancelled"
+			}
+			step(active, state, returnErr.Error(), true)
+		}
+	}()
+	step("source", "checking", "selecting a compatible macOS restore image", false)
 	plan, err := m.preflightSetup(ctx, config, options)
 	if err != nil {
 		return nil, err
 	}
+	step("source", "ready", "macOS "+plan.spec.Version+" ("+plan.spec.Build+")", true)
+	step("base", "checking", "checking reusable macOS base", false)
 	if plan.readyBase != nil {
 		if config.DefaultBaseID != plan.readyBase.ID && (config.DefaultBaseID == "" || options.Update || options.IPSW != "") {
 			config.DefaultBaseID = plan.readyBase.ID
@@ -255,6 +272,7 @@ func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Conf
 				return nil, err
 			}
 		}
+		step("base", "ready", "reusing macOS "+plan.readyBase.Version+" ("+plan.readyBase.Build+")", true)
 		return plan.readyBase, nil
 	}
 	if err := m.checkVMLimit(ctx, ""); err != nil {
@@ -264,6 +282,7 @@ func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Conf
 	if err != nil {
 		return nil, err
 	}
+	step("installer", "checking", "checking cached or local restore image", false)
 	installer, err := m.obtainInstaller(ctx, plan, options, free)
 	if err != nil {
 		return nil, err
@@ -275,6 +294,8 @@ func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Conf
 	if metadata.Build != installer.Build || !strings.HasPrefix(metadata.Version, "27.") {
 		return nil, failure.New(failure.Integrity, errors.New("the restore image version or build does not match its installer"))
 	}
+	step("installer", "verified", "macOS "+installer.Version+" ("+installer.Build+")", true)
+	step("base", "restoring", "preparing macOS base", false)
 	base, err := m.restoreBase(ctx, held, installer, metadata, plan.diskBytes)
 	if err != nil {
 		return nil, err
@@ -287,6 +308,7 @@ func (m *Manager) setupLocked(ctx context.Context, held *lock.File, config *Conf
 			return nil, err
 		}
 	}
+	step("base", "ready", "macOS "+base.Version+" ("+base.Build+") ready for new machines", true)
 	return base, nil
 }
 

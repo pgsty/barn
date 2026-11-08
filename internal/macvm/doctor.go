@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/failure"
 )
 
@@ -69,15 +70,31 @@ func (m *Manager) setupDiskRequirement(config *Config) (int64, string, error) {
 // changes nothing and starts nothing.
 func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 	report := DoctorReport{OK: true, Checks: []DoctorCheck{}}
+	checking := func(name, message string) {
+		m.Report.Report(activity.Event{Phase: "doctor", Item: name, State: "checking", Message: message})
+	}
+	add := func(name string, err error, detail string) {
+		report.add(name, err, detail)
+		check := report.Checks[len(report.Checks)-1]
+		state := "ok"
+		if !check.OK {
+			state = "failed"
+		}
+		m.Report.Report(activity.Event{Phase: "doctor", Item: name, State: state, Message: check.Detail, Done: true})
+	}
+	checking("host", "checking host and Mac component")
 	if err := m.requireRunner(ctx); err != nil {
-		report.add("host", err, "")
+		add("host", err, "")
 		return report
 	}
+	add("host", nil, "Mac host and component protocol ready")
+	checking("component", "verifying Mac component signature")
 	signature, err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--strict", m.Runner.Binary).CombinedOutput()
 	if err != nil {
 		err = fmt.Errorf("the Mac component signature did not verify: %w: %s", err, strings.TrimSpace(string(signature)))
 	}
-	report.add("component", err, m.Runner.Binary)
+	add("component", err, m.Runner.Binary)
+	checking("virtualization", "checking Virtualization.framework")
 	var probe map[string]any
 	err = m.Runner.Call(ctx, nil, &probe, "probe")
 	if err == nil && probe["virtualization_supported"] != true {
@@ -87,12 +104,13 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 	if version, ok := probe["host_version"].(string); ok {
 		detail = "macOS " + version + " on Apple Silicon; " + detail
 	}
-	report.add("virtualization", err, detail)
+	add("virtualization", err, detail)
 	config, configErr := m.Store.LoadConfig()
 	if errors.Is(configErr, os.ErrNotExist) {
 		config = nil
 		configErr = nil
 	}
+	checking("disk", "checking free space and reusable images")
 	free, freeErr := availableBytes(m.Store.Root)
 	needed, requirementDetail, requirementErr := m.setupDiskRequirement(config)
 	diskErr := errors.Join(freeErr, requirementErr)
@@ -103,28 +121,30 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 	if requirementDetail != "" {
 		diskDetail += "; " + requirementDetail
 	}
-	report.add("disk", diskErr, diskDetail)
+	add("disk", diskErr, diskDetail)
 	if configErr != nil {
-		report.add("data", configErr, m.Store.Root)
+		add("data", configErr, m.Store.Root)
 		return report
 	}
 	if config == nil {
-		report.add("data", nil, "no Mac machines yet; barn mac up creates the first")
+		add("data", nil, "no Mac machines yet; barn mac up creates the first")
 		return report
 	}
-	report.add("data", nil, m.Store.Root)
+	add("data", nil, m.Store.Root)
 	if config.DefaultBaseID != "" {
 		base, err := m.Store.LoadBase(config.DefaultBaseID)
 		if err == nil {
 			err = m.validateBase(base)
 		}
-		report.add("base", err, config.DefaultBaseID)
+		add("base", err, config.DefaultBaseID)
 	}
+	checking("machines", "checking runtime and SSH for every machine")
 	status, err := m.List(ctx, true)
 	if err != nil {
-		report.add("machines", err, "")
+		add("machines", err, "")
 		return report
 	}
+	add("machines", nil, fmt.Sprintf("%d machines inspected", len(status.Machines)))
 	routes, routeErr := m.routes(ctx)
 	for _, view := range status.Machines {
 		machine := view.machine
@@ -132,12 +152,12 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 		if err == nil {
 			err = m.validateBase(base)
 		}
-		report.add(machine.Name+"_base", err, machine.BaseID)
+		add(machine.Name+"_base", err, machine.BaseID)
 		if machine.Initialized {
-			report.add(machine.Name+"_ssh_keys", m.checkSSHMaterial(machine), "private key and pinned host key present")
+			add(machine.Name+"_ssh_keys", m.checkSSHMaterial(machine), "private key and pinned host key present")
 		}
 		for _, share := range machine.Shares {
-			report.add(machine.Name+"_share_"+share.Name, checkShareSource(share), share.Path)
+			add(machine.Name+"_share_"+share.Name, checkShareSource(share), share.Path)
 		}
 		switch view.State {
 		case "running":
@@ -148,7 +168,7 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 					sshErr = fmt.Errorf("%w: %s", sshErr, warning)
 				}
 			}
-			report.add(machine.Name, sshErr, "running · SSH "+view.SSH+" · "+machine.Network.Address)
+			add(machine.Name, sshErr, "running · SSH "+view.SSH+" · "+machine.Network.Address)
 		case "stopped", "prepared":
 			var networkErr error
 			if routeErr != nil {
@@ -156,13 +176,13 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 			} else {
 				networkErr = m.checkRoutesFree(machine, routes)
 			}
-			report.add(machine.Name, networkErr, view.State+" · network "+machine.Network.Subnet+" is free")
+			add(machine.Name, networkErr, view.State+" · network "+machine.Network.Subnet+" is free")
 		default:
 			err := fmt.Errorf("%s is %s", machine.Name, view.State)
 			if view.Error != "" {
 				err = fmt.Errorf("%w: %s", err, view.Error)
 			}
-			report.add(machine.Name, failure.WithNext(err, "barn mac logs "+machine.Name), "")
+			add(machine.Name, failure.WithNext(err, "barn mac logs "+machine.Name), "")
 		}
 	}
 	return report

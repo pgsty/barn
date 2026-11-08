@@ -75,7 +75,9 @@ func macLifecycleOutcome(outcome macvm.Outcome, stderr io.Writer) commandOutcome
 		for _, warning := range outcome.Warnings {
 			warningf(stderr, "%s", warning)
 		}
-		printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, [][]string{macOutcomeRow(outcome)}, 2)
+		if !lifecycleProgressFrozen(out) {
+			printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, [][]string{macOutcomeRow(outcome)}, 2)
+		}
 		switch {
 		case outcome.Action == "configured":
 			if outcome.State != "running" {
@@ -166,7 +168,9 @@ func macOutcomesOutcome(report macvm.Outcomes, stderr io.Writer) commandOutcome 
 			}
 			rows = append(rows, macOutcomeRow(outcome))
 		}
-		printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
+		if !lifecycleProgressFrozen(out) {
+			printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
+		}
 		if len(report.Machines) == 1 {
 			outcome := report.Machines[0]
 			switch {
@@ -193,7 +197,9 @@ func macBaseOutcome(base *macvm.BaseImage) commandOutcome {
 		if base == nil {
 			return nil
 		}
-		printTable(out, []string{"IMAGE", "STATE", "MESSAGE"}, [][]string{{"macOS", "ready", fmt.Sprintf("macOS %s (%s) is ready for new machines", base.Version, base.Build)}}, 1)
+		if !lifecycleProgressFrozen(out) {
+			printTable(out, []string{"IMAGE", "STATE", "MESSAGE"}, [][]string{{"macOS", "ready", fmt.Sprintf("macOS %s (%s) is ready for new machines", base.Version, base.Build)}}, 1)
+		}
 		textField(out, 10, "create", "barn mac up")
 		return nil
 	}}
@@ -271,8 +277,13 @@ func macDoctorOutcome(report macvm.DoctorReport) commandOutcome {
 			detail := strings.Join(strings.Fields(check.Detail), " ")
 			rows = append(rows, []string{check.Name, state, detail})
 		}
-		printTable(out, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
+		if !lifecycleProgressFrozen(out) {
+			printTable(out, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
+		}
 		for _, check := range report.Checks {
+			if !check.OK {
+				textField(out, 10, "detail", check.Name+": "+check.Detail)
+			}
 			if !check.OK && check.Next != "" {
 				textField(out, 10, "next", check.Next)
 			}

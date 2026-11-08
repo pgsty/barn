@@ -50,7 +50,7 @@ func macRun(stderr io.Writer, progressMessage string, action func(macCommandCont
 		}
 		manager := &macvm.Manager{Store: store}
 		if progressMessage != "" {
-			item := startProgress(cmd.Context(), stderr, progressMessage)
+			item := startOperationProgress(cmd.Context(), stderr, progressMessage, strings.TrimPrefix(cmd.CommandPath(), "barn "))
 			defer func() { item.Stop(err) }()
 			manager.Report = item.Report
 		}
@@ -784,7 +784,7 @@ their base until barn mac recreate --update.`,
 disk space, the prepared base, and every machine: its files, keys, shared
 folders, network and SSH. It changes nothing and starts nothing.`,
 		Example: "  barn mac doctor\n  barn --json mac doctor",
-		RunE: macRun(stderr, "", func(c macCommandContext) (commandOutcome, error) {
+		RunE: macRun(stderr, "Checking Mac host and machines", func(c macCommandContext) (commandOutcome, error) {
 			report := c.manager.Doctor(c.cmd.Context())
 			outcome := macDoctorOutcome(report)
 			if !report.OK {
