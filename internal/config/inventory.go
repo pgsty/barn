@@ -18,7 +18,7 @@ import (
 	"github.com/pgsty/barn/internal/network/subnet"
 	"github.com/pgsty/barn/internal/platform"
 	"github.com/pgsty/barn/internal/spec"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // The configuration is a Pigsty-compatible Ansible inventory. Barn reads

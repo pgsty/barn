@@ -167,7 +167,7 @@ for os_name in darwin linux; do
       --arg namespace "https://github.com/pgsty/barn/sbom/${archive_name}/${archive_sha}" '
       .spdxVersion == "SPDX-2.3" and .name == $name and
       .creationInfo.created == $created and .documentNamespace == $namespace and
-      any(.packages[]?; .name == "go.yaml.in/yaml/v3") and
+      any(.packages[]?; .name == "go.yaml.in/yaml/v4") and
       any(.packages[]?; .name == "stdlib" and .versionInfo == $go_version and .licenseDeclared == "BSD-3-Clause") and
       ((.packages | length) > 0) and ((.files | length) > 0)
     ' "${sbom}" >/dev/null || { printf 'SPDX document does not describe %s as expected: %s\n' "${archive_name}" "${sbom}" >&2; exit 1; }

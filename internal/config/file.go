@@ -16,7 +16,7 @@ import (
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
 	"github.com/pgsty/barn/internal/spec"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type Size int64

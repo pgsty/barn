@@ -16,7 +16,7 @@ import (
 	"github.com/pgsty/barn/internal/disk"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/fsutil"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 const (

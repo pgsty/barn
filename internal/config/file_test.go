@@ -6,10 +6,36 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pgsty/barn/internal/spec"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
+
+func TestYAMLCustomScalarsRoundTrip(t *testing.T) {
+	t.Parallel()
+	type settings struct {
+		Memory      Size     `yaml:"memory"`
+		WaitTimeout Duration `yaml:"wait_timeout"`
+	}
+	want := settings{Memory: Size(2 * spec.GiB), WaitTimeout: Duration(90 * time.Second)}
+	data, err := yaml.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "memory: 2GiB\nwait_timeout: 1m30s\n" {
+		t.Fatalf("custom scalar output = %q", got)
+	}
+	var got settings
+	if err := yaml.Unmarshal(data, &got); err != nil || got != want {
+		t.Fatalf("round trip = %+v, %v; want %+v", got, err, want)
+	}
+	for _, input := range []string{"memory: 2048\n", "wait_timeout: 90\n", "wait_timeout: -1s\n"} {
+		if err := yaml.Unmarshal([]byte(input), &got); err == nil {
+			t.Errorf("invalid custom scalar accepted: %q", input)
+		}
+	}
+}
 
 // decodeTestFile mirrors the strict single-document decoding the retired
 // declarative loader performed, so File.Validate/Resolve rules stay covered

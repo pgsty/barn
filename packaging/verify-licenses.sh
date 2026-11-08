@@ -13,8 +13,8 @@ expected=$(printf '%s\n' \
   $'github.com/diskfs/go-diskfs\tv1.9.4' \
   $'github.com/djherbis/times\tv1.6.0' \
   $'github.com/spf13/cobra\tv1.10.2' \
-  $'github.com/spf13/pflag\tv1.0.10' \
-  $'go.yaml.in/yaml/v3\tv3.0.6' \
+  $'github.com/spf13/pflag\tv1.1.0' \
+  $'go.yaml.in/yaml/v4\tv4.0.0' \
   $'golang.org/x/crypto\tv0.58.0' \
   $'golang.org/x/net\tv0.62.0' \
   $'golang.org/x/sys\tv0.49.0' \

@@ -15,7 +15,7 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 	"golang.org/x/term"
 )
 
@@ -489,10 +489,6 @@ func statusStyle(value string) string {
 
 func statusValue(writer io.Writer, value string) string {
 	return styled(writer, statusStyle(value), value)
-}
-
-func statusCell(writer io.Writer, width int, value string) string {
-	return styled(writer, statusStyle(value), padDisplay(value, width))
 }
 
 // printTable renders one aligned table: a dim header row, then rows whose

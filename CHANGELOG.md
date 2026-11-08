@@ -8,6 +8,10 @@ compatibility scope is defined in the
 
 ## Unreleased
 
+- Upgrade YAML to `go.yaml.in/yaml/v4` 4.0.0 and `pflag` to 1.1.0,
+  retaining the existing YAML input and output settings. Update the packaged
+  dependency licenses and SBOM checks for the new module versions. Unfinished
+  YAML documents now report the parser's EOF line in syntax errors.
 - Make `barn purge` delete immediately in both terminals and scripts. Replace
   its `--yes`/`--force` options with opt-in `--ask`, which shows the nodes and
   deletion scope and accepts `y`/`yes`; `n`/`no`, Enter, or EOF cancels.

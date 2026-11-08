@@ -30,7 +30,8 @@ func TestInventoryErrorsStateTheRule(t *testing.T) {
 			t.Errorf("%s: error = %v, want %q", name, err, test.want)
 		}
 	}
-	for data, want := range map[string]string{"": "inventory is empty", "all:\n  children: [\n": "invalid YAML at line 2: "} {
+	// An unfinished sequence is reported at EOF, after the trailing newline.
+	for data, want := range map[string]string{"": "inventory is empty", "all:\n  children: [\n": "invalid YAML at line 3: "} {
 		if _, err := ParseInventory([]byte(data)); err == nil || !strings.HasPrefix(err.Error(), want) {
 			t.Errorf("ParseInventory(%q) = %v, want prefix %q", data, err, want)
 		}

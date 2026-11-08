@@ -255,7 +255,7 @@ for arch in amd64 arm64; do
       any(.packages[]?; .name == $name and .versionInfo == $version and any(.checksums[]?; .algorithm == "SHA256" and .checksumValue == $digest)) and
       any(.packages[]?; .name == "github.com/pgsty/barn") and
       any(.packages[]?; .name == "github.com/diskfs/go-diskfs") and
-      any(.packages[]?; .name == "go.yaml.in/yaml/v3") and
+      any(.packages[]?; .name == "go.yaml.in/yaml/v4") and
       any(.packages[]?; .name == "stdlib" and .versionInfo == $go_version and .licenseDeclared == "BSD-3-Clause") and
       any(.files[]?; .fileName == "usr/bin/barn") and
       any(.files[]?; .fileName == "opt/barn/libexec/barn-hosts-helper") and

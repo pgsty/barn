@@ -14,7 +14,7 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/spec"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func TestPlanNamesImpliedDataDisks(t *testing.T) {
@@ -206,6 +206,36 @@ func TestEncodeOutputYAMLPreservesJSONFieldNames(t *testing.T) {
 	}
 	if count, ok := decoded["count"].(int); !ok || count != 123 {
 		t.Fatalf("YAML count=%#v (%T), want integer 123", decoded["count"], decoded["count"])
+	}
+}
+
+func TestYAMLOutputPreservesScalarTypesAndLayout(t *testing.T) {
+	value := struct {
+		Items   []string `json:"items"`
+		Content string   `json:"content"`
+	}{Items: []string{"yes", "001", "null", "2026-11-08"}, Content: "ready\nwaiting\n"}
+	const want = "items:\n  - yes\n  - \"001\"\n  - \"null\"\n  - \"2026-11-08\"\ncontent: |\n  ready\n  waiting\n"
+	for _, test := range []struct {
+		name   string
+		encode func(io.Writer, any) error
+		prefix string
+	}{
+		{name: "document", encode: encodeOutput},
+		{name: "stream", encode: encodeStreamOutput, prefix: "---\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			_, out, _, err := prepareOutput([]string{"status", "--yaml"}, &stdout, &stderr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := test.encode(out, value); err != nil {
+				t.Fatal(err)
+			}
+			if got := stdout.String(); got != test.prefix+want {
+				t.Fatalf("YAML output = %q, want %q", got, test.prefix+want)
+			}
+		})
 	}
 }
 
