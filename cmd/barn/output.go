@@ -475,6 +475,8 @@ func statusStyle(value string) string {
 	lower := strings.ToLower(value)
 	style := ansiCyan
 	switch {
+	case lower == "restored":
+		style = ansiGreen
 	case lower == "ok", lower == "ready", lower == "running", lower == "removed", lower == "purged", lower == "resized", lower == "unchanged", lower == "installed", lower == "created", lower == "applied", lower == "cached", lower == "imported", lower == "verified", lower == "tracked", lower == "supported", lower == "exact", lower == "healthy", lower == "valid", lower == "active", strings.HasPrefix(lower, "success"):
 		style = ansiGreen
 	case lower == "error", lower == "fail", lower == "failed", lower == "invalid", lower == "missing", lower == "unsafe", lower == "unhealthy", lower == "conflict", strings.Contains(lower, "error"):

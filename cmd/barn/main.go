@@ -322,14 +322,14 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			return commandOutcome{}, newCommandError(exitCapability, err)
 		}
 		rootRunner := setupRootRunner(baseRunner)
-		message := map[string]string{"install": "Installing the Barn network", "uninstall": "Removing the Barn network"}[command]
 		run := func(apply bool) (commandOutcome, bool, error) {
 			// In a confirmed run, warnings belong to the applied result only.
 			warn := apply || !confirm
 			if runtime.GOOS == "darwin" {
 				executor := darwinnet.Executor{User: baseRunner, Root: rootRunner, InUse: deploymentInUse}
 				if command == "install" {
-					return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+					return networkStep(ctx, parent, stderr, command, apply, func(reporter activity.Reporter) (commandOutcome, bool, error) {
+						executor.Progress = reporter
 						report, err := installDarwinNetwork(ctx, executor, options.Archive, options.InterfaceID, runtime.GOARCH, vmnetMode, layout.CIDR(), apply)
 						if err == nil && warn {
 							for _, warning := range report.Warnings {
@@ -339,7 +339,8 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 						return darwinInstallOutcome(report, next), report.Action != "none" && !report.Applied, err
 					})
 				}
-				return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+				return networkStep(ctx, parent, stderr, command, apply, func(reporter activity.Reporter) (commandOutcome, bool, error) {
+					executor.Progress = reporter
 					report, err := executor.Uninstall(ctx, apply)
 					if err == nil && warn && report.Recovered {
 						warningf(stderr, "network.json was unavailable; ownership was confirmed from the installed interface, launchd plist, and binary digests")
@@ -353,7 +354,8 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 				if configErr != nil {
 					return commandOutcome{}, false, newUsageError(configErr)
 				}
-				return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+				return networkStep(ctx, parent, stderr, command, apply, func(reporter activity.Reporter) (commandOutcome, bool, error) {
+					executor.Progress = reporter
 					report, err := executor.InstallConfig(ctx, linuxConfig, apply)
 					if err == nil && warn {
 						for _, warning := range report.Warnings {
@@ -363,7 +365,8 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 					return linuxInstallOutcome(report, layout.CIDR(), next), !report.Applied, err
 				})
 			}
-			return networkStep(ctx, parent, stderr, message, func() (commandOutcome, bool, error) {
+			return networkStep(ctx, parent, stderr, command, apply, func(reporter activity.Reporter) (commandOutcome, bool, error) {
+				executor.Progress = reporter
 				report, err := executor.Uninstall(ctx, apply)
 				return networkRemovalOutcome(report, report.Plan.RemoveFiles, report.Plan.RemoveDirectories, report.Applied, next), !report.Applied, err
 			})
@@ -402,7 +405,8 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 		return commandOutcome{}, newUsageError(err)
 	}
 	baseRunner := execx.OSRunner{Timeout: 5 * time.Second, OutputLimit: 1 << 20}
-	progressItem := startProgress(ctx, stderr, "Inspecting the host network")
+	progressItem := startOperationProgress(ctx, stderr, "Inspecting the host network", "network status")
+	progressItem.Report(activity.Event{Phase: "network", Item: "network", State: "checking", Message: "checking installation, routes and interfaces"})
 	preflightReport := netpreflight.Run(ctx, netpreflight.Request{OS: runtime.GOOS, Arch: runtime.GOARCH, Purpose: netpreflight.Inspect, Layout: layout}, netpreflight.Probe{Runner: baseRunner})
 	installedReadable := preflightReport.Installation.Status == "exact" || preflightReport.Installation.Status == "protected"
 	if options.CIDR == "" && installedReadable && preflightReport.Installation.CIDR != "" && preflightReport.Installation.CIDR != layout.CIDR() {
@@ -411,7 +415,15 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			preflightReport = netpreflight.Run(ctx, netpreflight.Request{OS: runtime.GOOS, Arch: runtime.GOARCH, Purpose: netpreflight.Inspect, Layout: installedLayout}, netpreflight.Probe{Runner: baseRunner})
 		}
 	}
-	doctorReport := (doctor.Probe{}).Run(ctx)
+	for _, row := range networkStatusRows(preflightReport, nil) {
+		progressItem.Report(activity.Event{Phase: "network", Item: row[0], State: row[1], Message: row[2], Done: true})
+	}
+	doctorReport := (doctor.Probe{Progress: func(event activity.Event) {
+		switch event.Item {
+		case "kvm", "linux-family", "linux-network-owner", "bridge-helper":
+			progressItem.Report(event)
+		}
+	}}).Run(ctx)
 	checks := make([]doctor.Check, 0, 4)
 	hasError := !preflightReport.Ready
 	for _, check := range doctorReport.Checks {
@@ -422,50 +434,30 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			}
 		}
 	}
-	progressItem.Stop(nil)
+	var statusErr error
+	if hasError {
+		statusErr = errors.New("network status is not ready")
+	}
+	if ctx.Err() != nil {
+		statusErr = ctx.Err()
+	}
+	progressItem.Stop(statusErr)
 	if errors.Is(parent.Err(), context.Canceled) {
 		return commandOutcome{}, ErrCancelled
 	}
-	result := struct {
-		OS        string              `json:"os"`
-		Arch      string              `json:"arch"`
-		Preflight netpreflight.Report `json:"preflight"`
-		Checks    []doctor.Check      `json:"checks,omitempty"`
-	}{OS: doctorReport.OS, Arch: doctorReport.Arch, Preflight: preflightReport, Checks: checks}
-	renderText := func(stdout, _ io.Writer) error {
-		readiness := "ready"
-		if !preflightReport.Ready {
-			readiness = "not ready"
-		}
-		textField(stdout, 9, "network", fmt.Sprintf("%s (%s, %s)", preflightReport.CIDR, installationWords(preflightReport.Installation.Status), readiness))
-		rows := make([][]string, 0, len(preflightReport.Findings)+len(checks))
-		for _, finding := range preflightReport.Findings {
-			rows = append(rows, []string{finding.Code, string(finding.Severity), finding.Evidence})
-		}
-		for _, check := range checks {
-			rows = append(rows, []string{check.Name, string(check.Status), check.Evidence})
-		}
-		printTable(stdout, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
-		for _, finding := range preflightReport.Findings {
-			if finding.Severity == netpreflight.Error && finding.Fix != "" {
-				textField(stdout, 5, "fix", finding.Code+": "+finding.Fix)
-			}
-		}
-		for _, check := range checks {
-			if check.Status == doctor.Error && check.Fix != "" {
-				textField(stdout, 5, "fix", check.Name+": "+check.Fix)
-			}
-		}
-		return nil
-	}
-	if hasError {
+	outcome := networkStatusOutcome(doctorReport.OS, doctorReport.Arch, preflightReport, checks)
+	if hasError || statusErr != nil {
 		code := exitCapability
 		if preflightReport.ExitCode != 0 {
 			code = preflightReport.ExitCode
 		}
-		return commandOutcome{}, newCommandError(code, errors.New("network status is not ready")).withPayload(result).withText(renderText).quiet()
+		boundary := newCommandError(code, statusErr).withPayload(outcome.payload).withText(outcome.text)
+		if hasError {
+			boundary.quiet()
+		}
+		return commandOutcome{}, boundary
 	}
-	return commandOutcome{payload: result, text: renderText}, nil
+	return outcome, nil
 }
 
 // installationWords turns the preflight installation status into words.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/hostconfig"
@@ -19,11 +20,22 @@ import (
 // directly: only setup knows where socket_vmnet comes from.
 var errNetworkNotInstalled error = failure.New(failure.Capability, errors.New("the Barn network is not installed")).Because("network_absent").Then("barn setup")
 
-// networkStep runs one network plan or apply under a progress line and turns a
-// failure into a command error; classified causes keep their own class.
-func networkStep(ctx, parent context.Context, stderr io.Writer, message string, step func() (commandOutcome, bool, error)) (commandOutcome, bool, error) {
-	progressItem := startProgress(ctx, stderr, message)
-	outcome, pending, err := step()
+// Plans retain their reviewed paths and commands. Only applied operations
+// freeze live rows; a reviewed plan must never look like an applied change.
+func networkStep(ctx, parent context.Context, stderr io.Writer, command string, apply bool, step func(activity.Reporter) (commandOutcome, bool, error)) (commandOutcome, bool, error) {
+	message := "Checking the Barn network plan"
+	if apply {
+		message = map[string]string{"install": "Installing the Barn network", "uninstall": "Removing the Barn network"}[command]
+	}
+	progressItem := startOperationProgress(ctx, stderr, message, "network "+command)
+	var reporter activity.Reporter
+	if apply {
+		reporter = progressItem.Report
+	}
+	outcome, pending, err := step(reporter)
+	if parent.Err() != nil && err == nil {
+		err = parent.Err()
+	}
 	progressItem.Stop(err)
 	if errors.Is(parent.Err(), context.Canceled) {
 		return commandOutcome{}, false, ErrCancelled
@@ -48,6 +60,9 @@ func planStatus(applied, pending bool) string {
 
 func darwinInstallOutcome(report darwinnet.InstallReport, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
+		if lifecycleProgressFrozen(stdout) {
+			return nil
+		}
 		pending := report.Action != "none" && !report.Applied
 		printItemResult(stdout, "network", planStatus(report.Applied, pending), fmt.Sprintf("%s (vmnet %s mode)", report.Plan.State.CIDR, report.Plan.State.Mode))
 		if pending || report.Applied {
@@ -64,6 +79,9 @@ func darwinInstallOutcome(report darwinnet.InstallReport, next string) commandOu
 
 func linuxInstallOutcome(report linuxnet.InstallReport, cidr, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
+		if lifecycleProgressFrozen(stdout) {
+			return nil
+		}
 		printItemResult(stdout, "network", planStatus(report.Applied, !report.Applied), cidr+" (barn0 bridge)")
 		for _, directory := range report.Plan.Directories {
 			textField(stdout, 9, "install", fmt.Sprintf("%s/  %s %s", strings.TrimSuffix(directory.Path, "/"), directory.Owner, directory.Mode))
@@ -85,6 +103,9 @@ func linuxInstallOutcome(report linuxnet.InstallReport, cidr, next string) comma
 
 func networkRemovalOutcome(report any, files, directories []string, applied bool, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
+		if lifecycleProgressFrozen(stdout) {
+			return nil
+		}
 		state, message := "planned", "remove the Barn network"
 		if applied {
 			state, message = "removed", "Barn network removed"

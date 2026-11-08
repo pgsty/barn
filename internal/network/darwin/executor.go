@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/network/subnet"
@@ -31,6 +32,7 @@ type Executor struct {
 	User          execx.Runner
 	Root          execx.Runner
 	StagingParent string
+	Progress      activity.Reporter
 }
 
 var ErrVMNetSharingBusy error = failure.New(failure.Resource, errors.New("macOS vmnet is busy: another sharing service holds the requested subnet (Internet Sharing, Docker Desktop, UTM, or another VM app)")).Because("vmnet_busy").Then("quit that app, or choose another /24 with barn setup -c <cidr>")
@@ -514,10 +516,23 @@ func (e Executor) InstallFromHomebrew(ctx context.Context, binaries LocalBinarie
 }
 
 func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID, arch, mode, cidr string, apply bool) (report InstallReport, retErr error) {
+	steps := activity.Steps{Reporter: e.Progress, Phase: "network"}
+	steps.Start("plan", "checking", "checking network ownership and installation plan")
+	defer func() { steps.Fail(retErr) }()
 	report, retErr = e.planInstall(ctx, origin, interfaceID, arch, mode, cidr)
-	if retErr != nil || !apply || report.Action == "none" {
+	if retErr != nil {
 		return report, retErr
 	}
+	if report.Action == "none" {
+		steps.Done("ready", "matching Barn network already installed")
+		return report, nil
+	}
+	if !apply {
+		steps.Done("planned", "installation plan reviewed; no changes applied")
+		return report, nil
+	}
+	steps.Done("ok", "installation plan checked")
+	steps.Start("files", "installing", "verifying and installing socket_vmnet and network configuration")
 	layout, err := subnet.Parse(report.Plan.State.CIDR)
 	if err != nil {
 		return report, err
@@ -570,10 +585,14 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 		}
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		recovery := activity.Steps{Reporter: e.Progress, Phase: "network"}
+		recovery.Start("rollback", "restoring", "rolling back the partial installation")
 		if rollbackErr := e.rollbackFreshInstall(rollbackCtx, bootstrapped, createdDirs); rollbackErr != nil {
+			recovery.Fail(rollbackErr)
 			retErr = fmt.Errorf("%w; scoped partial-install rollback also failed: %v", retErr, rollbackErr)
 			return
 		}
+		recovery.Done("restored", "partial installation rolled back")
 		retErr = fmt.Errorf("%w; scoped partial install was rolled back", retErr)
 	}()
 	for _, directory := range []struct{ path, mode string }{
@@ -604,6 +623,8 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 			return report, err
 		}
 	}
+	steps.Done("installed", "verified binaries and network configuration installed")
+	steps.Start("service", "starting", "starting socket_vmnet through launchd")
 	before, err := e.snapshotExactHostInterfaces(ctx, layout)
 	if err != nil {
 		return report, fmt.Errorf("capture exact Darwin host interfaces before launch: %w", err)
@@ -621,6 +642,8 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 	if err := e.waitSocket(ctx); err != nil {
 		return report, fmt.Errorf("darwin network did not become ready: %w", err)
 	}
+	steps.Done("ready", "socket_vmnet is accepting connections")
+	steps.Start("interface", "checking", "verifying the new host interface and its ownership")
 	bsdName, err := e.waitNewExactHostInterface(ctx, layout, before)
 	if err != nil {
 		return report, fmt.Errorf("prove newly-created Darwin host interface ownership: %w", err)
@@ -649,6 +672,7 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 	if !installed || verified.State != report.Plan.State || verified.Interface != report.Plan.Interface {
 		return report, errors.New("darwin network post-install verification did not reproduce installed ownership state")
 	}
+	steps.Done("ready", bsdName+" "+report.Plan.State.HostAddress+"/24; ownership verified")
 	rollback = false
 	report.Applied = true
 	report.Checks = map[string]string{
@@ -774,10 +798,17 @@ func (e Executor) rootUnlinkIfExists(ctx context.Context, path string) error {
 	return err
 }
 
-func (e Executor) Uninstall(ctx context.Context, apply bool) (UninstallReport, error) {
+func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport, returnErr error) {
+	steps := activity.Steps{Reporter: e.Progress, Phase: "network"}
+	steps.Start("plan", "checking", "checking ownership and network removal plan")
+	defer func() { steps.Fail(returnErr) }()
 	report, err := e.PlanUninstall(ctx)
-	if err != nil || !apply {
+	if err != nil {
 		return report, err
+	}
+	if !apply {
+		steps.Done("planned", "removal plan reviewed; no changes applied")
+		return report, nil
 	}
 	if e.InUse != nil {
 		if err := e.InUse(ctx); err != nil {
@@ -787,6 +818,8 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (UninstallReport, e
 	if _, err := e.PlanUninstall(ctx); err != nil {
 		return report, err
 	}
+	steps.Done("ok", "ownership verified; removal plan checked")
+	steps.Start("service", "stopping", "stopping socket_vmnet")
 	if _, err := e.Root.Run(ctx, "/bin/launchctl", "bootout", "system/"+ServiceID); err != nil {
 		return report, err
 	}
@@ -797,6 +830,8 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (UninstallReport, e
 		}
 		time.Sleep(time.Second)
 	}
+	steps.Done("stopped", "launchd service stopped")
+	steps.Start("files", "removing", "removing owned network files and directories")
 	for _, path := range append([]string{SocketPath, PIDPath}, report.RemoveFiles...) {
 		if err := e.rootUnlinkIfExists(ctx, path); err != nil {
 			return report, err
@@ -808,6 +843,7 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (UninstallReport, e
 		}
 	}
 	report.Applied = true
+	steps.Done("removed", "Barn network files and directories removed")
 	report.Checks = map[string]string{"removed": "launchd, pinned files, public/protected interface identity, logs, state, lock and empty owned directories"}
 	return report, nil
 }

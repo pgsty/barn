@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/identity"
 	"github.com/pgsty/barn/internal/network/subnet"
@@ -28,6 +29,7 @@ type Executor struct {
 	Root          execx.Runner
 	LookPath      func(string) (string, error)
 	StagingParent string
+	Progress      activity.Reporter
 }
 
 type InstallReport struct {
@@ -257,6 +259,9 @@ func (e Executor) helperAttachSmoke(ctx context.Context, helper string) (returnE
 }
 
 func (e Executor) InstallConfig(ctx context.Context, config Config, apply bool) (_ InstallReport, returnErr error) {
+	steps := activity.Steps{Reporter: e.Progress, Phase: "network"}
+	steps.Start("plan", "checking", "checking network ownership and installation plan")
+	defer func() { steps.Fail(returnErr) }()
 	plan, err := e.PlanInstallConfig(ctx, config)
 	if err != nil {
 		return InstallReport{}, err
@@ -268,8 +273,11 @@ func (e Executor) InstallConfig(ctx context.Context, config Config, apply bool) 
 		}
 	}
 	if !apply {
+		steps.Done("planned", "installation plan reviewed; no changes applied")
 		return report, nil
 	}
+	steps.Done("ok", "installation plan checked")
+	steps.Start("files", "installing", "installing bridge and helper configuration")
 	parent := e.StagingParent
 	if parent == "" {
 		parent = os.TempDir()
@@ -310,27 +318,37 @@ func (e Executor) InstallConfig(ctx context.Context, config Config, apply bool) 
 			return report, err
 		}
 	}
+	steps.Done("installed", "bridge and helper configuration installed")
+	steps.Start("bridge", "starting", "starting barn0 and waiting for its address")
 	if err := e.runInstallPhases(ctx, plan.Phases, false, config); err != nil {
 		return e.rollbackInstall(report, err)
 	}
 	if err := e.waitBridge(ctx, config); err != nil {
 		return e.rollbackInstall(report, err)
 	}
+	steps.Done("ready", "barn0 "+config.HostAddress+"/24")
+	steps.Start("helper", "checking", "testing that a non-root VM can attach to barn0")
 	if err := e.helperAttachSmoke(ctx, plan.Manifest.HelperPath); err != nil {
 		return e.rollbackInstall(report, fmt.Errorf("test that a non-root VM can attach to barn0: %w", err))
 	}
+	steps.Done("ready", "non-root VM attachment verified")
+	steps.Start("persistence", "applying", "enabling the verified network configuration")
 	if err := e.runInstallPhases(ctx, plan.Phases, true, config); err != nil {
 		return e.rollbackInstall(report, err)
 	}
 	// The non-persistence phases are intentionally idempotent and ran twice;
 	// this also exercises repeated reload/reconfigure without recapturing state.
 	report.Applied = true
+	steps.Done("applied", "network configuration persisted")
 	report.Checks["bridge"] = "barn0 " + config.HostAddress + "/24"
 	report.Checks["helper-attach"] = "a non-root test VM attached to barn0"
 	return report, nil
 }
 
 func (e Executor) rollbackInstall(report InstallReport, installErr error) (InstallReport, error) {
+	steps := activity.Steps{Reporter: e.Progress, Phase: "network"}
+	steps.Start("rollback", "restoring", "rolling back the partial installation")
+	e.Progress = nil // Nested uninstall stages belong to the rollback row.
 	rollbackContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	rollback, rollbackErr := e.Uninstall(rollbackContext, true)
@@ -338,8 +356,10 @@ func (e Executor) rollbackInstall(report InstallReport, installErr error) (Insta
 		if rollbackErr == nil {
 			rollbackErr = errors.New("rollback did not report an applied uninstall")
 		}
+		steps.Fail(rollbackErr)
 		return report, fmt.Errorf("%w; automatic rollback also failed: %v", installErr, rollbackErr)
 	}
+	steps.Done("restored", "partial installation rolled back")
 	return report, fmt.Errorf("%w: %w", ErrInstallRolledBack, installErr)
 }
 
@@ -415,12 +435,16 @@ func (e Executor) rootRmdir(ctx context.Context, path string) error {
 }
 
 func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport, returnErr error) {
+	steps := activity.Steps{Reporter: e.Progress, Phase: "network"}
+	steps.Start("plan", "checking", "checking ownership and network removal plan")
+	defer func() { steps.Fail(returnErr) }()
 	plan, manifest, err := e.PlanUninstall(ctx)
 	if err != nil {
 		return UninstallReport{}, err
 	}
 	report := UninstallReport{Plan: plan, Checks: make(map[string]string)}
 	if !apply {
+		steps.Done("planned", "removal plan reviewed; no changes applied")
 		return report, nil
 	}
 	if e.InUse != nil {
@@ -438,9 +462,11 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 		return report, err
 	}
 	report.Plan = plan
+	steps.Done("ok", "ownership verified; removal plan checked")
 	if ManifestBackend(manifest) == BackendNetworkManager {
-		return e.applyNetworkManagerUninstall(ctx, report, plan)
+		return e.applyNetworkManagerUninstall(ctx, report, plan, &steps)
 	}
+	steps.Start("bridge", "removing", "removing barn0 and its network definitions")
 	if _, err := e.Root.Run(ctx, "/usr/bin/networkctl", "delete", BridgeName); err != nil {
 		return report, err
 	}
@@ -452,6 +478,8 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 	if _, err := e.Root.Run(ctx, "/usr/bin/networkctl", "reload"); err != nil {
 		return report, err
 	}
+	steps.Done("removed", "barn0 and network definitions removed")
+	steps.Start("restore", "restoring", "restoring helper permissions and host configuration")
 	if manifest.AppliedOverride != nil {
 		for _, command := range []Command{
 			{Binary: "/usr/bin/dpkg-statoverride", Args: []string{"--remove", manifest.HelperPath}},
@@ -499,6 +527,8 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 			}
 		}
 	}
+	steps.Done("restored", "helper and host configuration restored")
+	steps.Start("files", "removing", "removing owned state and empty directories")
 	if err := e.rootUnlink(ctx, StatePath); err != nil {
 		return report, err
 	}
@@ -508,6 +538,7 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 		}
 	}
 	report.Applied = true
+	steps.Done("removed", "owned state and directories removed")
 	report.Checks["restored"] = "helper, paths and bridge"
 	if plan.PreserveNetworkd {
 		report.Checks["networkd"] = "left unchanged because exclusive Barn use could not be established"
@@ -520,7 +551,8 @@ func (e Executor) Uninstall(ctx context.Context, apply bool) (_ UninstallReport,
 // applyNetworkManagerUninstall executes the NM-backend uninstall plan exactly:
 // delete the owned bridge connection, restore helper prestate, then remove or
 // restore the owned files and prune Barn-created directories.
-func (e Executor) applyNetworkManagerUninstall(ctx context.Context, report UninstallReport, plan UninstallPlan) (UninstallReport, error) {
+func (e Executor) applyNetworkManagerUninstall(ctx context.Context, report UninstallReport, plan UninstallPlan, steps *activity.Steps) (UninstallReport, error) {
+	steps.Start("restore", "restoring", "removing the bridge connection and restoring helper configuration")
 	for _, phase := range plan.Phases {
 		for _, command := range phase.Commands {
 			if _, err := e.Root.Run(ctx, command.Binary, command.Args...); err != nil {
@@ -549,6 +581,8 @@ func (e Executor) applyNetworkManagerUninstall(ctx context.Context, report Unins
 		}
 		_ = os.RemoveAll(staging)
 	}
+	steps.Done("restored", "bridge connection removed and helper configuration restored")
+	steps.Start("files", "removing", "removing owned network files and directories")
 	for _, path := range plan.RemoveFiles {
 		if err := e.rootUnlink(ctx, path); err != nil {
 			return report, err
@@ -560,6 +594,7 @@ func (e Executor) applyNetworkManagerUninstall(ctx context.Context, report Unins
 		}
 	}
 	report.Applied = true
+	steps.Done("removed", "owned network files and directories removed")
 	report.Checks["restored"] = "helper, bridge connection and paths"
 	return report, nil
 }
