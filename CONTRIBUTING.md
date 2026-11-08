@@ -22,7 +22,7 @@ deployment path should preserve these design choices:
 The independent `barn mac` command manages named macOS machines without
 reading the Linux inventory, and runs entirely as the invoking user: each
 machine's network lives inside its own runner process. Keep it that way; see
-[the Mac guide](docs/mac.md).
+[the Mac guide](https://barn.pgsty.com/docs/start/macos/).
 
 Open an issue before a large change so we can agree on the shape first.
 
@@ -116,10 +116,11 @@ workflow or the local release path and listed in `checksums.txt`; no separate
 application-release signing or provenance bundle is produced.
 
 The native macOS guest app is built on macOS 27 and attached to the ordinary
-Darwin arm64 archive before its SBOM/checksums are finalized. It is optional:
-without the Developer ID signing and notarization secrets, the release ships
-the CLI alone; with them, a failed Mac build stops the release. See
-[Mac release preparation](docs/mac-release.md).
+Darwin arm64 archive before its SBOM/checksums are finalized. Formal releases
+require the signed, notarized payload. With no Apple signing secrets configured,
+the tag workflow skips automatic release creation; a partial set fails, and a
+complete set requires a successful Mac build. The local release path requires
+the same verified payload. See the [Mac release handbook](https://barn.pgsty.com/docs/about/mac-release/).
 `make mac-native-test` covers the native components, and
 `tests/mac-release-test.py` exercises payload boundaries as part of
 `make install-test`.
@@ -234,7 +235,7 @@ one current format; do not introduce migration shims for development builds.
 Naming changes must preserve release notes, design rationale, and validation
 records. Update names in those documents and retain their original dates,
 versions, measurements, and limitations. Keep superseded designs accessible
-through the [documentation history](docs/README.md).
+through the [documentation history](https://barn.pgsty.com/docs/about/history/).
 
 ## Release checklist
 

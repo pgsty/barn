@@ -33,7 +33,7 @@ sign_args=(--force --sign "$identity" --options runtime)
 if [[ $identity != - ]]; then sign_args+=(--timestamp); fi
 codesign "${sign_args[@]}" --entitlements native/mac-runner/entitlements.plist "$bundle/barn-mac-runner"
 install -m 0644 LICENSE "$bundle/LICENSE"
-install -m 0644 docs/mac.md "$bundle/USER_GUIDE.md"
+python3 packaging/mac-release.py guide "$bundle/USER_GUIDE.md"
 install -m 0644 native/mac-runner/README.md "$bundle/RUNNER_PROTOCOL.md"
 cat > "$bundle/README.md" <<'EOF'
 # Barn macOS local bundle

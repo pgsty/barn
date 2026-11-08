@@ -106,7 +106,7 @@ tag_commit=$(git -C "${repo}" rev-parse --verify "refs/tags/v${version}^{commit}
 source_epoch=$(git -C "${repo}" show -s --format=%ct "${commit}")
 [[ ${source_epoch} =~ ^[0-9]+$ ]] && (( source_epoch > 0 ))
 [[ -n ${BARN_MAC_PAYLOAD:-} ]] || {
-  printf 'formal releases require BARN_MAC_PAYLOAD with the signed, notarized Mac component (see docs/mac-release.md)\n' >&2
+  printf 'formal releases require BARN_MAC_PAYLOAD with the signed, notarized Mac component (see https://barn.pgsty.com/docs/about/mac-release/)\n' >&2
   exit 1
 }
 BARN_MAC_REQUIRE_NOTARIZATION=1 python3 "${repo}/packaging/mac-release.py" check \

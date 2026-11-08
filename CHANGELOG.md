@@ -263,7 +263,7 @@ packages, host resources, and documentation.
   it with its own pinned key. Machines are copy-on-write clones of one unbooted
   base, have their own private network with a fixed address, share host
   folders and the text clipboard, and never read the Linux inventory. See
-  [the Mac guide](docs/mac.md).
+  [the Mac guide](https://barn.pgsty.com/docs/start/macos/).
 - The macOS restore image comes only from Apple, after a confirmation that
   shows the download (or `--yes`), resumable and verified against Apple's
   SHA-256; `--ipsw` uses a local image, cloned on the same APFS volume instead

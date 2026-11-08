@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n $CERTIFICATE && -n $CERTIFICATE_PASSWORD && -n $SIGNING_IDENTITY && -n $NOTARY_KEY && -n $NOTARY_KEY_ID && -n $NOTARY_ISSUER ]] || {
-            echo "Configure the Mac release secrets documented in docs/mac-release.md before tagging a release." >&2
+            echo "Configure the Mac release secrets documented at https://barn.pgsty.com/docs/about/mac-release/ before tagging a release." >&2
             exit 1
           }
           umask 077

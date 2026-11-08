@@ -26,6 +26,31 @@ CLI = "bin/barn"
 HELPER = "bin/barn-hosts-helper"
 EXECUTABLES = {CLI, HELPER, APP + "/Contents/MacOS/barn-mac-runner"}
 
+MACOS_PAYLOAD_GUIDE = """# Barn macOS guests
+
+The maintained user guide is available at:
+
+https://barn.pgsty.com/docs/start/macos/
+
+This release payload contains the CLI, hosts helper, and Barn.app. Keep those
+files together. The native component requires Apple Silicon and macOS 27 or
+later; `barn mac` stores its state under `$BARN_HOME/mac` (default:
+`~/.barn/mac`) and does not read the Linux inventory.
+
+Common commands:
+
+```bash
+barn mac up [name]
+barn mac ls
+barn mac ssh [name]
+barn mac exec [name] -- command...
+barn mac stop [name]
+```
+
+See the online guide for installation, image preparation, storage, sharing,
+and platform limits.
+"""
+
 
 def identity(version, commit):
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?", version):
@@ -135,7 +160,7 @@ def build(args):
             destination.chmod(0o755)
         shutil.rmtree(go_output)
         subprocess.run(["bash", str(REPO / "packaging/build-mac-app.sh"), str(stage / APP)], env=env, check=True)
-        shutil.copyfile(REPO / "docs/mac.md", stage / "MACOS.md")
+        (stage / "MACOS.md").write_text(MACOS_PAYLOAD_GUIDE, encoding="utf-8")
         signatures = []
         for name in (CLI, HELPER):
             subprocess.run(["codesign", "--verify", "--strict", str(stage / name)], check=True)
@@ -291,9 +316,19 @@ def check(args):
     print(f"Mac payload verified: {manifest['version']} ({manifest['signing']}, notarized={manifest['notarized']})")
 
 
+def guide(args):
+    output = Path(args.output).absolute()
+    if output.exists() or output.is_symlink():
+        raise ValueError("refuse existing Mac guide output")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(MACOS_PAYLOAD_GUIDE, encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    guide_command = commands.add_parser("guide")
+    guide_command.add_argument("output")
     for name in ("build", "attach", "inventory", "check"):
         child = commands.add_parser(name)
         child.add_argument("version")

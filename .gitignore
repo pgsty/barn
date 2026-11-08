@@ -11,3 +11,5 @@
 *.log
 __pycache__/
 /release-assets/
+reports/
+research_notes/

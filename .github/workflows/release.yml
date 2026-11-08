@@ -42,10 +42,10 @@ jobs:
             6) echo configured=true >>"$GITHUB_OUTPUT" ;;
             0)
               echo configured=false >>"$GITHUB_OUTPUT"
-              echo "::notice::Mac signing secrets are not configured; automatic release creation is skipped. Build and publish the complete signed release locally as documented in docs/mac-release.md."
+              echo "::notice::Mac signing secrets are not configured; automatic release creation is skipped. Build and publish the complete signed release locally as documented at https://barn.pgsty.com/docs/about/mac-release/."
               ;;
             *)
-              echo "::error::Only $count of the 6 Mac release secrets are set; configure all of them or none. See docs/mac-release.md."
+              echo "::error::Only $count of the 6 Mac release secrets are set; configure all of them or none. See https://barn.pgsty.com/docs/about/mac-release/."
               exit 1
               ;;
           esac

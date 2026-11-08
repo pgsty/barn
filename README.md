@@ -273,7 +273,7 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 - [Reference](https://barn.pgsty.com/docs/reference/) — configuration, Linux and Mac commands, output, and exit codes.
 - [Platforms and limits](https://barn.pgsty.com/docs/about/status/) — host requirements and guest restrictions.
 - [Release notes](.github/releases/1.0.0.md) — what's new in 1.0.0 and the 1.x compatibility scope.
-- [Design and validation history](docs/README.md) — original proposals, implementation decisions, and dated acceptance records.
+- [Design and validation history](https://barn.pgsty.com/blog/design/) — design decisions, implementation boundaries, and dated acceptance records.
 - [Issues](https://github.com/pgsty/barn/issues) — bug reports and feature requests; use the [security policy](SECURITY.md) for vulnerabilities.
 
 Use `barn --help` or `barn <command> --help` for the options in your installed version.
