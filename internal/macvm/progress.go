@@ -59,7 +59,7 @@ func runnerEvent(line string) activity.Event {
 	case "validating_image":
 		return activity.Event{Phase: "image-verify", Message: "Checking the Apple restore image"}
 	case "restoring":
-		return activity.Event{Phase: "image-restore", Message: fmt.Sprintf("Installing macOS · %.0f%%", native.Fraction*100)}
+		return activity.Event{Phase: "image-restore", Message: fmt.Sprintf("Installing macOS: %.0f%%", native.Fraction*100)}
 	case "installation_completed", "stopping_restore_machine", "restore_machine_stopped":
 		return activity.Event{Phase: "image-restore", Message: "Finishing the unbooted macOS base"}
 	case "restored":

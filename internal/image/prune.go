@@ -143,7 +143,7 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 		if item.Applied {
 			state, message = "removed", "deleted"
 		}
-		reportItem(item.ImagePath, state, fmt.Sprintf("%s · %s · %d bytes", message, item.Kind, item.Bytes), true)
+		reportItem(item.ImagePath, state, fmt.Sprintf("%s, %s, %d bytes", message, item.Kind, item.Bytes), true)
 	}
 	for _, candidate := range candidates {
 		active = candidate.path

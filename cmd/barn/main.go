@@ -453,7 +453,7 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 		}
 		boundary := newCommandError(code, statusErr).withPayload(outcome.payload).withText(outcome.text)
 		if hasError {
-			boundary.quiet()
+			boundary = boundary.quiet()
 		}
 		return commandOutcome{}, boundary
 	}
@@ -674,7 +674,7 @@ func printProvisionReport(stdout, stderr io.Writer, report provision.Report) {
 			if result.Success {
 				state = "success"
 			}
-			rows = append(rows, []string{result.Node, result.Address, state, fmt.Sprintf("exit %d · %s", result.ExitCode, time.Duration(result.DurationMS)*time.Millisecond)})
+			rows = append(rows, []string{result.Node, result.Address, state, fmt.Sprintf("exit %d, %s", result.ExitCode, time.Duration(result.DurationMS)*time.Millisecond)})
 		}
 		printTable(stdout, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
 		marker := "DONE"
@@ -1180,7 +1180,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
 			printPlanTable(stdout, plan, resolved)
 			planState, planMessage := planSummary(plan)
-			bestEffortf(stdout, "  %s  %s\n", styledStatusMarker(stdout, planState), planMessage)
+			printResultSummary(stdout, "plan", planState, planMessage)
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
 			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %s RAM, %s virtual disk capacity", plan.CPUs, planSize(plan.Memory), planSize(plan.Storage)))
 			textField(stdout, 12, "data", planDataDisks(resolved, plan.Nodes))
@@ -1678,7 +1678,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	if canPrepareHost && interactiveTextSession(stderr) {
 		// Supply missing host dependencies or repair the owned network, then
 		// retry the original operation with the same inventory and selectors.
-		bestEffortf(stderr, "%s Preparing the host before starting nodes\n", styled(stderr, ansiCyan, "→"))
+		infof(stderr, "preparing the host before starting nodes")
 		setupOptions := implicitSetupOptions(options, repository)
 		if source == "applied deployment state" {
 			setupOptions.Applied = &resolvedFile
@@ -2094,7 +2094,7 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 	if _, err := io.Copy(followed, handle); err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	bestEffortf(stderr, "%s following %s log for %s\n", styled(stderr, ansiCyan, "→"), options.Source, node)
+	infof(stderr, "following %s log for %s", options.Source, node)
 	for options.Follow {
 		select {
 		case <-ctx.Done():
@@ -2368,7 +2368,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 				info, err = service.InfoArch(ctx, options.Alias, options.Arch)
 			}
 		}
-		finishProgressItem(progressItem, options.Alias, "cached", info.Entry.Release+" · "+info.Entry.Arch, err)
+		finishProgressItem(progressItem, options.Alias, "cached", info.Entry.Release+", "+info.Entry.Arch, err)
 		if errors.Is(parent.Err(), context.Canceled) {
 			return commandOutcome{}, ErrCancelled
 		}
@@ -2424,7 +2424,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if options.Action == "repo-build" {
 			phase = "created"
 		}
-		finishProgressItem(progressItem, "catalog.json", phase, fmt.Sprintf("revision %d · %d images", result.Catalog.Version, len(result.Catalog.Images)), err)
+		finishProgressItem(progressItem, "catalog.json", phase, fmt.Sprintf("revision %d, %d images", result.Catalog.Version, len(result.Catalog.Images)), err)
 		if err != nil {
 			fallback := exitRuntime
 			if options.Action == "repo-verify" {
@@ -2565,7 +2565,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 				localEntry = &entry
 			}
 		}
-		finishProgressItem(progressItem, name, "imported", progressBytes(metadata.ArtifactSize)+" · verified", err)
+		finishProgressItem(progressItem, name, "imported", progressBytes(metadata.ArtifactSize)+", verified", err)
 		if errors.Is(parent.Err(), context.Canceled) {
 			return commandOutcome{}, ErrCancelled
 		}
@@ -2579,7 +2579,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}{Path: path, Metadata: metadata, Entry: localEntry}
 		renderText := func(stdout, _ io.Writer) error {
 			if path != "" {
-				printItemResult(stdout, name, "imported", progressBytes(metadata.ArtifactSize)+" · verified")
+				printItemResult(stdout, name, "imported", progressBytes(metadata.ArtifactSize)+", verified")
 				textField(stdout, 10, "path", path)
 				textField(stdout, 10, "sha256", metadata.Digest)
 				return nil
@@ -2636,12 +2636,12 @@ func runDoctor(parent context.Context, stderr io.Writer) (commandOutcome, error)
 			}
 		}
 		if report.HasErrors() {
-			bestEffortf(stdout, "  %s  this host cannot run Barn guests until the errors above are resolved\n", styledStatusMarker(stdout, "failed"))
+			printResultSummary(stdout, "doctor", "failed", "this host cannot run Barn guests until the errors above are resolved")
 		} else if !lifecycleProgressFrozen(stdout) {
-			bestEffortf(stdout, "  %s  host compute capability is ready\n", styledStatusMarker(stdout, "ready"))
+			printResultSummary(stdout, "doctor", "ready", "host compute capability is ready")
 		}
 		if !report.NetworkReady() {
-			bestEffortf(stdout, "  %s  the Barn network is not ready; run barn setup to prepare it\n", styledStatusMarker(stdout, "blocked"))
+			warningf(stdout, "the Barn network is not ready; run barn setup to prepare it")
 		}
 		return nil
 	}

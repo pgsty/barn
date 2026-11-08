@@ -113,7 +113,7 @@ func TestPlanSummaryUsesResultStates(t *testing.T) {
 	}{
 		{name: "unchanged", action: "none", state: "unchanged", message: "no changes: 2 node(s) (meta, peer) match the applied inventory"},
 		{name: "planned", action: "converge", state: "planned", message: "converge changes are ready to apply"},
-		{name: "blocked", action: "blocked-removal", blocked: "remove old explicitly", state: "blocked", message: "plan blocked: remove old explicitly"},
+		{name: "blocked", action: "blocked-removal", blocked: "remove old explicitly", state: "blocked", message: "blocked: remove old explicitly"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state, message := planSummary(privatevm.LifecyclePlan{Action: test.action, Blocked: test.blocked, Nodes: []string{"meta", "peer"}})

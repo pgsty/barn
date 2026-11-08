@@ -113,27 +113,27 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 		if len(result.Nodes) == 1 {
 			noun = "node"
 		}
-		style, marker := ansiYellow, "!"
+		summaryState := "partial"
 		switch {
 		case noWait && len(result.Failures) == 0:
 			summary = fmt.Sprintf("%d %s started; SSH not checked (--no-wait)", len(result.Nodes), noun)
-			style, marker = ansiCyan, "·"
+			summaryState = "started"
 		case allNodesReady(result.Status):
 			summary = fmt.Sprintf("%d %s ready", ready, noun)
-			style, marker = ansiGreen, "✓"
+			summaryState = "ready"
 			if limited > 0 {
-				summary += fmt.Sprintf(" · %d with limitations", limited)
-				style, marker = ansiYellow, "!"
+				summary += fmt.Sprintf(", %d with limitations", limited)
+				summaryState = "limited"
 			} else if result.Message == "already running" && len(result.Warnings) == 0 && !changed {
-				summary += " · unchanged"
+				summary += ", unchanged"
 			}
 		default:
 			if unchecked > 0 {
-				summary += fmt.Sprintf(" · %d running, unchecked", unchecked)
+				summary += fmt.Sprintf(", %d running, unchecked", unchecked)
 			}
 		}
-		bestEffortf(out, "  %s  %s\n", styled(out, style, marker), summary)
 		if len(result.Failures) > 0 {
+			summaryState = "failed"
 			rows := make([][]string, 0, len(result.Nodes))
 			for _, node := range result.Nodes {
 				phase := string(node.State)
@@ -154,6 +154,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 			}
 			printTable(out, []string{"NAME", "ADDRESS", "STATE"}, rows, 2)
 		}
+		printResultSummary(out, command, summaryState, summary)
 	}
 	if frozen && result.Note != "" {
 		textField(out, 5, "note", result.Note)
@@ -163,7 +164,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 	}
 	printGuestLimitations(out, result.Status, result.Source, result.retryOptions)
 	for _, warning := range result.Warnings {
-		bestEffortf(out, "  %s  %s\n", styledStatusMarker(out, "warning"), warning.Message)
+		warningf(out, "%s", warning.Message)
 		if verboseOutput(out) && warning.Detail != "" {
 			textField(out, 10, "detail", warning.Detail)
 		}
@@ -185,7 +186,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 	var repairNode string
 	for _, node := range status.Nodes {
 		for _, repair := range node.Repairs {
-			bestEffortf(out, "  %s  %s: %s\n", styledStatusMarker(out, "info"), node.Name, repair)
+			infof(out, "%s: %s", node.Name, repair)
 		}
 		if node.State != state.Running {
 			continue
@@ -211,12 +212,12 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 	sort.Strings(messages)
 	for index, message := range messages {
 		if index == 3 && !verboseOutput(out) {
-			bestEffortf(out, "  %s  %d more limitations; barn status --verbose for details\n", styledStatusMarker(out, "warning"), len(messages)-index)
+			warningf(out, "%d more limitations; barn status --verbose for details", len(messages)-index)
 			break
 		}
 		names := groups[message]
 		sort.Strings(names)
-		bestEffortf(out, "  %s  %s: %s\n", styledStatusMarker(out, "warning"), strings.Join(names, ", "), message)
+		warningf(out, "%s: %s", strings.Join(names, ", "), message)
 	}
 	if repairNode != "" {
 		options.NoWait = false // Retrying guest setup requires a readiness check.
@@ -254,7 +255,7 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	for _, message := range messages {
 		names := groups[message]
 		sort.Strings(names)
-		bestEffortf(out, "  %s  %s: %s\n", styledStatusMarker(out, "failed"), strings.Join(names, ", "), message)
+		errorf(out, "%s: %s", strings.Join(names, ", "), message)
 	}
 	sort.Strings(retry)
 	if len(repair) > 0 {
@@ -288,7 +289,7 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 		textField(out, 10, "logs", "barn logs "+bootstrap[0])
 		textField(out, 10, "inspect", "barn ssh "+bootstrap[0])
 		textField(out, 10, "rebuild", lifecycleNodeCommand("recreate", source, bootstrap, options...))
-		bestEffortln(out, "           rebuild replaces root and non-persistent disks; inspect first")
+		textField(out, 10, "note", "rebuild replaces root and non-persistent disks; inspect first")
 	}
 }
 

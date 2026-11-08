@@ -168,7 +168,7 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 					sshErr = fmt.Errorf("%w: %s", sshErr, warning)
 				}
 			}
-			add(machine.Name, sshErr, "running · SSH "+view.SSH+" · "+machine.Network.Address)
+			add(machine.Name, sshErr, "running, SSH "+view.SSH+", "+machine.Network.Address)
 		case "stopped", "prepared":
 			var networkErr error
 			if routeErr != nil {
@@ -176,7 +176,7 @@ func (m *Manager) Doctor(ctx context.Context) DoctorReport {
 			} else {
 				networkErr = m.checkRoutesFree(machine, routes)
 			}
-			add(machine.Name, networkErr, view.State+" · network "+machine.Network.Subnet+" is free")
+			add(machine.Name, networkErr, view.State+", network "+machine.Network.Subnet+" is free")
 		default:
 			err := fmt.Errorf("%s is %s", machine.Name, view.State)
 			if view.Error != "" {

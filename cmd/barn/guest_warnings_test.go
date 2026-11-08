@@ -17,7 +17,7 @@ func TestLimitedLifecycleGroupsWarningsAndReportsRepair(t *testing.T) {
 	}
 	status.Nodes[0].Repairs = []string{"SSH port 2222 busy; using 12222"}
 	printLifecycleResult(&out, "up", lifecycleResult{Status: status}, false)
-	for _, want := range []string{"2 nodes ready · 2 with limitations", "meta, node-1: shared directories: /shared: read-only", "SSH port 2222 busy; using 12222", "barn up meta"} {
+	for _, want := range []string{"2 nodes ready, 2 with limitations", "meta, node-1: shared directories: /shared: read-only", "SSH port 2222 busy; using 12222", "barn up meta"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q: %s", want, out.String())
 		}

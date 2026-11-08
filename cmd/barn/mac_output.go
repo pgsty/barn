@@ -41,7 +41,7 @@ func macStatusOutcome(status macvm.Status) commandOutcome {
 			}
 			ssh := view.SSH
 			if ssh == "unchecked" || ssh == "offline" {
-				ssh = "—"
+				ssh = "-"
 			}
 			shares := []string{}
 			for _, share := range view.Shares {
@@ -99,11 +99,11 @@ func macLifecycleOutcome(outcome macvm.Outcome, stderr io.Writer) commandOutcome
 func macOutcomeRow(outcome macvm.Outcome) []string {
 	system := ""
 	if outcome.Version != "" {
-		system = fmt.Sprintf(" · macOS %s (%s)", outcome.Version, outcome.Build)
+		system = fmt.Sprintf("; macOS %s (%s)", outcome.Version, outcome.Build)
 	}
 	address := ""
 	if outcome.Address != "" && outcome.User != "" {
-		address = " · " + outcome.User + "@" + outcome.Address
+		address = "; " + outcome.User + "@" + outcome.Address
 	}
 	var message string
 	switch outcome.Action {
@@ -120,18 +120,18 @@ func macOutcomeRow(outcome macvm.Outcome) []string {
 			message = outcome.Name + " " + verb + address
 		}
 	case "opened":
-		message = outcome.Name + " desktop open · closing the window keeps it running"
+		message = outcome.Name + " desktop open; closing the window keeps it running"
 	case "stopped":
 		message = outcome.Name + " stopped"
 		if outcome.Forced {
-			message += " · powered off after the normal shutdown did not finish"
+			message += "; powered off after the normal shutdown did not finish"
 		}
 	case "powered_off":
 		message = outcome.Name + " powered off"
 	case "already_stopped":
 		message = outcome.Name + " was already stopped"
 	case "destroyed":
-		message = outcome.Name + " destroyed · the shared macOS base is kept"
+		message = outcome.Name + " destroyed; the shared macOS base is kept"
 	case "absent":
 		message = outcome.Name + " does not exist"
 	case "configured":
@@ -153,7 +153,7 @@ func macOutcomeRow(outcome macvm.Outcome) []string {
 	}
 	ip := outcome.Address
 	if ip == "" {
-		ip = "—"
+		ip = "-"
 	}
 	return []string{outcome.Name, ip, phase, message}
 }
@@ -234,7 +234,7 @@ func macImagesOutcome(images []macvm.ImageEntry) commandOutcome {
 			if image.Default {
 				used = strings.TrimPrefix(used+",default", ",")
 			}
-			capacity := "—"
+			capacity := "-"
 			if image.VirtualCapacityBytes > 0 {
 				capacity = macBytes(image.VirtualCapacityBytes)
 			}
@@ -332,5 +332,5 @@ func printMacHint(out io.Writer) {
 	for _, machine := range machines {
 		names = append(names, machine.Name)
 	}
-	textField(out, 10, "mac", strings.Join(names, ", ")+" · barn mac ls")
+	textField(out, 10, "mac", strings.Join(names, ", ")+"; barn mac ls")
 }

@@ -451,6 +451,16 @@ func debugf(stderr io.Writer, format string, arguments ...any) {
 	bestEffortf(stderr, "%s %s\n", styled(stderr, ansiDim, "debug:"), message)
 }
 
+func infof(stderr io.Writer, format string, arguments ...any) {
+	printResultSummary(stderr, "info", "info", fmt.Sprintf(format, arguments...))
+}
+
+// printResultSummary aligns the label with the table's first column. Status
+// colors decorate readable text without adding symbols or indentation.
+func printResultSummary(writer io.Writer, label, state, message string) {
+	bestEffortf(writer, "%s %s\n", styled(writer, statusStyle(state), label+":"), message)
+}
+
 func warningf(stderr io.Writer, format string, arguments ...any) {
 	message := strings.TrimSpace(fmt.Sprintf(format, arguments...))
 	message = strings.TrimSpace(strings.TrimPrefix(message, "WARNING:"))
@@ -489,26 +499,6 @@ func statusStyle(value string) string {
 
 func statusValue(writer io.Writer, value string) string {
 	return styled(writer, statusStyle(value), value)
-}
-
-// statusMarker gives one compact visual cue to result lines while tables keep
-// the complete state word. The marker follows the same color mapping as the
-// STATE column, so a terminal reader does not need a second legend.
-func statusMarker(state string) string {
-	switch statusStyle(state) {
-	case ansiGreen:
-		return "✓"
-	case ansiYellow:
-		return "!"
-	case ansiRed:
-		return "✗"
-	default:
-		return "·"
-	}
-}
-
-func styledStatusMarker(writer io.Writer, state string) string {
-	return styled(writer, statusStyle(state), statusMarker(state))
 }
 
 func styledCompletionMarker(writer io.Writer, marker string) string {
@@ -744,7 +734,10 @@ func formatActivity(event activity.Event, now time.Time) string {
 				}
 			}
 		}
-		message += " — " + strings.Join(parts, " · ")
+		if message != "" {
+			message += "; "
+		}
+		message += strings.Join(parts, ", ")
 	}
 	return strings.TrimSpace(message)
 }

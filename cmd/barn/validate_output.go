@@ -25,7 +25,7 @@ func printValidationResult(out io.Writer, rows [][]string, elapsed time.Duration
 	}
 	detail := ""
 	if warnings > 0 {
-		detail = fmt.Sprintf(" · %d warning(s)", warnings)
+		detail = fmt.Sprintf(", %d warning(s)", warnings)
 	}
 	bestEffortf(out, "validate %d/%d checks: %s%s %s\n", completed, len(rows), elapsedLabel(elapsed), detail, styledCompletionMarker(out, marker))
 }

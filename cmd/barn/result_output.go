@@ -77,7 +77,7 @@ func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.R
 		}
 		address := addresses[name]
 		if address == "" {
-			address = "—"
+			address = "-"
 		}
 		rows = append(rows, []string{name, address, state, message})
 	}
@@ -86,7 +86,7 @@ func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.R
 
 func planSummary(plan privatevm.LifecyclePlan) (string, string) {
 	if plan.Blocked != "" {
-		return "blocked", "plan blocked: " + plan.Blocked
+		return "blocked", "blocked: " + plan.Blocked
 	}
 	switch plan.Action {
 	case "none":

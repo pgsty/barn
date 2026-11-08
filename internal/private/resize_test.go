@@ -99,7 +99,7 @@ func TestResizeStoppedNodePatchesInvocationWithoutStartingIt(t *testing.T) {
 		t.Fatalf("resize status = %#v", status)
 	}
 	last := events[len(events)-1]
-	if last.State != "resized" || last.Address != desired.Nodes[0].Address || !last.Done || !strings.Contains(last.Message, "RAM 2.0 → 4.0") || !strings.Contains(last.Message, "offline") {
+	if last.State != "resized" || last.Address != desired.Nodes[0].Address || !last.Done || !strings.Contains(last.Message, "RAM 2.0 -> 4.0") || !strings.Contains(last.Message, "offline") {
 		t.Fatalf("resize progress = %+v", events)
 	}
 	node, err := store.ReadNode("meta")

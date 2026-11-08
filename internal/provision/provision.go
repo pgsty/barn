@@ -246,7 +246,7 @@ func (e Executor) Execute(ctx context.Context, script Script, targets []Target, 
 				result := report.Results[index]
 				report.Results[index].Address = target.Address
 				state := "success"
-				message := fmt.Sprintf("exit %d · %s", result.ExitCode, (time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond))
+				message := fmt.Sprintf("exit %d, %s", result.ExitCode, (time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond))
 				if !result.Success {
 					state = "failed"
 					if errors.Is(ctx.Err(), context.Canceled) {

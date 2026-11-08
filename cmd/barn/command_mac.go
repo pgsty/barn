@@ -255,7 +255,7 @@ func macDownloadConsent(yes bool, stderr io.Writer) func(macvm.DownloadPlan) err
 		resume := suspendProgress(stderr)
 		defer resume()
 		remaining := plan.SizeBytes - plan.ResumeBytes
-		bestEffortf(stderr, "%s macOS %s (%s) is not prepared on this Mac yet.\n", styled(stderr, ansiCyan, "→"), plan.Version, plan.Build)
+		infof(stderr, "macOS %s (%s) is not prepared on this Mac yet.", plan.Version, plan.Build)
 		textField(stderr, 10, "download", fmt.Sprintf("%s from Apple (%s)", progressBytes(remaining), macHost(plan.URL)))
 		if plan.ResumeBytes > 0 {
 			textField(stderr, 10, "resume", progressBytes(plan.ResumeBytes)+" already downloaded")

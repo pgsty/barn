@@ -519,7 +519,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 	resourceChange := func(name string) string {
 		before, _ := resizeTargetNode(current.Resolved, name)
 		after, _ := resizeTargetNode(merged, name)
-		return fmt.Sprintf("CPU %d → %d · RAM %.1f → %.1f GiB", before.CPUs, after.CPUs, float64(before.Memory)/float64(spec.GiB), float64(after.Memory)/float64(spec.GiB))
+		return fmt.Sprintf("CPU %d -> %d, RAM %.1f -> %.1f GiB", before.CPUs, after.CPUs, float64(before.Memory)/float64(spec.GiB), float64(after.Memory)/float64(spec.GiB))
 	}
 	for _, name := range selectedNames {
 		if _, changing := resizeSet[name]; changing {
@@ -571,7 +571,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 					} else {
 						stopped = append(stopped, name)
 					}
-					reportNode(name, "resized", resourceChange(name)+" · "+mode, true)
+					reportNode(name, "resized", resourceChange(name)+", "+mode, true)
 					continue
 				}
 				err = errors.Join(fmt.Errorf("online resize did not finish: %w", err), fmt.Errorf("offline recovery failed: %w", recoveryErr))
@@ -582,7 +582,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 		}
 		if applied {
 			online = append(online, name)
-			reportNode(name, "resized", resourceChange(name)+" · online", true)
+			reportNode(name, "resized", resourceChange(name)+", online", true)
 			continue
 		}
 		mode, err := m.resizeOffline(ctx, target)
@@ -596,7 +596,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 		} else {
 			stopped = append(stopped, name)
 		}
-		reportNode(name, "resized", resourceChange(name)+" · "+mode, true)
+		reportNode(name, "resized", resourceChange(name)+", "+mode, true)
 	}
 	message := "resized the deployment"
 	parts := make([]string, 0, 3)

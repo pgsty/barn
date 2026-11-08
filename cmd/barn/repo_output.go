@@ -36,5 +36,5 @@ func printRepoScan(out io.Writer, report image.RepoScanReport, verified bool) {
 	}
 	printTable(out, []string{"IMAGE", "STATE", "MESSAGE"}, rows, 1)
 	textField(out, 10, "root", report.Root)
-	textField(out, 10, "scan", fmt.Sprintf("%d tracked · %d missing · %d untracked · %d unsafe", len(report.Tracked), len(report.Missing), len(report.Untracked), len(report.Unsafe)))
+	textField(out, 10, "scan", fmt.Sprintf("%d tracked, %d missing, %d untracked, %d unsafe", len(report.Tracked), len(report.Missing), len(report.Untracked), len(report.Unsafe)))
 }

@@ -469,12 +469,12 @@ func (session *sudoSession) ensure(ctx context.Context, reason string) error {
 		return nil
 	}
 	if reason != "" {
-		bestEffortf(session.stderr, "%s sudo needed: %s\n", styled(session.stderr, ansiCyan, "→"), reason)
+		textField(session.stderr, 10, "sudo", "needed: "+reason)
 		scope := session.scope
 		if scope == "" {
 			scope = "command"
 		}
-		bestEffortf(session.stderr, "  one password prompt covers this whole %s\n", scope)
+		textField(session.stderr, 10, "note", "one password prompt covers this whole "+scope)
 	}
 	const sudo = "/usr/bin/sudo"
 	if term.IsTerminal(int(os.Stdin.Fd())) {
@@ -856,7 +856,7 @@ func setupMutating(plan setuphost.DependencyPlan, selection setupSelection, repo
 }
 
 // setupNodesSummary renders "1 node: meta @ 10.10.10.10" or
-// "4 nodes: meta @ 10.10.10.10 … node-3 @ 10.10.10.13".
+// "4 nodes: meta @ 10.10.10.10 ... node-3 @ 10.10.10.13".
 func setupNodesSummary(resolved spec.Resolved) string {
 	nodes := resolved.Nodes
 	switch len(nodes) {
@@ -868,12 +868,8 @@ func setupNodesSummary(resolved spec.Resolved) string {
 		return fmt.Sprintf("2 nodes: %s @ %s, %s @ %s", nodes[0].Name, nodes[0].Address, nodes[1].Name, nodes[1].Address)
 	default:
 		first, last := nodes[0], nodes[len(nodes)-1]
-		return fmt.Sprintf("%d nodes: %s @ %s … %s @ %s", len(nodes), first.Name, first.Address, last.Name, last.Address)
+		return fmt.Sprintf("%d nodes: %s @ %s ... %s @ %s", len(nodes), first.Name, first.Address, last.Name, last.Address)
 	}
-}
-
-func planRow(stderr io.Writer, label, format string, arguments ...any) {
-	bestEffortf(stderr, "  %s %s\n", styled(stderr, ansiDim, fmt.Sprintf("%-13s", label)), fmt.Sprintf(format, arguments...))
 }
 
 // setupNetworkAction is what setup will do with the network: install, repair,
@@ -985,25 +981,25 @@ func printSetupPlan(stderr io.Writer, plan setuphost.DependencyPlan, selection s
 
 	switch source {
 	case "BARN_VMNET_ARCHIVE":
-		bestEffortf(stderr, "                backend socket_vmnet %s from BARN_VMNET_ARCHIVE (digest-verified)\n", darwinnet.ReleaseVersion)
+		textField(stderr, 12, "backend", fmt.Sprintf("socket_vmnet %s from BARN_VMNET_ARCHIVE (digest-verified)", darwinnet.ReleaseVersion))
 	case "cache":
-		bestEffortf(stderr, "                backend socket_vmnet %s already cached and verified; no download\n", darwinnet.ReleaseVersion)
+		textField(stderr, 12, "backend", fmt.Sprintf("socket_vmnet %s already cached and verified; no download", darwinnet.ReleaseVersion))
 	case "homebrew":
-		bestEffortf(stderr, "                backend socket_vmnet %s via Homebrew (brew install %s), copied into root-owned /opt/barn\n", darwinnet.ReleaseVersion, darwinnet.SocketVMNetFormula)
-		bestEffortln(stderr, "                fallback: digest-pinned download (selected repository, github.com/lima-vm)")
+		textField(stderr, 12, "backend", fmt.Sprintf("socket_vmnet %s via Homebrew (brew install %s), copied into root-owned /opt/barn", darwinnet.ReleaseVersion, darwinnet.SocketVMNetFormula))
+		textField(stderr, 12, "fallback", "digest-pinned download (selected repository, github.com/lima-vm)")
 	case "download":
-		bestEffortf(stderr, "                downloads socket_vmnet %s (<4 MiB, SHA-256 pinned) from the selected repository or github.com/lima-vm\n", darwinnet.ReleaseVersion)
-		bestEffortln(stderr, "                override with --mirror, --repo, BARN_REPO, or BARN_VMNET_ARCHIVE=/path/to.tar.gz")
+		textField(stderr, 12, "download", fmt.Sprintf("socket_vmnet %s (<4 MiB, SHA-256 pinned) from the selected repository or github.com/lima-vm", darwinnet.ReleaseVersion))
+		textField(stderr, 12, "override", "--mirror, --repo, BARN_REPO, or BARN_VMNET_ARCHIVE=/path/to.tar.gz")
 	}
 	if networkAction == "install" && runtime.GOOS != "darwin" {
-		bestEffortln(stderr, "                backend: barn0 bridge via the active network manager; nothing is downloaded")
+		textField(stderr, 12, "backend", "barn0 bridge via the active network manager; nothing is downloaded")
 	}
 
 	if len(sudoFor) == 0 {
-		planRow(stderr, "privileges", "none; no root action in this plan")
+		textField(stderr, 12, "privileges", "none; no root action in this plan")
 	} else {
-		planRow(stderr, "privileges", "sudo used for: %s", strings.Join(sudoFor, "; "))
-		bestEffortln(stderr, "                at most one password prompt; the first privileged step explains itself")
+		textField(stderr, 12, "privileges", "sudo used for: "+strings.Join(sudoFor, "; "))
+		textField(stderr, 12, "note", "at most one password prompt; the first privileged step explains itself")
 	}
 }
 
@@ -1360,7 +1356,7 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		return failSetup(&result, exitCapability, reportErr)
 	}
 	if result.NetworkCIDR != plannedCIDR {
-		bestEffortf(stderr, "%s Using network %s: %s is not available on this host\n", styled(stderr, ansiCyan, "→"), result.NetworkCIDR, plannedCIDR)
+		infof(stderr, "using network %s: %s is not available on this host", result.NetworkCIDR, plannedCIDR)
 		// The confirmed plan named another network; ask again unless --yes.
 		if !options.Yes {
 			resume := suspendProgress(stderr)

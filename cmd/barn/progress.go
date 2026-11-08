@@ -216,7 +216,7 @@ func (item *progress) logEvent(now time.Time) {
 			message += "; " + event.Node + ": " + event.State
 		}
 	}
-	bestEffortf(item.stderr, "  %s  %s (%s)\n", label, message, elapsedLabel(now.Sub(item.started)))
+	bestEffortf(item.stderr, "%s: %s (%s)\n", label, message, elapsedLabel(now.Sub(item.started)))
 	item.last = now
 }
 
@@ -341,7 +341,7 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 		node := events[name]
 		address := strings.TrimSpace(node.Address)
 		if address == "" {
-			address = "—"
+			address = "-"
 		}
 		state := compactNodeState(strings.TrimSpace(node.State))
 		if state == "" {
@@ -384,7 +384,7 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 		node := events[name]
 		address := strings.TrimSpace(node.Address)
 		if address == "" {
-			address = "—"
+			address = "-"
 		}
 		state := compactNodeState(strings.TrimSpace(node.State))
 		if state == "" {
@@ -473,7 +473,7 @@ func (item *progress) render(now time.Time) []string {
 		if started == len(item.nodes) {
 			line = fmt.Sprintf("%s %d/%d nodes: %s", label, started, len(item.nodes), elapsed)
 		} else if started > 0 {
-			line = fmt.Sprintf("%s %d/%d nodes: %s · %d started", label, completed, len(item.nodes), elapsed, started)
+			line = fmt.Sprintf("%s %d/%d nodes: %s, %d started", label, completed, len(item.nodes), elapsed, started)
 		}
 		line = item.summaryLine(line, columns)
 	} else if showItems {
@@ -489,11 +489,7 @@ func (item *progress) render(now time.Time) []string {
 		}
 		line = item.summaryLine(fmt.Sprintf("%s %d/%d items: %s", label, completed, len(item.items), elapsed), columns)
 	} else {
-		prefix := "  ·  " + padDisplay(label, 9) + " "
-		line = prefix + fitDisplay(message, columns-displayWidth(prefix)-1)
-		if columns >= 60 {
-			line = prefix + padDisplay(fitDisplay(message, columns-displayWidth(prefix)-len(elapsed)-3), columns-displayWidth(prefix)-len(elapsed)-2) + " " + elapsed
-		}
+		line = item.summaryLine(fmt.Sprintf("%s: %s (%s)", label, message, elapsed), columns)
 	}
 	var lines []string
 	if showNodes {
@@ -508,17 +504,14 @@ func (item *progress) render(now time.Time) []string {
 	if !item.stopped && (event.TotalBytes > 0 || event.CurrentBytes > 0) {
 		metrics := event
 		metrics.Message, metrics.Source = "", ""
-		detail := strings.TrimPrefix(formatActivity(metrics, now), "— ")
-		lines = append(lines, "     "+fitDisplay(detail, columns-6))
+		detail := "transfer: " + formatActivity(metrics, now)
+		lines = append(lines, fitDisplay(detail, columns-1))
 		if event.TotalBytes > 0 {
-			lines = append(lines, "     "+progressBar(event.CurrentBytes, event.TotalBytes, min(terminalProgressBarWidth, columns-8), now.Sub(item.started)))
+			lines = append(lines, progressBar(event.CurrentBytes, event.TotalBytes, min(terminalProgressBarWidth, columns-3), now.Sub(item.started)))
 		}
 		if event.Source != "" && columns >= 60 {
-			lines = append(lines, "     "+fitDisplay(event.Source, columns-6))
+			lines = append(lines, fitDisplay("source: "+event.Source, columns-1))
 		}
-	}
-	if columns < 60 && !showNodes && !showItems {
-		lines = append(lines, "     elapsed   "+elapsed)
 	}
 	return append(lines, line)
 }

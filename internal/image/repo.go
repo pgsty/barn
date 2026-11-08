@@ -376,7 +376,7 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (_ Catalog, _
 				if err != nil || before.Size() != after.Size() || before.ModTime() != after.ModTime() || size != before.Size() {
 					return Catalog{}, nil, scan, fmt.Errorf("repository artifact changed while scanning: %s", filename)
 				}
-				report(filename, "verified", fmt.Sprintf("SHA-256 and qcow2 verified · %d bytes", size), true)
+				report(filename, "verified", fmt.Sprintf("SHA-256 and qcow2 verified, %d bytes", size), true)
 				version.Variants[arch] = Artifact{
 					File: "images/" + filename, Upstream: sourceVariant.Upstream,
 					SHA256: digest, Format: "qcow2", ArtifactSize: size, VirtualSize: info.VirtualSize,

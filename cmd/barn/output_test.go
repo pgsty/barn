@@ -311,23 +311,10 @@ func TestStructuredStdoutStaysPlainWhileTerminalStderrCanUseColor(t *testing.T) 
 	}
 }
 
-func TestStatusAndCompletionMarkersFollowTableColors(t *testing.T) {
+func TestCompletionMarkersFollowTableColors(t *testing.T) {
 	state := &outputContext{format: outputText, color: true, stdoutTTY: true, stderrTTY: true}
 	var output bytes.Buffer
 	writer := &outputWriter{Writer: &output, context: state}
-	for _, test := range []struct {
-		state, marker, want string
-	}{
-		{state: "ready", marker: "✓", want: ansiGreen},
-		{state: "warning", marker: "!", want: ansiYellow},
-		{state: "failed", marker: "✗", want: ansiRed},
-		{state: "planned", marker: "·", want: ansiCyan},
-	} {
-		got := styledStatusMarker(writer, test.state)
-		if !strings.Contains(got, test.want+test.marker) {
-			t.Fatalf("state %q marker = %q, want %q", test.state, got, test.want+test.marker)
-		}
-	}
 	if got := styledCompletionMarker(writer, "[DONE]"); !strings.Contains(got, ansiGreen+"[DONE]") {
 		t.Fatalf("done marker = %q", got)
 	}
@@ -335,7 +322,7 @@ func TestStatusAndCompletionMarkersFollowTableColors(t *testing.T) {
 		t.Fatalf("failed marker = %q", got)
 	}
 	state.color = false
-	if strings.Contains(styledStatusMarker(writer, "ready"), "\x1b[") || strings.Contains(styledCompletionMarker(writer, "[DONE]"), "\x1b[") {
+	if strings.Contains(styledCompletionMarker(writer, "[DONE]"), "\x1b[") {
 		t.Fatal("markers contain ANSI when terminal styling is disabled")
 	}
 }
