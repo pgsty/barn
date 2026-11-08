@@ -85,6 +85,46 @@ func TestFreshGeneratedImageTemplateCanRebaseWithoutDroppingImage(t *testing.T) 
 	}
 }
 
+func TestGeneratedArchitectureSurvivesDiscoveryAndNetworkRebase(t *testing.T) {
+	for _, guest := range []string{"native", "amd64", "arm64"} {
+		for _, selectedImage := range []string{"", "el9"} {
+			t.Run(guest+"/"+selectedImage, func(t *testing.T) {
+				cwd := t.TempDir()
+				t.Setenv("BARN_HOME", t.TempDir())
+				selection, err := resolveSetupSelectionWithOverrides("dual", "", "", selectedImage, guest, cwd)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := publishSetupConfig(selection); err != nil {
+					t.Fatal(err)
+				}
+				selection, err = resolveSetupSelection("", "", "", cwd)
+				if err != nil || !selection.Generated || selection.Arch != guest || selection.Image != selectedImage {
+					t.Fatalf("generated architecture not recognized: %+v %v", selection, err)
+				}
+				if err := selection.rebaseGenerated("172.31.251.0/24"); err != nil {
+					t.Fatal(err)
+				}
+				if err := publishSetupConfig(selection); err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(selection.ConfigPath)
+				if err != nil || !strings.Contains(string(data), "vm_arch: "+guest) || !strings.Contains(string(data), "172.31.251.10") {
+					t.Fatalf("rebase lost guest choice: %s %v", data, err)
+				}
+				if selectedImage != "" && !strings.Contains(string(data), "vm_image: "+selectedImage) {
+					t.Fatalf("rebase lost image: %s", data)
+				}
+				for _, filePath := range []string{"", selection.ConfigPath} {
+					if _, err := resolveSetupSelectionWithOverrides("", filePath, "", "", "amd64", cwd); err == nil {
+						t.Fatal("setup accepted a template override on an existing inventory")
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestSetupPublishesThroughDirectoryAliasAndReusesLinkedInventory(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("BARN_HOME", t.TempDir())

@@ -212,7 +212,14 @@ func TestOperationalFlagsExposeScopedShorthands(t *testing.T) {
 		{path: []string{"resize"}, flag: "image", shorthand: "I"},
 		{path: []string{"resize"}, flag: "arch", shorthand: "A"},
 		{path: []string{"init"}, flag: "image", shorthand: "I"},
+		{path: []string{"init"}, flag: "arch", shorthand: "A"},
 		{path: []string{"setup"}, flag: "image", shorthand: "I"},
+		{path: []string{"setup"}, flag: "arch", shorthand: "A"},
+		{path: []string{"validate"}, flag: "image", shorthand: "I"},
+		{path: []string{"validate"}, flag: "arch", shorthand: "A"},
+		{path: []string{"image", "info"}, flag: "arch", shorthand: "A"},
+		{path: []string{"image", "pull"}, flag: "arch", shorthand: "A"},
+		{path: []string{"image", "import"}, flag: "arch", shorthand: "A"},
 		{path: []string{"provision"}, flag: "script", shorthand: "s"},
 		{path: []string{"provision"}, flag: "parallel", shorthand: "p"},
 		{path: []string{"provision"}, flag: "timeout", shorthand: "t"},
@@ -559,7 +566,7 @@ func TestCobraRejectsInvalidTypedOptionsBeforeOperations(t *testing.T) {
 		{arguments: []string{"ssh-config", "--name", "bad/name"}, want: "invalid SSH config name"},
 		{arguments: []string{"ssh-config", "--remove", "meta"}, want: "does not accept node selectors"},
 		{arguments: []string{"image", "import", "missing.qcow2", "--name", "local-x", "--boot", "bad", "--source-user", "dba"}, want: "--boot must be one of"},
-		{arguments: []string{"image", "info", "d13", "--arch", "s390x"}, want: "--arch must be one of"},
+		{arguments: []string{"image", "info", "d13", "--arch", "s390x"}, want: "--arch: unsupported guest architecture"},
 		{arguments: []string{"network", "install", "--mode", "bogus"}, want: "--mode must be one of"},
 	} {
 		var stdout bytes.Buffer

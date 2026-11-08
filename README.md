@@ -133,6 +133,23 @@ deployment share the guest architecture. To keep it, set `vm_arch` in
 Changing an existing VM's image or architecture still requires `recreate`;
 `up` reports the change without replacing its disks.
 
+These flags also work throughout configuration and image preparation:
+
+| Command | Image | Architecture | Effect |
+| --- | --- | --- | --- |
+| `init`, `setup <template>` | `-I` | `-A` | Write `vm_image`/`vm_arch` into a generated inventory |
+| `validate` | `-I` | `-A` | Validate the inventory with temporary overrides |
+| `image info`, `image pull` | Positional image reference | `-A` | Select the target artifact; legacy `-a` still works |
+| `image import --name local-…` | Positional file path | `-A` | Record the imported image's guest architecture |
+
+For example, `barn init full -I el9 -A amd64` saves both choices, while
+`barn validate -f pigsty.yml -I u24 -A arm64` only checks them. Setup's template
+flags do not modify existing inventories. On Linux, setup currently installs
+native host dependencies; a cross-architecture guest also needs its target
+QEMU system emulator and firmware installed. Named image imports default to
+the host architecture; pass `-A` for a foreign image, since qcow2 metadata does
+not identify the guest CPU.
+
 An existing Pigsty inventory works too:
 
 ```bash

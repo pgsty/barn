@@ -21,6 +21,12 @@ compatibility scope is defined in the
 - Keep node selectors and overrides in plan follow-up commands. Architecture
   changes now plan recreation of every existing node and resolve images for
   the requested architecture instead of reusing the previous guest image.
+- Extend `--arch/-A` to generated `init`/`setup` inventories and named local
+  image imports. Generated inventories retain their image and architecture
+  during automatic network rebasing. `validate` accepts `--image/-I` and
+  `--arch/-A` to check the same desired state as lifecycle commands.
+- Standardize `image info` and `image pull` on `--arch/-A`, including the same
+  architecture aliases and `native`; retain the previous `-a` spelling.
 
 ## 1.0.0 — 2026-11-05
 

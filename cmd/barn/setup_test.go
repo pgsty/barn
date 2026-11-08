@@ -77,7 +77,7 @@ func TestResolveSetupSelectionGeneratesPrivateProfileOnce(t *testing.T) {
 func TestResolveSetupSelectionAppliesImageToGeneratedProfile(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	selection, err := resolveSetupSelectionWithImage("full", "", "", "el9", directory)
+	selection, err := resolveSetupSelectionWithOverrides("full", "", "", "el9", "", directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestResolveSetupSelectionRejectsImageForExistingInventory(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolveSetupSelectionWithImage("", path, "", "el9", directory); err == nil || !strings.Contains(err.Error(), "--image applies only") {
+	if _, err := resolveSetupSelectionWithOverrides("", path, "", "el9", "", directory); err == nil || !strings.Contains(err.Error(), "--image/--arch apply only") {
 		t.Fatalf("existing inventory accepted image override: %v", err)
 	}
 }

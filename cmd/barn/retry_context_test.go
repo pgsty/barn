@@ -64,3 +64,15 @@ func TestOverrideResizeRecoveryKeepsDesiredStateWithoutUnsupportedFlags(t *testi
 		t.Fatalf("suggested resize command is not accepted: %v", err)
 	}
 }
+
+func TestPartialArchitectureRecoveryDoesNotRepeatTheBlockedRecreation(t *testing.T) {
+	options := lifecycleRetryOptions{Arch: "amd64", Image: "u24"}
+	err := lifecycleOverrideRecovery(privatevm.ErrWholeDeploymentRequired, "applied deployment state", []string{"meta"}, options)
+	_, reason, next := failure.Classify(err)
+	if !errors.Is(err, privatevm.ErrRecreateRequired) || reason != "recreate_required" {
+		t.Fatalf("selection error lost recreation classification: %v", err)
+	}
+	if !strings.Contains(next, "select all existing nodes") || !strings.Contains(next, "barn plan --image u24 --arch amd64") || strings.Contains(next, "barn recreate") {
+		t.Fatalf("recovery repeated a blocked or wider destructive command: %s", next)
+	}
+}

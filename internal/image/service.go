@@ -142,9 +142,14 @@ func (s Service) ImportFile(ctx context.Context, source, expectedDigest string) 
 	return store.Import(ctx, source, expectedDigest)
 }
 
-// ImportNamed verifies, installs, and registers a local alias.
-func (s Service) ImportNamed(ctx context.Context, source, expectedDigest, name, boot, sourceUser string) (Entry, string, Metadata, error) {
+// ImportNamed verifies, installs, and registers a local alias. Architecture is
+// caller-supplied metadata, defaulting to native; qcow2 does not identify a CPU.
+func (s Service) ImportNamed(ctx context.Context, source, expectedDigest, name, arch, boot, sourceUser string) (Entry, string, Metadata, error) {
 	profile, err := platform.Native()
+	if err != nil {
+		return Entry{}, "", Metadata{}, err
+	}
+	arch, err = platform.GuestArch(arch, profile.Arch)
 	if err != nil {
 		return Entry{}, "", Metadata{}, err
 	}
@@ -156,7 +161,7 @@ func (s Service) ImportNamed(ctx context.Context, source, expectedDigest, name, 
 	if err != nil {
 		return Entry{}, "", Metadata{}, err
 	}
-	return store.RegisterLocalAlias(ctx, name, path, metadata, profile.Arch, boot, sourceUser)
+	return store.RegisterLocalAlias(ctx, name, path, metadata, arch, boot, sourceUser)
 }
 
 func (s Service) manifestManager() (ManifestManager, error) {

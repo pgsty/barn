@@ -12,7 +12,25 @@ import (
 	"github.com/pgsty/barn/internal/platform"
 	privatevm "github.com/pgsty/barn/internal/private"
 	"github.com/pgsty/barn/internal/spec"
+	"github.com/spf13/cobra"
 )
+
+func validateOverrideFlags(command *cobra.Command, _ []string) error {
+	for _, flag := range []string{"image", "arch", "architecture"} {
+		if command.Flags().Changed(flag) {
+			value, _ := command.Flags().GetString(flag)
+			if strings.TrimSpace(value) == "" {
+				return newUsageError(fmt.Errorf("--%s must not be empty", flag))
+			}
+		}
+	}
+	return nil
+}
+
+func addArchitectureFlag(command *cobra.Command, value *string, help string) {
+	command.Flags().StringVarP(value, "arch", "A", "", help+": native, amd64 (x86_64, x64), or arm64 (aarch64, a64)")
+	_ = command.RegisterFlagCompletionFunc("arch", enumFlagCompletion("native", "amd64", "x86_64", "x64", "arm64", "aarch64", "a64"))
+}
 
 func normalizeLifecycleOverrides(options lifecycleOptions) (lifecycleOptions, error) {
 	if options.Image != "" {
@@ -22,7 +40,7 @@ func normalizeLifecycleOverrides(options lifecycleOptions) (lifecycleOptions, er
 		var err error
 		options.Image, err = image.CanonicalReference(options.Image)
 		if err != nil {
-			return options, fmt.Errorf("invalid --image reference: %w", err)
+			return options, fmt.Errorf("invalid image reference for --image: %w", err)
 		}
 	}
 	if options.Arch != "" {
@@ -84,6 +102,9 @@ func lifecycleOverrideFlags(options lifecycleRetryOptions) string {
 func lifecycleOverrideRecovery(err error, source string, nodes []string, options lifecycleRetryOptions) error {
 	if options.Image == "" && options.Arch == "" {
 		return err
+	}
+	if errors.Is(err, privatevm.ErrWholeDeploymentRequired) {
+		return failure.WithNext(err, "select all existing nodes together; review "+lifecycleNodeCommand("plan", source, nil, options)+" before recreating")
 	}
 	if errors.Is(err, privatevm.ErrRecreateRequired) {
 		return failure.WithNext(err, lifecycleNodeCommand("plan", source, nodes, options)+", then "+lifecycleNodeCommand("recreate", source, nodes, options))

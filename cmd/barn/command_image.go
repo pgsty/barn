@@ -94,12 +94,7 @@ repository-failure fallback.`
 			Example:           example,
 			Args:              cobra.MaximumNArgs(1),
 			ValidArgsFunction: imageAliasCompletion,
-			PreRunE: func(_ *cobra.Command, _ []string) error {
-				if options.Arch == "" {
-					return nil
-				}
-				return validateChoice("--arch", options.Arch, "amd64", "arm64")
-			},
+			PreRunE:           validateOverrideFlags,
 			RunE: func(command *cobra.Command, arguments []string) error {
 				if len(arguments) != 0 {
 					options.Alias = arguments[0]
@@ -112,8 +107,11 @@ repository-failure fallback.`
 		} else {
 			command.Aliases = []string{"p"}
 		}
-		command.Flags().StringVarP(&options.Arch, "arch", "a", "", "artifact architecture, amd64 or arm64; defaults to the host architecture")
-		_ = command.RegisterFlagCompletionFunc("arch", enumFlagCompletion("amd64", "arm64"))
+		addArchitectureFlag(command, &options.Arch, "artifact architecture (defaults to native)")
+		// Keep the original -a spelling available to existing scripts.
+		command.Flags().StringVarP(&options.Arch, "architecture", "a", "", "compatibility alias for --arch/-A")
+		_ = command.Flags().MarkHidden("architecture")
+		_ = command.RegisterFlagCompletionFunc("architecture", enumFlagCompletion("native", "amd64", "arm64"))
 		repoHelp := repositoryOnlyFlagHelp
 		if action == "pull" {
 			repoHelp = repositoryFlagHelp
@@ -193,12 +191,18 @@ still remembers the newest revision ever activated.`,
 		Short:   "Import and verify a local qcow2 image",
 		Long: `Copy a regular local image into the private cache, verify an optional SHA-256,
 and inspect its qcow2 metadata. Supplying --name registers an immutable local-
-prefixed alias and therefore also requires --boot and --source-user.`,
+prefixed alias and therefore also requires --boot and --source-user. Use
+--arch/-A with --name for a foreign-architecture image; this records the
+architecture you specify, since qcow2 metadata cannot identify the guest CPU.`,
 		Example: `  barn image import ./base.qcow2
   barn image import ./base.qcow2 --sha256 <digest>
-  barn image import ./base.qcow2 --name local-dev --boot uefi --source-user dba`,
+  barn image import ./base.qcow2 --name local-dev --boot uefi --source-user dba
+  barn image import ./amd64.qcow2 --name local-amd64 -A amd64 --boot uefi --source-user dba`,
 		Args: cobra.ExactArgs(1),
-		PreRunE: func(_ *cobra.Command, _ []string) error {
+		PreRunE: func(command *cobra.Command, args []string) error {
+			if err := validateOverrideFlags(command, args); err != nil {
+				return err
+			}
 			if importOptions.Boot == "" {
 				return nil
 			}
@@ -211,6 +215,7 @@ prefixed alias and therefore also requires --boot and --source-user.`,
 	}
 	importCommand.Flags().StringVarP(&importOptions.ExpectedSHA256, "sha256", "s", "", "optional expected SHA-256")
 	importCommand.Flags().StringVar(&importOptions.Name, "name", "", "optional immutable local- prefixed alias")
+	addArchitectureFlag(importCommand, &importOptions.Arch, "guest architecture recorded with --name (defaults to native)")
 	importCommand.Flags().StringVarP(&importOptions.Boot, "boot", "b", "", "required with --name: bios or uefi")
 	importCommand.Flags().StringVarP(&importOptions.SourceUser, "source-user", "u", "", "required with --name: source image login user")
 	importCommand.MarkFlagsRequiredTogether("name", "boot", "source-user")

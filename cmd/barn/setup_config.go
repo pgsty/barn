@@ -34,37 +34,32 @@ func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
 	if err != nil {
 		return selection
 	}
-	for _, profile := range config.TemplateNames() {
-		template, err := config.Template(profile, "")
-		if err == nil && bytes.Equal(template, data) {
-			selection.Profile, selection.Generated = profile, true
-			selection.OriginalConfig = data
-			return selection
+	// Recognize only byte-for-byte generated templates, preserving both explicit
+	// choices if network setup needs to move a fresh lab to another subnet.
+	images := []string{""}
+	if len(selection.File.Nodes) != 0 {
+		selectedImage := selection.File.Nodes[0].Image
+		allSame := true
+		for _, node := range selection.File.Nodes[1:] {
+			if node.Image != selectedImage {
+				allSame = false
+				break
+			}
 		}
-		// `barn init --image` and `barn setup <template> --image` produce the
-		// same built-in topology with an explicit per-node image override.
-		// Treat that form as generated too, so an automatic network rebase
-		// never drops the selected image.
-		if len(selection.File.Nodes) != 0 {
-			selectedImage := selection.File.Nodes[0].Image
-			if selectedImage == "" {
-				continue
-			}
-			allSame := true
-			for _, node := range selection.File.Nodes[1:] {
-				if node.Image != selectedImage {
-					allSame = false
-					break
+		if allSame && selectedImage != "" {
+			images = append(images, selectedImage)
+		}
+	}
+	for _, profile := range config.TemplateNames() {
+		for _, selectedImage := range images {
+			for _, selectedArch := range []string{"", selection.File.Arch} {
+				template, err := config.TemplateWithOptions(profile, "", config.TemplateOptions{Image: selectedImage, Arch: selectedArch})
+				if err == nil && bytes.Equal(template, data) {
+					selection.Profile, selection.Generated = profile, true
+					selection.Image, selection.Arch = selectedImage, selectedArch
+					selection.OriginalConfig = data
+					return selection
 				}
-			}
-			if !allSame {
-				continue
-			}
-			template, err := config.TemplateWithImage(profile, "", selectedImage)
-			if err == nil && bytes.Equal(template, data) {
-				selection.Profile, selection.Image, selection.Generated = profile, selectedImage, true
-				selection.OriginalConfig = data
-				return selection
 			}
 		}
 	}

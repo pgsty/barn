@@ -7,6 +7,10 @@ import (
 	"github.com/pgsty/barn/internal/state"
 )
 
+// ErrWholeDeploymentRequired distinguishes a blocked partial selection from a
+// recreation that can proceed with the original node selectors.
+var ErrWholeDeploymentRequired = fmt.Errorf("%w: deployment-level settings changed; select all existing nodes to apply them", ErrRecreateRequired)
+
 // An explicit selection applies only those definitions. Keeping applied peers
 // also prevents inventory omissions from becoming implicit destruction.
 func applyNodeSelection(current, desired spec.Resolved, selectors []string) (spec.Resolved, error) {
@@ -33,7 +37,7 @@ func applyNodeSelection(current, desired spec.Resolved, selectors []string) (spe
 		}
 		if peer, exists := currentByName[node.Name]; exists {
 			if !equalResolvedEnvelope(current, desired) {
-				return spec.Resolved{}, fmt.Errorf("%w: deployment-level settings changed; select all existing nodes to apply them", ErrRecreateRequired)
+				return spec.Resolved{}, ErrWholeDeploymentRequired
 			}
 			merged.Nodes = append(merged.Nodes, cloneNode(peer))
 		}
@@ -45,7 +49,7 @@ func applyNodeSelection(current, desired spec.Resolved, selectors []string) (spe
 			continue
 		}
 		if !equalResolvedEnvelope(current, desired) {
-			return spec.Resolved{}, fmt.Errorf("%w: deployment-level settings changed; select all existing nodes to apply them", ErrRecreateRequired)
+			return spec.Resolved{}, ErrWholeDeploymentRequired
 		}
 		merged.Nodes = append(merged.Nodes, cloneNode(node))
 	}

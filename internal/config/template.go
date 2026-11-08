@@ -7,6 +7,7 @@ import (
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/network/subnet"
+	"github.com/pgsty/barn/internal/platform"
 )
 
 // Built-in templates are deliberately generic topologies — nodes, addresses,
@@ -44,17 +45,36 @@ func Template(name, cidr string) ([]byte, error) {
 // the same explicit image reference. A blank override preserves the original
 // implicit embedded-catalog default.
 func TemplateWithImage(name, cidr, imageOverride string) ([]byte, error) {
+	return TemplateWithOptions(name, cidr, TemplateOptions{Image: imageOverride})
+}
+
+type TemplateOptions struct {
+	Image string
+	Arch  string
+}
+
+// TemplateWithOptions writes explicit image and architecture choices into
+// all.vars. Empty choices retain the catalog default and native architecture.
+func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, error) {
 	nodes, exists := templateProfiles[name]
 	if !exists {
 		return nil, failure.New(failure.Usage, fmt.Errorf("unknown lab template %q; available: %s", name, strings.Join(TemplateNames(), ", ")))
 	}
 	selectedImage := defaultImage
-	if strings.TrimSpace(imageOverride) != "" {
-		canonical, err := image.CanonicalReference(imageOverride)
+	if options.Image != "" {
+		canonical, err := image.CanonicalReference(options.Image)
 		if err != nil {
-			return nil, failure.New(failure.Usage, fmt.Errorf("invalid image reference %q: %w", imageOverride, err))
+			return nil, failure.New(failure.Usage, fmt.Errorf("invalid image reference %q: %w", options.Image, err))
 		}
 		selectedImage = canonical
+	}
+	selectedArch := ""
+	if options.Arch != "" {
+		var err error
+		selectedArch, err = platform.NormalizeArch(options.Arch)
+		if err != nil {
+			return nil, failure.New(failure.Usage, err)
+		}
 	}
 	if cidr == "" {
 		cidr = subnet.DefaultCIDR
@@ -74,8 +94,11 @@ func TemplateWithImage(name, cidr, imageOverride string) ([]byte, error) {
 	fmt.Fprintf(&output, "all:\n")
 	fmt.Fprintf(&output, "  vars:\n")
 	fmt.Fprintf(&output, "    admin_ip: %s.%d\n", prefix, nodes[0].LastOctet)
-	if strings.TrimSpace(imageOverride) != "" {
+	if options.Image != "" {
 		fmt.Fprintf(&output, "    vm_image: %s\n", selectedImage)
+	}
+	if selectedArch != "" {
+		fmt.Fprintf(&output, "    vm_arch: %s\n", selectedArch)
 	}
 	fmt.Fprintf(&output, "  children:\n")
 	fmt.Fprintf(&output, "    nodes:\n")

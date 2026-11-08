@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -173,9 +171,9 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 	}
 	if lifecycleReadsConfig(name) {
 		command.Flags().StringVarP(&options.Image, "image", "I", "", "override vm_image/vm_version for selected nodes without editing the inventory")
-		command.Flags().StringVarP(&options.Arch, "arch", "A", "", "override deployment vm_arch: native, amd64 (x86_64, x64), or arm64 (aarch64, a64)")
+		addArchitectureFlag(command, &options.Arch, "override deployment vm_arch")
 		_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
-		_ = command.RegisterFlagCompletionFunc("arch", enumFlagCompletion("native", "amd64", "x86_64", "x64", "arm64", "aarch64", "a64"))
+		command.PreRunE = validateOverrideFlags
 		command.Long += `
 
 Use --image/-I and --arch/-A to override the inventory for this command.
@@ -185,14 +183,6 @@ guests use slower QEMU TCG emulation. Up never replaces existing VM disks;
 use recreate to apply image or architecture changes to existing nodes.`
 	}
 	command.RunE = func(command *cobra.Command, nodes []string) error {
-		for _, flag := range []string{"image", "arch"} {
-			if command.Flags().Changed(flag) {
-				value, _ := command.Flags().GetString(flag)
-				if strings.TrimSpace(value) == "" {
-					return newUsageError(fmt.Errorf("--%s must not be empty", flag))
-				}
-			}
-		}
 		outcome, err := runLifecycleCommand(command.Context(), name, options, nodes, stderr)
 		if err != nil {
 			return err

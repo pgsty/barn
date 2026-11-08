@@ -2069,15 +2069,19 @@ type validateResult struct {
 	Warnings []string      `json:"warnings,omitempty"`
 }
 
-func runValidate(filePath, repository string) (commandOutcome, error) {
-	if _, _, err := image.ResolveRepository(repository, false); err != nil {
+func runValidate(options lifecycleOptions) (commandOutcome, error) {
+	options, err := normalizeLifecycleOverrides(options)
+	if err != nil {
+		return commandOutcome{}, newUsageError(err)
+	}
+	if _, _, err := image.ResolveRepository(options.Repository, false); err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	file, source, err := config.Discover(cwd, filePath)
+	file, source, err := config.Discover(cwd, options.ConfigPath)
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
@@ -2085,7 +2089,8 @@ func runValidate(filePath, repository string) (commandOutcome, error) {
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
-	imageWarnings, err := checkInventoryImages(context.Background(), resolved, repository)
+	resolved = applyLifecycleOverrides(resolved, nil, options)
+	imageWarnings, err := checkInventoryImages(context.Background(), resolved, options.Repository)
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
@@ -2097,6 +2102,7 @@ func runValidate(filePath, repository string) (commandOutcome, error) {
 	result := validateResult{Valid: true, Source: source, SpecHash: hash, Resolved: resolved, Warnings: warnings}
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printWarnings(stderr, warnings)
+		printLifecycleOverrides(stderr, options)
 		names := make([]string, 0, len(resolved.Nodes))
 		for _, node := range resolved.Nodes {
 			names = append(names, node.Name)
@@ -2110,6 +2116,7 @@ type initOptions struct {
 	Template string
 	CIDR     string
 	Image    string
+	Arch     string
 	Output   string
 	Force    bool
 }
@@ -2117,6 +2124,7 @@ type initOptions struct {
 type initResult struct {
 	Template string `json:"template"`
 	Image    string `json:"image,omitempty"`
+	Arch     string `json:"arch,omitempty"`
 	Content  string `json:"content,omitempty"`
 	Path     string `json:"path,omitempty"`
 }
@@ -2126,15 +2134,12 @@ func runInit(options initOptions) (commandOutcome, error) {
 	if name == "" {
 		name = "meta"
 	}
-	selectedImage := strings.TrimSpace(options.Image)
-	if selectedImage != "" {
-		canonical, err := image.CanonicalReference(selectedImage)
-		if err != nil {
-			return commandOutcome{}, newUsageError(fmt.Errorf("invalid image reference %q: %w", options.Image, err))
-		}
-		selectedImage = canonical
+	overrides, err := normalizeLifecycleOverrides(lifecycleOptions{Image: options.Image, Arch: options.Arch})
+	if err != nil {
+		return commandOutcome{}, newUsageError(err)
 	}
-	data, err := config.TemplateWithImage(name, options.CIDR, selectedImage)
+	selectedImage, selectedArch := overrides.Image, overrides.Arch
+	data, err := config.TemplateWithOptions(name, options.CIDR, config.TemplateOptions{Image: selectedImage, Arch: selectedArch})
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
@@ -2147,7 +2152,7 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 	}
 	if options.Output == "-" {
-		result := initResult{Template: name, Image: selectedImage, Content: string(data)}
+		result := initResult{Template: name, Image: selectedImage, Arch: selectedArch, Content: string(data)}
 		return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 			printWarnings(stderr, warnings)
 			_, _ = stdout.Write(data)
@@ -2177,12 +2182,15 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	result := initResult{Template: name, Image: selectedImage, Path: target}
+	result := initResult{Template: name, Image: selectedImage, Arch: selectedArch, Path: target}
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printWarnings(stderr, warnings)
 		textField(stdout, 10, "template", name)
 		if selectedImage != "" {
 			textField(stdout, 10, "image", selectedImage)
+		}
+		if selectedArch != "" {
+			textField(stdout, 10, "arch", selectedArch)
 		}
 		textField(stdout, 10, "wrote", target)
 		next := "barn up"
@@ -2212,6 +2220,13 @@ type imageOptions struct {
 }
 
 func runImage(parent context.Context, options imageOptions, stderr io.Writer) (commandOutcome, error) {
+	if options.Arch != "" {
+		var err error
+		options.Arch, err = platform.GuestArch(options.Arch, runtime.GOARCH)
+		if err != nil {
+			return commandOutcome{}, newUsageError(fmt.Errorf("--arch: %w", err))
+		}
+	}
 	switch options.Action {
 	case "update":
 		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
@@ -2433,6 +2448,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if options.Path == "" {
 			return commandOutcome{}, newUsageError(errors.New("image import requires a path"))
 		}
+		if options.Arch != "" && options.Name == "" {
+			return commandOutcome{}, newUsageError(errors.New("--arch requires --name so the imported image's architecture can be recorded"))
+		}
 		invalidAliasMetadata := (options.Name == "" && (options.Boot != "" || options.SourceUser != "")) || (options.Name != "" && (options.SourceUser == "" || (options.Boot != "bios" && options.Boot != "uefi")))
 		if invalidAliasMetadata {
 			return commandOutcome{}, newUsageError(errors.New("--name requires --boot bios|uefi and --source-user; alias metadata is immutable"))
@@ -2451,7 +2469,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if options.Name == "" {
 			path, metadata, err = service.ImportFile(ctx, options.Path, options.ExpectedSHA256)
 		} else {
-			entry, importedPath, importedMetadata, importErr := service.ImportNamed(ctx, options.Path, options.ExpectedSHA256, options.Name, options.Boot, options.SourceUser)
+			entry, importedPath, importedMetadata, importErr := service.ImportNamed(ctx, options.Path, options.ExpectedSHA256, options.Name, options.Arch, options.Boot, options.SourceUser)
 			path, metadata, err = importedPath, importedMetadata, importErr
 			if importErr == nil {
 				localEntry = &entry
