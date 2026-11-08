@@ -2112,44 +2112,62 @@ type validateResult struct {
 }
 
 func runValidate(options lifecycleOptions) (commandOutcome, error) {
+	started := time.Now()
+	rows := make([][]string, 0, 3)
+	failed := func(item string, code int, err error) (commandOutcome, error) {
+		rows = append(rows, []string{item, "failed", err.Error()})
+		elapsed := time.Since(started)
+		return commandOutcome{}, newCommandError(code, err).withText(func(stdout, _ io.Writer) error {
+			printValidationResult(stdout, rows, elapsed, false)
+			return nil
+		})
+	}
 	options, err := normalizeLifecycleOverrides(options)
 	if err != nil {
-		return commandOutcome{}, newUsageError(err)
+		return failed("options", exitUsage, err)
 	}
 	if _, _, err := image.ResolveRepository(options.Repository, false); err != nil {
-		return commandOutcome{}, newUsageError(err)
+		return failed("repository", exitUsage, err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return commandOutcome{}, newRuntimeError(err)
+		return failed("configuration", exitRuntime, err)
 	}
 	file, source, err := config.Discover(cwd, options.ConfigPath)
 	if err != nil {
-		return commandOutcome{}, newUsageError(err)
+		return failed("configuration", exitUsage, err)
 	}
+	rows = append(rows, []string{"configuration", "valid", source})
 	resolved, err := file.Resolve()
 	if err != nil {
-		return commandOutcome{}, newUsageError(err)
+		return failed("nodes", exitUsage, err)
 	}
 	resolved = applyLifecycleOverrides(resolved, nil, options)
+	names := make([]string, 0, len(resolved.Nodes))
+	for _, node := range resolved.Nodes {
+		names = append(names, node.Name)
+	}
+	rows = append(rows, []string{"nodes", "valid", fmt.Sprintf("%d nodes: %s", len(names), strings.Join(names, ", "))})
 	imageWarnings, err := checkInventoryImages(context.Background(), resolved, options.Repository)
 	if err != nil {
-		return commandOutcome{}, newUsageError(err)
+		return failed("images", exitUsage, err)
 	}
+	rows = append(rows, validationImageRow(resolved, imageWarnings))
 	hash, err := spec.Hash(resolved)
 	if err != nil {
-		return commandOutcome{}, newRuntimeError(err)
+		return failed("configuration hash", exitRuntime, err)
 	}
-	warnings := append(configurationWarnings(resolved), imageWarnings...)
+	warnings := configurationWarnings(resolved)
+	if len(warnings) > 0 {
+		rows[1][1] = "warning"
+	}
+	warnings = append(warnings, imageWarnings...)
 	result := validateResult{Valid: true, Source: source, SpecHash: hash, Resolved: resolved, Warnings: warnings}
+	elapsed := time.Since(started)
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
+		printValidationResult(stdout, rows, elapsed, true)
 		printWarnings(stderr, warnings)
 		printLifecycleOverrides(stderr, options)
-		names := make([]string, 0, len(resolved.Nodes))
-		for _, node := range resolved.Nodes {
-			names = append(names, node.Name)
-		}
-		bestEffortf(stdout, "%s %s (%d node(s): %s)\n", statusValue(stdout, "valid:"), source, len(names), strings.Join(names, ", "))
 		return nil
 	}}, nil
 }
