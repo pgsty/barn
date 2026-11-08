@@ -251,7 +251,7 @@ func (item *progress) renderLive(now time.Time) []string {
 	if len(lines) < outputRows(item.context, item.stderr) {
 		return lines
 	}
-	lines = lines[:1]
+	lines = lines[len(lines)-1:]
 	if outputRows(item.context, item.stderr) > 2 {
 		event := item.event
 		name := event.Node
@@ -495,8 +495,17 @@ func (item *progress) render(now time.Time) []string {
 			line = prefix + padDisplay(fitDisplay(message, columns-displayWidth(prefix)-len(elapsed)-3), columns-displayWidth(prefix)-len(elapsed)-2) + " " + elapsed
 		}
 	}
-	lines := []string{line}
-	if event.TotalBytes > 0 || event.CurrentBytes > 0 {
+	var lines []string
+	if showNodes {
+		lines = append(lines, item.renderNodes(columns)...)
+	} else if showItems {
+		header := "ITEM"
+		if strings.HasPrefix(item.operation, "image ") || strings.HasPrefix(item.operation, "repo ") {
+			header = "IMAGE"
+		}
+		lines = append(lines, item.renderRows(columns, item.itemOrder, item.items, header, false)...)
+	}
+	if !item.stopped && (event.TotalBytes > 0 || event.CurrentBytes > 0) {
 		metrics := event
 		metrics.Message, metrics.Source = "", ""
 		detail := strings.TrimPrefix(formatActivity(metrics, now), "— ")
@@ -508,24 +517,20 @@ func (item *progress) render(now time.Time) []string {
 			lines = append(lines, "     "+fitDisplay(event.Source, columns-6))
 		}
 	}
-	if showNodes {
-		lines = append(lines, item.renderNodes(columns)...)
-	} else if showItems {
-		header := "ITEM"
-		if strings.HasPrefix(item.operation, "image ") || strings.HasPrefix(item.operation, "repo ") {
-			header = "IMAGE"
-		}
-		lines = append(lines, item.renderRows(columns, item.itemOrder, item.items, header, false)...)
-	}
 	if columns < 60 && !showNodes && !showItems {
 		lines = append(lines, "     elapsed   "+elapsed)
 	}
-	return lines
+	return append(lines, line)
 }
 
 func (item *progress) summaryLine(line string, columns int) string {
 	marker := item.completionMarker()
-	return fitDisplay(line, max(0, columns-1-displayWidth(marker))) + marker
+	line = fitDisplay(line, max(0, columns-1-displayWidth(marker)))
+	if !item.tty {
+		return line + marker
+	}
+	writer := &outputWriter{Writer: item.stderr, context: item.context, stderr: true}
+	return line + styledCompletionMarker(writer, marker)
 }
 
 func (item *progress) completionMarker() string {

@@ -475,7 +475,7 @@ func statusStyle(value string) string {
 	lower := strings.ToLower(value)
 	style := ansiCyan
 	switch {
-	case lower == "restored":
+	case lower == "restored", lower == "copied":
 		style = ansiGreen
 	case lower == "ok", lower == "ready", lower == "running", lower == "removed", lower == "purged", lower == "resized", lower == "unchanged", lower == "installed", lower == "created", lower == "applied", lower == "cached", lower == "imported", lower == "verified", lower == "tracked", lower == "supported", lower == "exact", lower == "healthy", lower == "valid", lower == "active", strings.HasPrefix(lower, "success"):
 		style = ansiGreen
@@ -489,6 +489,41 @@ func statusStyle(value string) string {
 
 func statusValue(writer io.Writer, value string) string {
 	return styled(writer, statusStyle(value), value)
+}
+
+// statusMarker gives one compact visual cue to result lines while tables keep
+// the complete state word. The marker follows the same color mapping as the
+// STATE column, so a terminal reader does not need a second legend.
+func statusMarker(state string) string {
+	switch statusStyle(state) {
+	case ansiGreen:
+		return "✓"
+	case ansiYellow:
+		return "!"
+	case ansiRed:
+		return "✗"
+	default:
+		return "·"
+	}
+}
+
+func styledStatusMarker(writer io.Writer, state string) string {
+	return styled(writer, statusStyle(state), statusMarker(state))
+}
+
+func styledCompletionMarker(writer io.Writer, marker string) string {
+	var style string
+	switch strings.TrimSpace(marker) {
+	case "[DONE]":
+		style = ansiGreen
+	case "[FAILED]":
+		style = ansiRed
+	case "[CANCELLED]":
+		style = ansiYellow
+	default:
+		return marker
+	}
+	return strings.Replace(marker, strings.TrimSpace(marker), styled(writer, style, strings.TrimSpace(marker)), 1)
 }
 
 // printTable renders one aligned table: a dim header row, then rows whose

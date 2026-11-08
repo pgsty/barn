@@ -129,13 +129,32 @@ func hostsOutcome(report hostconfig.Report, next string) commandOutcome {
 		pending := report.Plan.Changed && !report.Applied
 		printItemResult(stdout, report.Plan.Target, planStatus(report.Applied, pending), report.Plan.Action+" managed host entries")
 		for _, line := range report.Plan.Lines {
-			bestEffortln(stdout, "  "+line)
+			bestEffortln(stdout, hostPlanLine(stdout, line))
 		}
 		if pending && next != "" {
 			textField(stdout, 9, "next", next)
 		}
 		return nil
 	}}
+}
+
+func hostPlanLine(writer io.Writer, line string) string {
+	trimmed := strings.TrimLeft(line, " ")
+	indent := line[:len(line)-len(trimmed)]
+	if trimmed == "" {
+		return line
+	}
+	style := ""
+	switch trimmed[0] {
+	case '+':
+		style = ansiGreen
+	case '-':
+		style = ansiRed
+	}
+	if style == "" {
+		return line
+	}
+	return indent + styled(writer, style, trimmed)
 }
 
 // confirmPlan asks, on a terminal, whether to apply the plan just shown.

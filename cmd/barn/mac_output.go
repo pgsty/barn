@@ -6,9 +6,8 @@ import (
 	"strings"
 
 	"github.com/pgsty/barn/internal/macvm"
+	"github.com/pgsty/barn/internal/sshconfig"
 )
-
-func macCheck(out io.Writer) string { return styled(out, ansiGreen, "✓") }
 
 func macBytes(value int64) string {
 	if value >= 1<<30 && value%(1<<30) == 0 {
@@ -182,11 +181,28 @@ func macOutcomesOutcome(report macvm.Outcomes, stderr io.Writer) commandOutcome 
 	}}
 }
 
-func macMessageOutcome(payload any, message string, details ...string) commandOutcome {
-	return commandOutcome{payload: payload, text: func(out, _ io.Writer) error {
-		bestEffortf(out, "  %s  %s\n", macCheck(out), message)
-		for _, detail := range details {
-			textField(out, 10, "file", detail)
+func macSSHConfigOutcome(result sshconfig.Result) commandOutcome {
+	return commandOutcome{payload: result, text: func(out, _ io.Writer) error {
+		state, message := "unchanged", "SSH entries are current"
+		switch result.Action {
+		case "pending":
+			state, message = "pending", "waiting for the first machine to become SSH ready"
+		case "install":
+			if result.Changed {
+				state, message = "installed", "OpenSSH entries installed"
+			}
+		case "remove":
+			message = "no installed SSH entries; automatic installation disabled"
+			if result.Changed {
+				state, message = "removed", "SSH entries removed; automatic installation disabled"
+			}
+		}
+		printItemResult(out, "ssh-config", state, message)
+		if result.Fragment != "" {
+			textField(out, 10, "fragment", result.Fragment)
+		}
+		if result.Config != "" {
+			textField(out, 10, "config", result.Config)
 		}
 		return nil
 	}}
@@ -234,10 +250,10 @@ func macImagesOutcome(images []macvm.ImageEntry) commandOutcome {
 	}}
 }
 
-func macPruneOutcome(report macvm.PruneReport) commandOutcome {
+func macPruneOutcome(report macvm.PruneReport, installers bool) commandOutcome {
 	return commandOutcome{payload: report, text: func(out, _ io.Writer) error {
 		if len(report.Candidates) == 0 {
-			bestEffortf(out, "  %s  nothing to prune\n", macCheck(out))
+			printTable(out, []string{"IMAGE", "STATE", "MESSAGE"}, [][]string{{"cache", "unchanged", "nothing to prune"}}, 1)
 			return nil
 		}
 		removed := make(map[string]bool)
@@ -245,12 +261,14 @@ func macPruneOutcome(report macvm.PruneReport) commandOutcome {
 			removed[entry] = true
 		}
 		rows := make([][]string, 0, len(report.Candidates))
+		var reclaimed int64
 		for _, entry := range report.Candidates {
 			phase := "planned"
 			if report.Applied {
 				phase = "kept"
 				if removed[entry.Path] {
 					phase = "removed"
+					reclaimed += entry.AllocatedBytes
 				}
 			}
 			rows = append(rows, []string{entry.Kind + "/" + entry.Build, phase, progressBytes(entry.AllocatedBytes)})
@@ -258,10 +276,14 @@ func macPruneOutcome(report macvm.PruneReport) commandOutcome {
 		printTable(out, []string{"IMAGE", "STATE", "SIZE"}, rows, 1)
 		if !report.Applied {
 			textField(out, 10, "reclaim", progressBytes(report.ReclaimedBytes))
-			textField(out, 10, "apply", "rerun with --yes")
+			next := "barn mac image prune"
+			if installers {
+				next += " --installers"
+			}
+			textField(out, 10, "next", next+" --yes")
 			return nil
 		}
-		bestEffortf(out, "  %s  removed %d of %d · %s reclaimed\n", macCheck(out), len(report.Removed), len(report.Candidates), progressBytes(report.ReclaimedBytes))
+		bestEffortf(out, "mac image prune %d/%d images: %s reclaimed %s\n", len(report.Removed), len(report.Candidates), progressBytes(reclaimed), styledCompletionMarker(out, "[DONE]"))
 		return nil
 	}}
 }

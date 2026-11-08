@@ -87,6 +87,24 @@ func TestHostPlanTextShowsChangeWithoutDigests(t *testing.T) {
 	}
 }
 
+func TestHostPlanLinesUseDiffColorsOnlyOnTerminal(t *testing.T) {
+	state := &outputContext{format: outputText, color: true, stdoutTTY: true}
+	var output bytes.Buffer
+	writer := &outputWriter{Writer: &output, context: state}
+	got := hostPlanLine(writer, "  + 10.10.10.10 meta")
+	if !strings.Contains(got, ansiGreen+"+ 10.10.10.10 meta") {
+		t.Fatalf("added host line = %q", got)
+	}
+	got = hostPlanLine(writer, "  - 10.10.10.10 meta")
+	if !strings.Contains(got, ansiRed+"- 10.10.10.10 meta") {
+		t.Fatalf("removed host line = %q", got)
+	}
+	state.color = false
+	if got := hostPlanLine(writer, "  + 10.10.10.10 meta"); strings.Contains(got, "\x1b[") || got != "  + 10.10.10.10 meta" {
+		t.Fatalf("plain host line = %q", got)
+	}
+}
+
 func TestConfirmPlanDefaults(t *testing.T) {
 	if err := confirmPlan("? ", true, strings.NewReader("\n"), &bytes.Buffer{}); err != nil {
 		t.Fatalf("[Y/n] Enter = %v", err)

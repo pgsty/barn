@@ -11,6 +11,7 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/provision"
 	"github.com/pgsty/barn/internal/spec"
 )
 
@@ -103,6 +104,37 @@ func TestPlanTableDistinguishesIntentAndMissingNodes(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "resized") || strings.Contains(out.String(), "removed") {
 		t.Fatalf("plan claimed applied changes: %s", &out)
+	}
+}
+
+func TestPlanSummaryUsesResultStates(t *testing.T) {
+	for _, test := range []struct {
+		name, action, blocked, state, message string
+	}{
+		{name: "unchanged", action: "none", state: "unchanged", message: "no changes: 2 node(s) (meta, peer) match the applied inventory"},
+		{name: "planned", action: "converge", state: "planned", message: "converge changes are ready to apply"},
+		{name: "blocked", action: "blocked-removal", blocked: "remove old explicitly", state: "blocked", message: "plan blocked: remove old explicitly"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state, message := planSummary(privatevm.LifecyclePlan{Action: test.action, Blocked: test.blocked, Nodes: []string{"meta", "peer"}})
+			if state != test.state || message != test.message {
+				t.Fatalf("summary = %q, %q; want %q, %q", state, message, test.state, test.message)
+			}
+		})
+	}
+}
+
+func TestProvisionSummaryColorsCompletionMarker(t *testing.T) {
+	state := &outputContext{format: outputText, color: true, stdoutTTY: true, columns: 100}
+	var output bytes.Buffer
+	writer := &outputWriter{Writer: &output, context: state}
+	printProvisionReport(writer, writer, provision.Report{
+		Results:    []provision.NodeResult{{Node: "meta", Address: "10.10.10.10", Success: true, ExitCode: 0, DurationMS: 10}},
+		Successful: 1,
+		DurationMS: 10,
+	})
+	if !strings.Contains(output.String(), ansiGreen+"[DONE]") {
+		t.Fatalf("provision output = %q", output.String())
 	}
 }
 

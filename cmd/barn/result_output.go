@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/pgsty/barn/internal/activity"
 	privatevm "github.com/pgsty/barn/internal/private"
@@ -80,4 +82,18 @@ func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.R
 		rows = append(rows, []string{name, address, state, message})
 	}
 	printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
+}
+
+func planSummary(plan privatevm.LifecyclePlan) (string, string) {
+	if plan.Blocked != "" {
+		return "blocked", "plan blocked: " + plan.Blocked
+	}
+	switch plan.Action {
+	case "none":
+		return "unchanged", fmt.Sprintf("no changes: %d node(s) (%s) match the applied inventory", len(plan.Nodes), strings.Join(plan.Nodes, ", "))
+	case "repair":
+		return "planned", "repair changes are ready to apply"
+	default:
+		return "planned", plan.Action + " changes are ready to apply"
+	}
 }

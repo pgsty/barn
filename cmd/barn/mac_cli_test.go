@@ -145,6 +145,31 @@ func TestMacEmptyHomeImagesAndSSHConfig(t *testing.T) {
 	}
 }
 
+func TestMacPruneResultDistinguishesKeptImagesAndReviewedScope(t *testing.T) {
+	report := macvm.PruneReport{
+		Candidates: []macvm.ImageEntry{
+			{Kind: "base", Build: "removed-base", Path: "/fixture/base", AllocatedBytes: 1 << 30},
+			{Kind: "installer", Build: "busy-installer", Path: "/fixture/installer", AllocatedBytes: 8 << 30},
+		},
+		Removed: []string{"/fixture/base"}, ReclaimedBytes: 9 << 30, Applied: true,
+	}
+	var output bytes.Buffer
+	if err := macPruneOutcome(report, true).text(&output, &output); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); !strings.Contains(got, "kept") || !strings.Contains(got, "1.0 GiB reclaimed [DONE]") || strings.Contains(got, "9.0 GiB reclaimed") {
+		t.Fatalf("skipped images counted as reclaimed: %s", got)
+	}
+	output.Reset()
+	report.Applied, report.Removed = false, nil
+	if err := macPruneOutcome(report, true).text(&output, &output); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); !strings.Contains(got, "barn mac image prune --installers --yes") || strings.Contains(got, "[DONE]") {
+		t.Fatalf("preview lost scope or claimed deletion: %s", got)
+	}
+}
+
 func TestMacDoctorReportsAMissingComponent(t *testing.T) {
 	macTestHome(t)
 	code, stdout, _ := runMacCLI(t, "--json", "mac", "doctor")

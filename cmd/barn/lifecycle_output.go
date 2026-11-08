@@ -163,7 +163,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 	}
 	printGuestLimitations(out, result.Status, result.Source, result.retryOptions)
 	for _, warning := range result.Warnings {
-		bestEffortf(out, "  %s  %s\n", styled(out, ansiYellow, "!"), warning.Message)
+		bestEffortf(out, "  %s  %s\n", styledStatusMarker(out, "warning"), warning.Message)
 		if verboseOutput(out) && warning.Detail != "" {
 			textField(out, 10, "detail", warning.Detail)
 		}
@@ -185,7 +185,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 	var repairNode string
 	for _, node := range status.Nodes {
 		for _, repair := range node.Repairs {
-			bestEffortf(out, "  ·  %s: %s\n", node.Name, repair)
+			bestEffortf(out, "  %s  %s: %s\n", styledStatusMarker(out, "info"), node.Name, repair)
 		}
 		if node.State != state.Running {
 			continue
@@ -211,12 +211,12 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 	sort.Strings(messages)
 	for index, message := range messages {
 		if index == 3 && !verboseOutput(out) {
-			bestEffortf(out, "  !  %d more limitations; barn status --verbose for details\n", len(messages)-index)
+			bestEffortf(out, "  %s  %d more limitations; barn status --verbose for details\n", styledStatusMarker(out, "warning"), len(messages)-index)
 			break
 		}
 		names := groups[message]
 		sort.Strings(names)
-		bestEffortf(out, "  !  %s: %s\n", strings.Join(names, ", "), message)
+		bestEffortf(out, "  %s  %s: %s\n", styledStatusMarker(out, "warning"), strings.Join(names, ", "), message)
 	}
 	if repairNode != "" {
 		options.NoWait = false // Retrying guest setup requires a readiness check.
@@ -254,7 +254,7 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	for _, message := range messages {
 		names := groups[message]
 		sort.Strings(names)
-		bestEffortf(out, "  !  %s: %s\n", strings.Join(names, ", "), message)
+		bestEffortf(out, "  %s  %s: %s\n", styledStatusMarker(out, "failed"), strings.Join(names, ", "), message)
 	}
 	sort.Strings(retry)
 	if len(repair) > 0 {

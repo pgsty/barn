@@ -681,7 +681,8 @@ func printProvisionReport(stdout, stderr io.Writer, report provision.Report) {
 		if report.Failed > 0 || report.AuditError != "" {
 			marker = "FAILED"
 		}
-		bestEffortf(stdout, "provision %d/%d nodes: %s [%s]\n", report.Successful, len(report.Results), elapsedLabel(time.Duration(report.DurationMS)*time.Millisecond), marker)
+		completion := "[" + marker + "]"
+		bestEffortf(stdout, "provision %d/%d nodes: %s %s\n", report.Successful, len(report.Results), elapsedLabel(time.Duration(report.DurationMS)*time.Millisecond), styledCompletionMarker(stdout, completion))
 	}
 	if verboseOutput(stdout) {
 		textField(stdout, 10, "script", report.Script.Name)
@@ -1178,6 +1179,8 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		}
 		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
 			printPlanTable(stdout, plan, resolved)
+			planState, planMessage := planSummary(plan)
+			bestEffortf(stdout, "  %s  %s\n", styledStatusMarker(stdout, planState), planMessage)
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
 			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %s RAM, %s virtual disk capacity", plan.CPUs, planSize(plan.Memory), planSize(plan.Storage)))
 			textField(stdout, 12, "data", planDataDisks(resolved, plan.Nodes))
@@ -1189,7 +1192,6 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			}
 			switch plan.Action {
 			case "none":
-				bestEffortf(stdout, "no changes: %d node(s) (%s) match the applied inventory\n", len(plan.Nodes), strings.Join(plan.Nodes, ", "))
 				return nil
 			case "repair":
 				textField(stdout, 12, "repair", strings.Join(plan.Nodes, ", ")+"  (left mid-transition; apply: "+applyCommand("up", nodes)+")")
@@ -1515,7 +1517,7 @@ func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (_ comm
 		status := privatevm.Status{Message: "no deployment to purge; image cache and host network remain installed"}
 		result := lifecycleResult{Status: status}
 		return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
-			printPrivateStatus(stdout, status)
+			printItemResult(stdout, "deployment", "unchanged", status.Message)
 			return nil
 		}}, nil
 	}
@@ -1546,7 +1548,10 @@ func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (_ comm
 		result.Warnings = append(result.Warnings, sshIntegrationWarning("remove", sshErr))
 	}
 	return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
-		printLifecycleResult(stdout, "purge", result, false)
+		printItemResult(stdout, "deployment", "purged", status.Message)
+		textResult := result
+		textResult.Message = ""
+		printLifecycleResult(stdout, "purge", textResult, false)
 		if sshResult.Changed {
 			textField(stdout, 6, "ssh", fmt.Sprintf("%s %s", sshResult.Action, sshResult.Fragment))
 		}
@@ -1633,7 +1638,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 			// Like purge, destroying nothing is already done.
 			status := privatevm.Status{Message: "no deployment to destroy"}
 			return commandOutcome{payload: lifecycleResult{Status: status}, text: func(stdout, _ io.Writer) error {
-				printPrivateStatus(stdout, status)
+				printItemResult(stdout, "deployment", "unchanged", status.Message)
 				return nil
 			}}, nil
 		case !lifecycleReadsConfig(command):
@@ -2245,14 +2250,14 @@ func runInit(options initOptions) (commandOutcome, error) {
 	result := initResult{Template: name, Image: selectedImage, Arch: selectedArch, Path: target}
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printWarnings(stderr, warnings)
-		textField(stdout, 10, "template", name)
+		printItemResult(stdout, "inventory", "created", name+" template")
 		if selectedImage != "" {
 			textField(stdout, 10, "image", selectedImage)
 		}
 		if selectedArch != "" {
 			textField(stdout, 10, "arch", selectedArch)
 		}
-		textField(stdout, 10, "wrote", target)
+		textField(stdout, 10, "file", target)
 		next := "barn up"
 		if options.Output != "" {
 			next += " -f " + shellQuote(options.Output)
@@ -2466,7 +2471,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 			if len(report.Items) == 0 {
-				bestEffortf(stdout, "no unreferenced cache images\n")
+				printItemResult(stdout, "cache", "unchanged", "no unreferenced cache images")
 				return nil
 			}
 			if !lifecycleProgressFrozen(stdout) {
@@ -2631,12 +2636,12 @@ func runDoctor(parent context.Context, stderr io.Writer) (commandOutcome, error)
 			}
 		}
 		if report.HasErrors() {
-			bestEffortf(stdout, "this host cannot run Barn guests until the errors above are resolved\n")
+			bestEffortf(stdout, "  %s  this host cannot run Barn guests until the errors above are resolved\n", styledStatusMarker(stdout, "failed"))
 		} else if !lifecycleProgressFrozen(stdout) {
-			bestEffortf(stdout, "host compute capability is ready\n")
+			bestEffortf(stdout, "  %s  host compute capability is ready\n", styledStatusMarker(stdout, "ready"))
 		}
 		if !report.NetworkReady() {
-			bestEffortf(stdout, "the Barn network is not ready; run barn setup to prepare it\n")
+			bestEffortf(stdout, "  %s  the Barn network is not ready; run barn setup to prepare it\n", styledStatusMarker(stdout, "blocked"))
 		}
 		return nil
 	}

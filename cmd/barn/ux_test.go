@@ -97,10 +97,10 @@ func TestProgressHidesMessageWhenTerminalIsNarrowAndCapsNodeColumn(t *testing.T)
 		},
 	}
 	lines := item.render(time.Now())
-	if strings.Contains(lines[1], "MESSAGE") || strings.Contains(strings.Join(lines, "\n"), "waiting for guest setup") {
+	if strings.Contains(lines[0], "MESSAGE") || strings.Contains(strings.Join(lines, "\n"), "waiting for guest setup") {
 		t.Fatalf("narrow table still rendered message column:\n%s", strings.Join(lines, "\n"))
 	}
-	if !strings.HasPrefix(lines[1], "NAME") || strings.Contains(strings.Join(lines, "\n"), longName) {
+	if !strings.HasPrefix(lines[0], "NAME") || strings.Contains(strings.Join(lines, "\n"), longName) {
 		t.Fatalf("node table did not use top aligned capped column:\n%s", strings.Join(lines, "\n"))
 	}
 	for _, line := range lines {
@@ -134,7 +134,7 @@ func TestProgressUsesCompactStateColumnAndTerminalColors(t *testing.T) {
 		},
 	}
 	lines := item.render(time.Now())
-	header := lines[1]
+	header := lines[0]
 	if strings.Index(header, "STATE")-strings.Index(header, "ADDRESS") != len("10.10.10.12")+2 {
 		t.Fatalf("state column has unexpected spacing: %q", header)
 	}

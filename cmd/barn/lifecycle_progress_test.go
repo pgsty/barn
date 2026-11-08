@@ -45,7 +45,7 @@ func TestLifecycleProgressCountsOnlyFinalStates(t *testing.T) {
 				},
 			}
 			lines := item.render(now)
-			if len(lines) != 4 || !strings.HasPrefix(lines[0], test.want) || strings.Contains(lines[1], "MESSAGE") {
+			if len(lines) != 4 || !strings.HasPrefix(lines[0], "NAME") || !strings.HasPrefix(lines[len(lines)-1], test.want) || strings.Contains(lines[0], "MESSAGE") {
 				t.Fatalf("narrow progress lost command, node count or table: %q", lines)
 			}
 			item.event = item.nodes["d12"]
@@ -68,7 +68,7 @@ func TestLifecycleProgressStopsWithFailureOrCancellation(t *testing.T) {
 		{context.Canceled, "[CANCELLED]"},
 	} {
 		var output bytes.Buffer
-		contextState := &outputContext{format: outputText, stderrFile: true, stderrTTY: true, columns: 100}
+		contextState := &outputContext{format: outputText, stderrFile: true, stderrTTY: true, columns: 100, color: true}
 		writer := &outputWriter{Writer: &output, context: contextState, stderr: true}
 		parent := startLifecycleProgress(context.Background(), writer, "purge")
 		child := startLifecycleProgress(context.Background(), writer, "destroy")
@@ -77,6 +77,13 @@ func TestLifecycleProgressStopsWithFailureOrCancellation(t *testing.T) {
 		parent.Stop(test.err)
 		if got := output.String(); !strings.Contains(got, "purge 0/1") || !strings.Contains(got, test.marker) || strings.Contains(got, "[DONE]") {
 			t.Fatalf("nested cleanup lost root operation or reported false success: %q", got)
+		}
+		style := ansiRed
+		if errors.Is(test.err, context.Canceled) {
+			style = ansiYellow
+		}
+		if !strings.Contains(output.String(), style+test.marker+ansiReset) {
+			t.Fatalf("completion marker lost terminal color: %q", &output)
 		}
 	}
 }

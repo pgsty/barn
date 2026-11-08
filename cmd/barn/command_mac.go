@@ -626,7 +626,10 @@ instead of printing it.`,
 				if err := copy.Run(); err != nil {
 					return commandOutcome{}, fmt.Errorf("copy the password: %w", err)
 				}
-				return macMessageOutcome(map[string]any{"name": name, "copied": true}, name+" password copied to the clipboard"), nil
+				return commandOutcome{payload: map[string]any{"name": name, "copied": true}, text: func(out, _ io.Writer) error {
+					printItemResult(out, name, "copied", "password copied to the clipboard")
+					return nil
+				}}, nil
 			}
 			return commandOutcome{payload: map[string]string{"name": name, "password": secret}, text: func(out, _ io.Writer) error {
 				_, err := fmt.Fprintln(out, secret)
@@ -653,10 +656,7 @@ host is published by address only.`,
 		switch {
 		case install:
 			result, err := c.manager.InstallSSHConfig(c.cmd.Context())
-			if result.Action == "pending" {
-				return macMessageOutcome(result, "No machine is ready yet; the first one to become ready installs its SSH entries"), err
-			}
-			outcome := macMessageOutcome(result, "SSH entries installed: ssh <machine> now works", result.Fragment)
+			outcome := macSSHConfigOutcome(result)
 			if len(result.Shadowed) > 0 {
 				text := outcome.text
 				outcome.text = func(out, errOut io.Writer) error {
@@ -667,7 +667,7 @@ host is published by address only.`,
 			return outcome, err
 		case remove:
 			result, err := c.manager.RemoveSSHConfig(c.cmd.Context())
-			return macMessageOutcome(result, "SSH entries removed; lifecycle commands leave ~/.ssh alone until --install"), err
+			return macSSHConfigOutcome(result), err
 		}
 		fragment, err := c.manager.SSHConfig()
 		return commandOutcome{payload: map[string]string{"fragment": fragment}, text: func(out, _ io.Writer) error {
@@ -771,7 +771,7 @@ their base until barn mac recreate --update.`,
 		Example: "  barn mac image prune\n  barn mac image prune --installers --yes"}
 	prune.RunE = macRun(stderr, "", func(c macCommandContext) (commandOutcome, error) {
 		report, err := c.manager.PruneImages(c.cmd.Context(), pruneInstallers, pruneYes)
-		return macPruneOutcome(report), err
+		return macPruneOutcome(report, pruneInstallers), err
 	})
 	prune.Flags().BoolVar(&pruneInstallers, "installers", false, "include downloaded restore images and partial downloads")
 	prune.Flags().BoolVarP(&pruneYes, "yes", "y", false, "delete the listed images")

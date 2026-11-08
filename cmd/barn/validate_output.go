@@ -17,7 +17,17 @@ func printValidationResult(out io.Writer, rows [][]string, elapsed time.Duration
 		completed--
 		marker = "[FAILED]"
 	}
-	bestEffortf(out, "validate %d/%d checks: %s %s\n", completed, len(rows), elapsedLabel(elapsed), marker)
+	warnings := 0
+	for _, row := range rows {
+		if len(row) > 1 && (row[1] == "warn" || row[1] == "warning") {
+			warnings++
+		}
+	}
+	detail := ""
+	if warnings > 0 {
+		detail = fmt.Sprintf(" · %d warning(s)", warnings)
+	}
+	bestEffortf(out, "validate %d/%d checks: %s%s %s\n", completed, len(rows), elapsedLabel(elapsed), detail, styledCompletionMarker(out, marker))
 }
 
 // Validation resolves catalog references; it does not verify cached image
