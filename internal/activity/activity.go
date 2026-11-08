@@ -18,11 +18,14 @@ type Event struct {
 	StartedAt    time.Time
 	Done         bool
 	Node         string
+	Item         string
+	Address      string
 	State        string
 }
 
 // Reporter receives best-effort presentation updates. Reporters must not
-// affect the success or failure of the underlying operation.
+// affect the success or failure of the underlying operation. Parallel node
+// operations may call a reporter concurrently.
 type Reporter func(Event)
 
 func (reporter Reporter) Report(event Event) {

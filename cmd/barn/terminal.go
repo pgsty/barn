@@ -67,3 +67,15 @@ func outputColumns(state *outputContext, writer io.Writer) int {
 	}
 	return 80
 }
+
+func outputRows(state *outputContext, writer io.Writer) int {
+	if state != nil && state.rows > 0 {
+		return state.rows
+	}
+	if file, ok := writerFile(writer); ok {
+		if _, rows, err := term.GetSize(int(file.Fd())); err == nil && rows > 0 {
+			return rows
+		}
+	}
+	return 24
+}

@@ -168,11 +168,37 @@ func (controller Controller) CreateAndStart(ctx context.Context) (_ CreateResult
 	if err != nil {
 		return result, err
 	}
+	addresses := resolvedNodeAddresses(controller.Prepare.Resolved)
+	progressNames := controller.StartNodes
+	if len(progressNames) == 0 {
+		progressNames = createNames
+	}
+	for _, name := range progressNames {
+		controller.Progress.Report(activity.Event{
+			Phase: "guest-ready", Node: name, Address: addresses[name], State: "queued",
+			Message: "waiting for host preparation",
+		})
+	}
 	controller.Progress.Report(activity.Event{Phase: "prepare", Message: fmt.Sprintf("Preparing disks and cloud-init for %d node(s)", len(createNames))})
 	result.Prepare = PrepareSelected(ctx, controller.Prepare, createNames, controller.Concurrency)
+	for _, outcome := range result.Prepare {
+		if outcome.Error == "" {
+			continue
+		}
+		controller.Progress.Report(activity.Event{
+			Phase: "guest-ready", Node: outcome.Node, Address: addresses[outcome.Node], State: "prepare failed",
+			Message: "preparation failed: " + outcome.Error, Done: true,
+		})
+	}
 	controller.Progress.Report(activity.Event{Phase: "prepare", Message: fmt.Sprintf("Prepared %d of %d node(s)", len(PreparedNames(result.Prepare)), len(createNames)), Done: true})
 	controller.Progress.Report(activity.Event{Phase: "commit", Message: "Committing prepared node state"})
 	result.Commit, err = CommitPrepared(controller.Deployment, controller.Prepare, result.Prepare, controller.Version)
+	for _, name := range result.Commit.Failed {
+		controller.Progress.Report(activity.Event{
+			Phase: "guest-ready", Node: name, Address: addresses[name], State: "prepare failed",
+			Message: "prepared state was not committed", Done: true,
+		})
+	}
 	if err != nil {
 		return result, errors.Join(err, finalizePreparedNodes(controller.Deployment, result.Commit.Nodes))
 	}
@@ -214,7 +240,7 @@ func (controller Controller) CreateAndStart(ctx context.Context) (_ CreateResult
 		controller.Progress.Report(activity.Event{Phase: "guest-ready", Message: startMessage})
 		result.Start, err = StartPrepared(ctx, StartConfig{
 			Deployment: controller.Deployment, Lifecycle: controller.Lifecycle,
-			Nodes: startNames, Concurrency: controller.Concurrency, ReadyTimeout: controller.ReadyTimeout, NoWait: controller.NoWait,
+			Nodes: startNames, NodeAddresses: addresses, Concurrency: controller.Concurrency, ReadyTimeout: controller.ReadyTimeout, NoWait: controller.NoWait,
 			SetupRuntime: controller.SetupRuntime, Progress: controller.Progress,
 		})
 		if err != nil {

@@ -263,15 +263,26 @@ func (l NativeLifecycle) WaitReady(ctx context.Context, node state.NodeState, ti
 }
 
 type StartConfig struct {
-	Deployment   Deployment
-	Lifecycle    NodeLifecycle
-	Nodes        []string
-	Concurrency  int
-	ReadyTimeout time.Duration
-	NoWait       bool
-	SetupRuntime func(string) error
-	Now          func() time.Time
-	Progress     activity.Reporter
+	Deployment Deployment
+	Lifecycle  NodeLifecycle
+	Nodes      []string
+	// NodeAddresses carries the resolved fixed IPs to the presentation layer.
+	// Runtime node state intentionally does not duplicate inventory addresses.
+	NodeAddresses map[string]string
+	Concurrency   int
+	ReadyTimeout  time.Duration
+	NoWait        bool
+	SetupRuntime  func(string) error
+	Now           func() time.Time
+	Progress      activity.Reporter
+}
+
+func resolvedNodeAddresses(resolved spec.Resolved) map[string]string {
+	addresses := make(map[string]string, len(resolved.Nodes))
+	for _, node := range resolved.Nodes {
+		addresses[node.Name] = node.Address
+	}
+	return addresses
 }
 
 type StartOutcome struct {
@@ -426,13 +437,16 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 		return nil, err
 	}
 	var progressMu sync.Mutex
-	reportNode := func(name, phase string) {
+	reportNode := func(node state.NodeState, phase, message string) {
 		progressMu.Lock()
 		defer progressMu.Unlock()
-		config.Progress.Report(activity.Event{Phase: "guest-ready", Node: name, State: phase, Message: name + ": " + phase, Done: phase == "ready" || phase == "limited" || phase == "setup failed" || phase == "SSH pending" || phase == "failed" || phase == "started"})
+		config.Progress.Report(activity.Event{
+			Phase: "guest-ready", Node: node.Node, Address: config.NodeAddresses[node.Node], State: phase,
+			Message: message, Done: phase == "ready" || phase == "limited" || phase == "setup failed" || phase == "SSH pending" || phase == "failed" || phase == "started",
+		})
 	}
 	for _, node := range nodes {
-		reportNode(node.Node, "queued")
+		reportNode(node, "queued", "waiting to start")
 	}
 	jobs := make(chan int)
 	var wait sync.WaitGroup
@@ -443,25 +457,25 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 			for index := range jobs {
 				node := nodes[index]
 				if outcomes[index].Error != "" {
-					reportNode(node.Node, "failed")
+					reportNode(node, "failed", "start failed")
 					continue
 				}
-				reportNode(node.Node, "starting")
+				reportNode(node, "starting", "starting QEMU")
 				if node.Phase == state.Running {
 					outcomes[index].Running = true
 				} else if err := startOne(ctx, config, store, &node); err != nil {
 					outcomes[index].Error, outcomes[index].Reason = err.Error(), failureReason(err)
-					reportNode(node.Node, "failed")
+					reportNode(node, "failed", "start failed: "+err.Error())
 					continue
 				}
 				nodes[index] = node
 				outcomes[index].Running = true
 				if config.NoWait {
 					outcomes[index].ReadinessSkipped = true
-					reportNode(node.Node, "started")
+					reportNode(node, "started", "QEMU started; SSH readiness skipped")
 					continue
 				}
-				reportNode(node.Node, "waiting for guest setup")
+				reportNode(node, "waiting for guest setup", "waiting for guest setup")
 				warnings, err := config.Lifecycle.WaitReady(ctx, node, config.ReadyTimeout)
 				if err != nil {
 					outcomes[index].Error = err.Error()
@@ -470,11 +484,11 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 					outcomes[index].SetupFailed = errors.As(err, &setup)
 					outcomes[index].BootstrapFailed = errors.As(err, &bootstrap)
 					if outcomes[index].SetupFailed {
-						reportNode(node.Node, "setup incomplete")
+						reportNode(node, "setup incomplete", "guest setup incomplete: "+err.Error())
 					} else if outcomes[index].BootstrapFailed {
-						reportNode(node.Node, "setup failed")
+						reportNode(node, "setup failed", "guest bootstrap failed: "+err.Error())
 					} else {
-						reportNode(node.Node, "SSH pending")
+						reportNode(node, "SSH pending", "SSH readiness pending: "+err.Error())
 					}
 					continue
 				}
@@ -495,9 +509,9 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 				}
 				outcomes[index].Ready = true
 				if len(warnings) > 0 {
-					reportNode(node.Node, "limited")
+					reportNode(node, "limited", "SSH ready; guest limitations detected")
 				} else {
-					reportNode(node.Node, "ready")
+					reportNode(node, "ready", "SSH ready")
 				}
 			}
 		}()

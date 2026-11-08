@@ -49,15 +49,12 @@ func planStatus(applied, pending bool) string {
 func darwinInstallOutcome(report darwinnet.InstallReport, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 		pending := report.Action != "none" && !report.Applied
-		if report.Plan.State.CIDR != "" {
-			textField(stdout, 9, "network", fmt.Sprintf("%s (vmnet %s mode)", report.Plan.State.CIDR, report.Plan.State.Mode))
-		}
+		printItemResult(stdout, "network", planStatus(report.Applied, pending), fmt.Sprintf("%s (vmnet %s mode)", report.Plan.State.CIDR, report.Plan.State.Mode))
 		if pending || report.Applied {
 			for _, path := range sortedMapKeys(report.Targets) {
 				textField(stdout, 9, "install", path+"  "+report.Targets[path])
 			}
 		}
-		textField(stdout, 9, "status", statusValue(stdout, planStatus(report.Applied, pending)))
 		if pending && next != "" {
 			textField(stdout, 9, "next", next)
 		}
@@ -67,7 +64,7 @@ func darwinInstallOutcome(report darwinnet.InstallReport, next string) commandOu
 
 func linuxInstallOutcome(report linuxnet.InstallReport, cidr, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-		textField(stdout, 9, "network", cidr+" (barn0 bridge)")
+		printItemResult(stdout, "network", planStatus(report.Applied, !report.Applied), cidr+" (barn0 bridge)")
 		for _, directory := range report.Plan.Directories {
 			textField(stdout, 9, "install", fmt.Sprintf("%s/  %s %s", strings.TrimSuffix(directory.Path, "/"), directory.Owner, directory.Mode))
 		}
@@ -79,7 +76,6 @@ func linuxInstallOutcome(report linuxnet.InstallReport, cidr, next string) comma
 				textField(stdout, 9, "run", execx.Display(action.Binary, action.Args...))
 			}
 		}
-		textField(stdout, 9, "status", statusValue(stdout, planStatus(report.Applied, !report.Applied)))
 		if !report.Applied && next != "" {
 			textField(stdout, 9, "next", next)
 		}
@@ -89,13 +85,17 @@ func linuxInstallOutcome(report linuxnet.InstallReport, cidr, next string) comma
 
 func networkRemovalOutcome(report any, files, directories []string, applied bool, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
+		state, message := "planned", "remove the Barn network"
+		if applied {
+			state, message = "removed", "Barn network removed"
+		}
+		printItemResult(stdout, "network", state, message)
 		for _, path := range files {
 			textField(stdout, 9, "remove", path)
 		}
 		for _, path := range directories {
 			textField(stdout, 9, "remove", strings.TrimSuffix(path, "/")+"/")
 		}
-		textField(stdout, 9, "status", statusValue(stdout, planStatus(applied, !applied)))
 		if !applied && next != "" {
 			textField(stdout, 9, "next", next)
 		}
@@ -106,11 +106,10 @@ func networkRemovalOutcome(report any, files, directories []string, applied bool
 func hostsOutcome(report hostconfig.Report, next string) commandOutcome {
 	return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
 		pending := report.Plan.Changed && !report.Applied
-		textField(stdout, 9, "target", report.Plan.Target)
+		printItemResult(stdout, report.Plan.Target, planStatus(report.Applied, pending), report.Plan.Action+" managed host entries")
 		for _, line := range report.Plan.Lines {
 			bestEffortln(stdout, "  "+line)
 		}
-		textField(stdout, 9, "status", statusValue(stdout, planStatus(report.Applied, pending)))
 		if pending && next != "" {
 			textField(stdout, 9, "next", next)
 		}

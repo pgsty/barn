@@ -292,7 +292,7 @@ type Status struct {
 	SpecHash    string       `json:"spec_hash"`
 	Nodes       []NodeStatus `json:"nodes"`
 	Message     string       `json:"message,omitempty"`
-	// Note explains a status read while another command held the deployment.
+	// Note carries context that must remain visible alongside a status or progress table.
 	Note string `json:"note,omitempty"`
 }
 
@@ -1516,6 +1516,12 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 		return Status{}, err
 	}
 	selectedRequested := resolvedNodeSelection(requested, selected)
+	for _, node := range selectedRequested.Nodes {
+		m.Progress.Report(activity.Event{
+			Phase: "guest-ready", Node: node.Name, Address: node.Address, State: "queued",
+			Message: "waiting for host preparation",
+		})
+	}
 	hostProfile, err := m.nativeProfile()
 	if err != nil {
 		return Status{}, err
@@ -1809,6 +1815,15 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 		return Status{}, err
 	}
 	selectedSet := nodeNameSet(selected)
+	for _, definition := range deploymentState.Resolved.Nodes {
+		if _, include := selectedSet[definition.Name]; !include {
+			continue
+		}
+		m.Progress.Report(activity.Event{
+			Phase: "guest-ready", Node: definition.Name, Address: definition.Address, State: "queued",
+			Message: "waiting for host preparation",
+		})
+	}
 	if _, err := m.statusFor(ctx, deploymentValue, ""); err != nil {
 		return Status{}, err
 	}
@@ -1884,7 +1899,7 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 	default:
 		m.report("guest-ready", fmt.Sprintf("Starting %d node(s) and waiting up to %s for guest readiness", starting, readyTimeout))
 	}
-	outcomes, err := StartPrepared(ctx, StartConfig{Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, Concurrency: boundedConcurrency(len(names)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, Progress: m.Progress})
+	outcomes, err := StartPrepared(ctx, StartConfig{Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Concurrency: boundedConcurrency(len(names)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, Progress: m.Progress})
 	if err != nil {
 		return Status{}, err
 	}
@@ -1947,7 +1962,10 @@ func (m Manager) stopLocked(ctx context.Context, deploymentValue Deployment) (St
 		return Status{}, err
 	}
 	lifecycle := NativeLifecycle{RetryGuestSetup: m.retryGuestSetup, VM: vm.Lifecycle{Runner: m.runner(), QMP: &qmp.Client{Timeout: 5 * time.Second}, SSHUser: deploymentState.Resolved.SSHUser}}
-	outcomes, err := StopRunning(ctx, StopConfig{Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, Concurrency: boundedConcurrency(len(names))})
+	outcomes, err := StopRunning(ctx, StopConfig{
+		Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, Concurrency: boundedConcurrency(len(names)),
+		NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Progress: m.Progress,
+	})
 	if err != nil {
 		return Status{}, err
 	}

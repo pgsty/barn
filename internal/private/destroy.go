@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/lock"
@@ -179,6 +180,24 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		return Status{}, errors.New("destroy currently requires selecting the complete deployment")
 	}
 	selectedSet := nodeNameSet(selected)
+	addresses := resolvedNodeAddresses(deploymentState.Resolved)
+	reportNode := func(name, state, message string, done bool) {
+		m.Progress.Report(activity.Event{
+			Phase: "destroy", Node: name, Address: addresses[name],
+			State: state, Message: message, Done: done,
+		})
+	}
+	for _, name := range selected {
+		reportNode(name, "queued", "waiting to remove node", false)
+	}
+	// Attribute node-specific errors without changing the deletion transaction.
+	// Shared cleanup failures stay on the operation's summary and error line.
+	activeNode := ""
+	defer func() {
+		if returnErr != nil && activeNode != "" {
+			reportNode(activeNode, "failed", returnErr.Error(), true)
+		}
+	}()
 	// An interrupted start, stop, or destroy leaves a transitional phase.
 	// Settle it first (status proves the runtime dead, or live and ours), so
 	// destroy can finish the job instead of sending the user elsewhere.
@@ -201,10 +220,12 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		if _, include := selectedSet[definition.Name]; !include {
 			continue
 		}
+		activeNode = definition.Name
 		node, err := store.ReadNode(definition.Name)
 		if missingPath(err) {
 			// A node in the resolved spec without committed state is a pending
 			// creation; there is nothing to stop or destroy for it.
+			reportNode(definition.Name, "removed", "node artifacts already absent", true)
 			continue
 		}
 		if err != nil {
@@ -213,6 +234,7 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		stopNodes = append(stopNodes, definition.Name)
 		needsStop = needsStop || node.Phase == state.Running || node.Phase == state.Prepared || node.Phase == state.Starting || node.Phase == state.Stopping
 	}
+	activeNode = ""
 	// Known-host cleanup runs after every artifact is gone; a missing tool
 	// found only then would strand a half-destroyed deployment.
 	if _, err := m.lookPath("ssh-keygen"); err != nil {
@@ -230,6 +252,10 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 	targets := make(map[string][]string)
 	nodeDirs := make(map[string]string)
 	for _, definition := range deploymentState.Resolved.Nodes {
+		activeNode = ""
+		if _, include := selectedSet[definition.Name]; include {
+			activeNode = definition.Name
+		}
 		node, err := store.ReadNode(definition.Name)
 		if missingPath(err) {
 			continue
@@ -241,6 +267,7 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		if _, include := selectedSet[definition.Name]; !include {
 			continue
 		}
+		reportNode(node.Node, "checking", "checking node files and runtime", false)
 		if node.Phase != state.Stopped && node.Phase != state.Prepared && node.Phase != state.Destroying {
 			return Status{}, interruptedPhaseError(node)
 		}
@@ -262,6 +289,7 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		targets[node.Node] = nodeTargets
 		nodeDirs[node.Node] = nodeDir
 	}
+	activeNode = ""
 	// Destroying the control node elects a successor whose committed prepare
 	// journal must be finished before its hash changes. Do that before any
 	// node is marked or deleted, so a journal that cannot be finished refuses
@@ -290,6 +318,7 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		}
 	}
 	for index := range nodes {
+		activeNode = nodes[index].Node
 		nodes[index].Phase = state.Destroying
 		nodes[index].UpdatedAt = time.Now().UTC()
 		if err := store.WriteNode(nodes[index]); err != nil {
@@ -297,6 +326,8 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		}
 	}
 	for _, node := range nodes {
+		activeNode = node.Node
+		reportNode(node.Node, "removing", "removing node files; keeping persistent disks", false)
 		for _, identityValue := range persistentIdentities {
 			if identityValue.Node != node.Node {
 				continue
@@ -329,7 +360,10 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 		// A stale diagnostic cache must not turn successful destruction into a
 		// failure. Its instance identity also prevents reuse by a later VM.
 		_ = store.WriteGuestWarnings(node, nil)
+		reportNode(node.Node, "removed", "node removed; persistent disks kept", true)
 	}
+	activeNode = ""
+	m.report("destroy", "Removing known-host entries and updating deployment state")
 	if err := m.removeKnownHostEntries(ctx, deploymentValue, nodes); err != nil {
 		return Status{}, err
 	}
@@ -363,13 +397,16 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 	message := "destroyed node artifacts; image cache, keys, and persistent data disks preserved"
 	switch {
 	case partial && m.dropFromSpec && elected != "":
-		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node (update the inventory control role, then run barn up to install its control SSH access); peers, keys, and persistent data disks preserved", elected)
+		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node; peers, keys, and persistent data disks preserved", elected)
 	case partial && m.dropFromSpec:
 		message = "destroyed and removed the selected node(s); peers, keys, and persistent data disks preserved"
 	case partial:
 		message = "destroyed selected node artifacts for immediate recreate; deployment state, peer nodes, keys, and persistent data disks preserved"
 	}
 	result := Status{OperationID: m.OperationID, SpecHash: deploymentState.SpecHash, Message: message}
+	if elected != "" {
+		result.Note = fmt.Sprintf("%s is now the control node; update the inventory control role, then run barn up to install its control SSH access", elected)
+	}
 	for _, definition := range deploymentState.Resolved.Nodes {
 		if _, include := selectedSet[definition.Name]; !include {
 			continue

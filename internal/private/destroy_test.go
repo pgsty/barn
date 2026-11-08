@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/persistent"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
@@ -39,7 +40,19 @@ func TestPrivateDestroyRemovesOnlyNodesAndPreservesKeysStateCache(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(metaDir, ".DS_Store"), []byte("finder"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manager := Manager{BarnVersion: "test"}
+	latest := make(map[string]activity.Event)
+	manager := Manager{BarnVersion: "test", Progress: func(event activity.Event) {
+		if event.Node == "" {
+			return
+		}
+		latest[event.Node] = event
+		if event.State == "removed" {
+			directory, _ := deploymentValue.NodeDir(event.Node)
+			if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("reported removal before node directory was gone: %s: %v", directory, err)
+			}
+		}
+	}}
 	result, err := manager.Destroy(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +61,9 @@ func TestPrivateDestroyRemovesOnlyNodesAndPreservesKeysStateCache(t *testing.T) 
 		t.Fatalf("destroy result = %#v", result)
 	}
 	for _, node := range nodes {
+		if event := latest[node.Node]; event.State != "removed" || !event.Done || event.Address == "" {
+			t.Fatalf("destroy result lost its state or address: %+v", event)
+		}
 		directory, _ := deploymentValue.NodeDir(node.Node)
 		if _, err := os.Lstat(directory); !os.IsNotExist(err) {
 			t.Fatalf("destroyed node directory remains: %s: %v", directory, err)
@@ -60,6 +76,33 @@ func TestPrivateDestroyRemovesOnlyNodesAndPreservesKeysStateCache(t *testing.T) 
 	}
 	if _, err := os.Lstat(filepath.Join(deploymentValue.Root, "state.json")); !os.IsNotExist(err) {
 		t.Fatalf("full destroy must remove the deployment state document: %v", err)
+	}
+}
+
+func TestDestroyProgressPreservesFailureAndSelectedScope(t *testing.T) {
+	startConfig, _ := preparedStartFixture(t)
+	deployment := startConfig.Deployment
+	t.Setenv("BARN_HOME", deployment.Root)
+	writeDestroyKeyFixtures(t, deployment.Root)
+	directory, _ := deployment.NodeDir("node-1")
+	sentinel := filepath.Join(directory, "unexpected-file")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	latest := make(map[string]activity.Event)
+	manager := Manager{BarnVersion: "test", Nodes: []string{"node-1"}, Progress: func(event activity.Event) {
+		if event.Node != "" {
+			latest[event.Node] = event
+		}
+	}}
+	if _, err := manager.DestroyNodes(context.Background()); err == nil {
+		t.Fatal("unexpected artifact did not prevent destruction")
+	}
+	if event := latest["node-1"]; len(latest) != 1 || event.State != "failed" || !strings.Contains(event.Message, "unexpected file") {
+		t.Fatalf("destroy progress lost failure or included an unselected peer: %+v", latest)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+		t.Fatalf("failed destroy changed the unexpected file: %q, %v", data, err)
 	}
 }
 

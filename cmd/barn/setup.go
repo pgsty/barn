@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/doctor"
 	"github.com/pgsty/barn/internal/execx"
@@ -930,70 +931,58 @@ func printSetupPlan(stderr io.Writer, plan setuphost.DependencyPlan, selection s
 		sudoFor = append(sudoFor, "network (root-owned barn0 bridge)")
 	}
 
-	if !dryRun && !verboseOutput(stderr) {
-		if len(plan.Commands) > 0 {
-			planRow(stderr, "install", "%s via %s", strings.Join(plan.Missing, ", "), plan.Manager)
-		}
-		if networkInstall {
-			action := map[string]string{"install": "prepare", "repair": "repair"}[networkAction]
-			detail := map[string]string{
-				"BARN_VMNET_ARCHIVE": " (socket_vmnet from BARN_VMNET_ARCHIVE)",
-				"cache":              " (cached socket_vmnet)",
-				"homebrew":           " (brew install " + darwinnet.SocketVMNetFormula + ")",
-				"download":           " (downloads socket_vmnet, SHA-256 pinned)",
-			}[source]
-			planRow(stderr, "network", "%s %s%s", action, selection.Resolved.Private.CIDR, detail)
-		}
-		if selection.Publish {
-			planRow(stderr, "config", "create %s", selection.ConfigPath)
-		}
-		if len(sudoFor) > 0 {
-			planRow(stderr, "sudo", "%s", strings.Join(sudoFor, "; "))
-		}
-		return
+	rows := make([][]string, 0, 3)
+	dependencyState, dependencyMessage := "ready", "QEMU, qemu-img, UEFI firmware, OpenSSH"
+	if len(plan.Commands) > 0 {
+		dependencyState, dependencyMessage = "planned", "install via "+plan.Manager+": "+strings.Join(plan.Missing, ", ")
 	}
-	if dryRun {
-		bestEffortf(stderr, "%s setup plan (dry run, no changes)\n", styled(stderr, ansiCyan, "→"))
-	} else {
-		bestEffortf(stderr, "%s setup plan\n", styled(stderr, ansiCyan, "→"))
+	rows = append(rows, []string{"dependencies", dependencyState, dependencyMessage})
+	networkState := "planned"
+	if networkAction == "reuse installed" {
+		networkState = "ready"
 	}
-
-	// config: which file defines the lab, and what it resolves to.
-	if selection.Publish {
-		detail := fmt.Sprintf("%s template: %s", selection.Profile, setupNodesSummary(selection.Resolved))
-		if selection.Image != "" {
-			detail += ", image: " + selection.Image
-		}
-		if selection.Arch != "" {
-			detail += ", arch: " + selection.Arch
-		}
-		planRow(stderr, "config", "create %s (%s)", selection.ConfigPath, detail)
-	} else if selection.ConfigPath != "" {
-		planRow(stderr, "config", "use %s (%s)", selection.ConfigPath, setupNodesSummary(selection.Resolved))
+	if networkAction == "blocked" {
+		networkState = "blocked"
 	}
-
-	if len(plan.Commands) == 0 {
-		planRow(stderr, "dependencies", "ready (QEMU, qemu-img, UEFI firmware, OpenSSH)")
-	} else {
-		planRow(stderr, "dependencies", "install via %s: %s", plan.Manager, strings.Join(plan.Missing, ", "))
-		if proxyNames := setuphost.ProxyEnvironmentNames(); len(proxyNames) > 0 {
-			bestEffortf(stderr, "                proxy environment: %s (values hidden)\n", strings.Join(proxyNames, ", "))
-		}
-	}
-
+	networkMessage := networkAction + " " + selection.Resolved.Private.CIDR + " after dependencies"
 	if report != nil {
-		mode := ""
-		if report.Installation.Mode != "" {
-			mode = report.Installation.Mode
+		mode := report.Installation.Mode
+		if mode != "" {
 			if report.OS == "darwin" {
 				mode = "vmnet " + mode
 			}
 			mode = " (" + mode + " mode)"
 		}
-		planRow(stderr, "network", "%s %s%s — fixed guest IPs, host-reachable", networkAction, report.CIDR, mode)
-	} else {
-		planRow(stderr, "network", "install %s after dependencies — fixed guest IPs, host-reachable", selection.Resolved.Private.CIDR)
+		networkMessage = networkAction + " " + report.CIDR + mode
 	}
+	rows = append(rows, []string{"network", networkState, networkMessage})
+	if selection.ConfigPath != "" {
+		state, action := "ready", "use "
+		if selection.Publish {
+			state, action = "planned", "create "
+		}
+		rows = append(rows, []string{"config", state, action + selection.ConfigPath})
+	}
+	printTable(stderr, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
+	if len(sudoFor) > 0 {
+		textField(stderr, 12, "sudo", strings.Join(sudoFor, "; "))
+	}
+	if !dryRun && !verboseOutput(stderr) {
+		return
+	}
+	if dryRun {
+		textField(stderr, 12, "setup", "plan only; no changes")
+	}
+	if selection.ConfigPath != "" {
+		textField(stderr, 12, "config", selection.ConfigPath)
+		textField(stderr, 12, "nodes", setupNodesSummary(selection.Resolved))
+	}
+	if len(plan.Commands) > 0 {
+		if proxyNames := setuphost.ProxyEnvironmentNames(); len(proxyNames) > 0 {
+			bestEffortf(stderr, "proxy environment: %s (values hidden)\n", strings.Join(proxyNames, ", "))
+		}
+	}
+
 	switch source {
 	case "BARN_VMNET_ARCHIVE":
 		bestEffortf(stderr, "                backend socket_vmnet %s from BARN_VMNET_ARCHIVE (digest-verified)\n", darwinnet.ReleaseVersion)
@@ -1021,62 +1010,40 @@ func printSetupPlan(stderr io.Writer, plan setuphost.DependencyPlan, selection s
 func setupOutcome(result setupResult) commandOutcome {
 	return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
 		if result.DryRun {
-			// The plan itself is already on stderr; stdout only says what next.
-			textField(stdout, 10, "status", statusValue(stdout, "plan"))
-			textField(stdout, 10, "next", result.Next)
-			return nil
-		}
-		if result.Ready && !verboseOutput(stdout) {
-			bestEffortf(stdout, "  %s  Host ready\n", styled(stdout, ansiGreen, "✓"))
-			if result.Config != "" {
-				textField(stdout, 10, "config", result.Config)
+			// The complete plan was already printed before this outcome.
+			if result.Next != "" {
+				textField(stdout, 10, "next", result.Next)
 			}
-			textField(stdout, 10, "next", result.Next)
 			return nil
 		}
-		textField(stdout, 14, "host", result.OS+"/"+result.Arch)
-		if result.Profile != "" && result.Profile != "unknown" {
-			textField(stdout, 14, "profile", result.Profile)
-		}
-		dependencyStatus := "ready"
-		if result.DryRun && len(result.Dependencies.Commands) > 0 {
-			dependencyStatus = "would install"
-		} else {
+		if !lifecycleProgressFrozen(stdout) {
+			rows := make([][]string, 0, len(result.Steps))
 			for _, step := range result.Steps {
-				if step.Name == "dependencies" && step.Status == "installed" {
-					dependencyStatus = "installed"
-				}
+				rows = append(rows, []string{step.Name, step.Status, step.Detail})
+			}
+			if len(rows) == 0 {
+				rows = append(rows, []string{"dependencies", "pending", "checking host dependencies"})
+				rows = append(rows, []string{"network", "pending", result.NetworkCIDR + " (pending dependencies)"})
+			}
+			if len(rows) > 0 {
+				printTable(stdout, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
 			}
 		}
-		textField(stdout, 14, "dependencies", statusValue(stdout, dependencyStatus))
-		if result.Network != nil {
-			status := result.Network.Installation.Status
-			if result.Blocked {
-				status = "blocked"
-			} else if status == "" || status == "absent" {
-				status = "pending install"
+		if verboseOutput(stdout) {
+			textField(stdout, 10, "host", result.OS+"/"+result.Arch)
+			if result.Network != nil {
+				textField(stdout, 10, "network", result.Network.CIDR)
 			}
-			textField(stdout, 14, "network", fmt.Sprintf("%s (%s)", result.Network.CIDR, status))
-		} else {
-			textField(stdout, 14, "network", fmt.Sprintf("%s (pending dependencies)", result.NetworkCIDR))
-		}
-		if result.NetworkMode != "" {
-			textField(stdout, 14, "network mode", result.NetworkMode)
 		}
 		if result.Config != "" {
-			textField(stdout, 14, "config", result.Config)
+			textField(stdout, 10, "config", result.Config)
 		}
-		status := "ready"
-		if result.Blocked {
-			status = "blocked"
-		} else if result.DryRun {
-			status = "plan"
-		}
-		textField(stdout, 14, "status", statusValue(stdout, status))
 		if result.MutationUncertain {
-			textField(stdout, 14, "mutation", "uncertain after a failed host command; inspect before retrying")
+			textField(stdout, 10, "mutation", "uncertain after a failed host command; inspect before retrying")
 		}
-		textField(stdout, 14, "next", result.Next)
+		if result.Next != "" {
+			textField(stdout, 10, "next", result.Next)
+		}
 		return nil
 	}}
 }
@@ -1190,8 +1157,34 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		recordOperationPhase(parent, operationID, "setup", "begin", nil, stderr)
 		defer func() { recordOperationPhase(parent, operationID, "setup", "complete", returnErr, stderr) }()
 	}
-	progressItem := startProgress(parent, stderr, "Preparing host")
-	defer func() { progressItem.Stop(returnErr) }()
+	operation := "setup"
+	if options.DryRun {
+		operation = "setup plan"
+	}
+	progressItem := startOperationProgress(parent, stderr, "Preparing host", operation)
+	activeStep := ""
+	working := func(name, message string) {
+		activeStep = name
+		progressItem.Report(activity.Event{Phase: "setup", Item: name, State: "running", Message: message})
+	}
+	recordStep := func(steps ...setupStep) {
+		result.Steps = append(result.Steps, steps...)
+		for _, step := range steps {
+			if options.DryRun {
+				continue
+			}
+			progressItem.Report(activity.Event{Phase: "setup", Item: step.Name, State: step.Status, Message: step.Detail, Done: true})
+			if activeStep == step.Name {
+				activeStep = ""
+			}
+		}
+	}
+	defer func() {
+		if returnErr != nil && activeStep != "" {
+			progressItem.Report(activity.Event{Phase: "setup", Item: activeStep, State: "failed", Message: returnErr.Error(), Done: true})
+		}
+		progressItem.Stop(returnErr)
+	}()
 	result.OperationID = operationID
 	if options.DryRun && options.Yes {
 		return failSetup(&result, exitUsage, errors.New("--dry-run and --yes are mutually exclusive"))
@@ -1296,12 +1289,12 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	}
 	if options.DryRun {
 		result.Applicable = true
-		result.Steps = append(result.Steps,
+		recordStep(
 			setupStep{Name: "dependencies", Status: "planned"},
 			setupStep{Name: "network", Status: "planned"},
 			setupStep{Name: "hosts-helper", Status: "on-demand"})
 		if selection.Publish {
-			result.Steps = append(result.Steps, setupStep{Name: "config", Status: "planned", Detail: selection.ConfigPath})
+			recordStep(setupStep{Name: "config", Status: "planned", Detail: selection.ConfigPath})
 		}
 		if setupMutating(dependencyPlan, selection, networkReport) {
 			result.Next, result.NextArgv = setupApplyCommand(options.arguments(profileName), format, verbose)
@@ -1317,6 +1310,13 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		}
 		return failSetup(&result, exitConflict, err)
 	}
+	for _, name := range []string{"dependencies", "capabilities", "network", "verify", "hosts-helper"} {
+		progressItem.Report(activity.Event{Phase: "setup", Item: name, State: "queued", Message: "waiting"})
+	}
+	if selection.Publish || selection.ConfigPath != "" {
+		progressItem.Report(activity.Event{Phase: "setup", Item: "config", State: "queued", Message: selection.ConfigPath})
+	}
+	working("dependencies", "checking and installing host dependencies")
 	if len(dependencyPlan.Commands) > 0 {
 		changed, uncertain, err := runSetupCommands(ctx, dependencyPlan.Commands, base, sudoSession, stderr)
 		result.Changed = result.Changed || changed
@@ -1324,16 +1324,17 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		if err != nil {
 			verified, verifyErr := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
 			if verifyErr != nil || !verified.Ready {
-				result.Steps = append(result.Steps, setupStep{Name: "dependencies", Status: "failed", Changed: changed})
+				recordStep(setupStep{Name: "dependencies", Status: "failed", Changed: changed})
 				return failSetup(&result, exitCapability, err)
 			}
 			debugf(stderr, "package manager returned an error, but all required capabilities are installed: %v", err)
 		}
-		result.Steps = append(result.Steps, setupStep{Name: "dependencies", Status: "installed", Changed: changed})
+		recordStep(setupStep{Name: "dependencies", Status: "installed", Changed: changed})
 	} else {
 		tickf(stderr, "Dependencies ready (QEMU, qemu-img, UEFI firmware, OpenSSH)")
-		result.Steps = append(result.Steps, setupStep{Name: "dependencies", Status: "ready"})
+		recordStep(setupStep{Name: "dependencies", Status: "ready"})
 	}
+	working("dependencies", "verifying installed dependencies")
 	verifiedDependencies, err := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
 	if err != nil || !verifiedDependencies.Ready {
 		if err == nil {
@@ -1342,15 +1343,18 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		return failSetup(&result, exitCapability, err)
 	}
 	result.Dependencies = verifiedDependencies
+	progressItem.Report(activity.Event{Phase: "setup", Item: "dependencies", State: "ready", Message: "QEMU, qemu-img, firmware and OpenSSH ready", Done: true})
+	working("capabilities", "verifying native QEMU")
 	capabilityProgress := startProgress(ctx, stderr, "Verifying native QEMU")
 	capabilityChecks, capabilityErr := verifySetup(ctx, false)
 	capabilityProgress.Stop(capabilityErr)
 	result.Checks = capabilityChecks
 	if capabilityErr != nil {
-		result.Steps = append(result.Steps, setupStep{Name: "capabilities", Status: "failed"})
+		recordStep(setupStep{Name: "capabilities", Status: "failed"})
 		return failSetup(&result, exitCapability, capabilityErr)
 	}
-	result.Steps = append(result.Steps, setupStep{Name: "capabilities", Status: "ready"})
+	recordStep(setupStep{Name: "capabilities", Status: "ready"})
+	working("network", "preparing the Barn network")
 	report, reportErr := chooseNetwork()
 	if reportErr != nil {
 		return failSetup(&result, exitCapability, reportErr)
@@ -1377,11 +1381,12 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	step, uncertain, installErr := applySetupNetwork(ctx, networkMode, repository, report, base, sudoSession, stderr)
 	if installErr != nil {
 		result.MutationUncertain = result.MutationUncertain || uncertain
-		result.Steps = append(result.Steps, setupStep{Name: "network", Status: "failed"})
+		recordStep(setupStep{Name: "network", Status: "failed"})
 		return failSetup(&result, exitRuntime, installErr)
 	}
-	result.Steps = append(result.Steps, step)
+	recordStep(step)
 	result.Changed = result.Changed || step.Changed
+	working("verify", "verifying installed network")
 	finalReport, finalErr := inspectSetupNetwork(ctx, selection, base)
 	finalReport, _ = constrainSetupNetworkMode(finalReport, networkMode, true)
 	if finalErr != nil || !finalReport.Ready || !finalReport.Installation.Healthy {
@@ -1391,8 +1396,9 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		return failSetup(&result, exitRuntime, fmt.Errorf("verify the Barn network: %w", finalErr))
 	}
 	result.Network = &finalReport
-	result.Steps = append(result.Steps, setupStep{Name: "hosts-helper", Status: "on-demand"}, setupStep{Name: "verify", Status: "ready"})
+	recordStep(setupStep{Name: "hosts-helper", Status: "on-demand"}, setupStep{Name: "verify", Status: "ready"})
 	if selection.Publish {
+		working("config", "writing "+selection.ConfigPath)
 		if len(bytes.TrimSpace(selection.ConfigData)) == 0 {
 			return failSetup(&result, exitRuntime, errors.New("generated setup configuration is empty"))
 		}
@@ -1401,17 +1407,17 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 			if errors.Is(err, os.ErrExist) {
 				code = exitConflict
 			}
-			result.Steps = append(result.Steps, setupStep{Name: "config", Status: "failed", Detail: selection.ConfigPath})
+			recordStep(setupStep{Name: "config", Status: "failed", Detail: selection.ConfigPath})
 			return failSetup(&result, code, fmt.Errorf("publish setup configuration without replacing concurrent content: %w", err))
 		}
 		result.Config = selection.ConfigPath
 		result.Changed = true
 		tickf(stderr, "Wrote %s", selection.ConfigPath)
-		result.Steps = append(result.Steps, setupStep{Name: "config", Status: "created", Detail: selection.ConfigPath, Changed: true})
+		recordStep(setupStep{Name: "config", Status: "created", Detail: selection.ConfigPath, Changed: true})
 	} else if selection.ConfigPath != "" {
 		result.Config = selection.ConfigPath
 		tickf(stderr, "Using %s", selection.ConfigPath)
-		result.Steps = append(result.Steps, setupStep{Name: "config", Status: "ready", Detail: selection.ConfigPath})
+		recordStep(setupStep{Name: "config", Status: "ready", Detail: selection.ConfigPath})
 	}
 	result.Applicable = true
 	result.Ready = true

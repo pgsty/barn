@@ -28,17 +28,19 @@ const (
 )
 
 type outputContext struct {
-	format      outputFormat
-	verbose     bool
-	stdoutTTY   bool
-	stderrTTY   bool
-	stderrFile  bool
-	color       bool
-	mu          sync.Mutex
-	stdoutBytes int64
-	writeErr    error
-	active      *progress
-	columns     int
+	format        outputFormat
+	verbose       bool
+	stdoutTTY     bool
+	stderrTTY     bool
+	stderrFile    bool
+	color         bool
+	mu            sync.Mutex
+	stdoutBytes   int64
+	writeErr      error
+	active        *progress
+	finalProgress bool
+	columns       int
+	rows          int
 }
 
 // commandFailure is the JSON shape of every failed command. Error is one of
@@ -473,11 +475,11 @@ func statusStyle(value string) string {
 	lower := strings.ToLower(value)
 	style := ansiCyan
 	switch {
-	case lower == "ok", lower == "ready", lower == "running", lower == "supported", lower == "exact", lower == "healthy", lower == "valid", lower == "active", strings.HasPrefix(lower, "success"):
+	case lower == "ok", lower == "ready", lower == "running", lower == "removed", lower == "purged", lower == "resized", lower == "unchanged", lower == "installed", lower == "created", lower == "applied", lower == "cached", lower == "imported", lower == "supported", lower == "exact", lower == "healthy", lower == "valid", lower == "active", strings.HasPrefix(lower, "success"):
 		style = ansiGreen
-	case lower == "error", lower == "failed", lower == "invalid", lower == "unhealthy", lower == "conflict", strings.Contains(lower, "error"):
+	case lower == "error", lower == "fail", lower == "failed", lower == "invalid", lower == "unhealthy", lower == "conflict", strings.Contains(lower, "error"):
 		style = ansiRed
-	case lower == "warn", lower == "warning", lower == "stopped", lower == "degraded", lower == "unsupported", lower == "partial", lower == "blocked":
+	case lower == "warn", lower == "warning", lower == "stopped", lower == "cancelled", lower == "degraded", lower == "unsupported", lower == "partial", lower == "blocked", lower == "limited", lower == "incomplete":
 		style = ansiYellow
 	}
 	return style
@@ -496,6 +498,54 @@ func statusCell(writer io.Writer, width int, value string) string {
 // this so columns line up the same way everywhere; pass statusColumn -1 for
 // no coloring.
 func printTable(writer io.Writer, header []string, rows [][]string, statusColumn int) {
+	context := outputContextFrom(writer)
+	terminal := writerTTY(writer)
+	if context != nil {
+		terminal = context.stdoutTTY && context.format == outputText
+		if contextual, ok := writer.(*outputWriter); ok && contextual.stderr {
+			terminal = context.stderrTTY && context.format == outputText
+		}
+	}
+	// Result tables use the same compact columns as live progress. Keep full
+	// details in redirected output, where there is no terminal width to fit.
+	if terminal && len(header) > 0 {
+		rows = cloneTableRows(rows)
+		if header[0] == "NAME" {
+			for _, row := range rows {
+				if len(row) > 0 {
+					row[0] = fitDisplay(row[0], progressNodeMaxWidth)
+				}
+			}
+		}
+		if header[len(header)-1] == "MESSAGE" {
+			last := len(header) - 1
+			base := 2 * last
+			for column := 0; column < last; column++ {
+				width := displayWidth(header[column])
+				for _, row := range rows {
+					if column < len(row) {
+						width = max(width, displayWidth(row[column]))
+					}
+				}
+				base += width
+			}
+			available := outputColumns(context, writer) - 1 - base
+			if available < progressMessageMinWidth {
+				header = header[:last]
+				for index, row := range rows {
+					if len(row) > last {
+						rows[index] = row[:last]
+					}
+				}
+			} else {
+				for _, row := range rows {
+					if len(row) > last {
+						row[last] = fitDisplay(row[last], available)
+					}
+				}
+			}
+		}
+	}
 	widths := make([]int, len(header))
 	for index, cell := range header {
 		widths[index] = displayWidth(cell)
@@ -513,11 +563,6 @@ func printTable(writer io.Writer, header []string, rows [][]string, statusColumn
 	}
 	// Redirected tables retain their stable layout; narrow terminals use cards
 	// so paths and recovery messages remain complete and can wrap naturally.
-	context := outputContextFrom(writer)
-	terminal := writerTTY(writer)
-	if context != nil {
-		terminal = context.stdoutTTY && context.format == outputText
-	}
 	if terminal && total > outputColumns(context, writer) {
 		for rowIndex, row := range rows {
 			if rowIndex > 0 {
@@ -559,6 +604,14 @@ func printTable(writer io.Writer, header []string, rows [][]string, statusColumn
 	for _, row := range rows {
 		line(row, true)
 	}
+}
+
+func cloneTableRows(rows [][]string) [][]string {
+	result := make([][]string, len(rows))
+	for index, row := range rows {
+		result[index] = append([]string(nil), row...)
+	}
+	return result
 }
 
 func numericTableColumn(header string) bool {

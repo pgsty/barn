@@ -52,6 +52,11 @@ func lifecycleCanRetry(command string) bool {
 	return startupCommand(command) || command == "resize"
 }
 
+func lifecycleProgressFrozen(out io.Writer) bool {
+	state := outputContextFrom(out)
+	return state != nil && state.finalProgress && state.stdoutTTY && state.format == outputText && !state.verbose
+}
+
 func printLifecycleResult(out io.Writer, command string, result lifecycleResult, noWait bool) {
 	for _, node := range result.Nodes {
 		if node.Error == "" {
@@ -77,7 +82,8 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 			known[failure.Node] = true
 		}
 	}
-	if command == "status" || !startupCommand(command) || verboseOutput(out) {
+	frozen := lifecycleProgressFrozen(out)
+	if !frozen && (command == "status" || !startupCommand(command) || verboseOutput(out)) {
 		if len(result.Failures) > 0 {
 			status := result.Status
 			status.Message = ""
@@ -88,7 +94,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 		if command == "status" {
 			printMacHint(out)
 		}
-	} else {
+	} else if !frozen {
 		ready, limited, unchecked := 0, 0, 0
 		changed := false
 		for _, node := range result.Nodes {
@@ -144,10 +150,13 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 						}
 					}
 				}
-				rows = append(rows, []string{node.Name, phase, node.Address})
+				rows = append(rows, []string{node.Name, node.Address, phase})
 			}
-			printTable(out, []string{"NAME", "STATE", "ADDRESS"}, rows, 1)
+			printTable(out, []string{"NAME", "ADDRESS", "STATE"}, rows, 2)
 		}
+	}
+	if frozen && result.Note != "" {
+		textField(out, 5, "note", result.Note)
 	}
 	if len(result.Failures) > 0 {
 		printNodeFailures(out, result.Source, result.Failures, result.retryOptions)
@@ -162,11 +171,10 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 			textField(out, 10, "retry", warning.Next)
 		}
 	}
-	if startupCommand(command) && (result.Message != "already running" || len(result.Warnings) > 0 || len(result.Failures) > 0) {
+	if !frozen && startupCommand(command) && (result.Message != "already running" || len(result.Warnings) > 0 || len(result.Failures) > 0) {
 		for _, node := range result.Nodes {
 			if node.Ready && node.Error == "" {
 				textField(out, 10, "connect", "barn ssh "+node.Name)
-				break
 			}
 		}
 	}
@@ -218,7 +226,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 
 func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFailure, options ...lifecycleRetryOptions) {
 	groups := make(map[string][]string)
-	var retry, start, bootstrap, repair, booted []string
+	var retry, start, stop, bootstrap, repair, booted []string
 	for _, failure := range failures {
 		message := strings.Join(strings.Fields(failure.Error), " ")
 		groups[message] = append(groups[message], failure.Node)
@@ -229,6 +237,8 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 		} else if failure.Stage == "start" {
 			start = append(start, failure.Node)
 			booted = append(booted, failure.Node)
+		} else if failure.Stage == "stop" {
+			stop = append(stop, failure.Node)
 		} else {
 			retry = append(retry, failure.Node)
 			if failure.Stage != "prepare" {
@@ -263,6 +273,10 @@ func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFa
 	if len(start) > 0 {
 		sort.Strings(start)
 		textField(out, 10, "retry", lifecycleNodeCommand("start", source, start, options...))
+	}
+	if len(stop) > 0 {
+		sort.Strings(stop)
+		textField(out, 10, "retry", lifecycleNodeCommand("stop", source, stop))
 	}
 	if len(booted) > 0 {
 		// A node that failed before its VM existed has no console log.

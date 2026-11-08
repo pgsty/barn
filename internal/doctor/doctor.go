@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
 	"github.com/pgsty/barn/internal/platform"
@@ -73,6 +74,7 @@ func markClass(checks []Check, class string) []Check {
 }
 
 type Probe struct {
+	Progress         activity.Reporter
 	HostOnly         bool
 	Runner           execx.Runner
 	LookPath         func(string) (string, error)
@@ -111,7 +113,9 @@ func combined(result execx.Result) string {
 	return strings.TrimSpace(string(result.Stdout) + "\n" + string(result.Stderr))
 }
 
-func (p Probe) capability(ctx context.Context, binary, name string, args []string, needles ...string) Check {
+func (p Probe) capability(ctx context.Context, binary, name string, args []string, needles ...string) (check Check) {
+	p.checking(name, "checking QEMU "+name)
+	defer func() { p.reportCheck(check) }()
 	result, err := p.runner().Run(ctx, binary, args...)
 	if err != nil {
 		return Check{Name: name, Status: Error, Evidence: err.Error(), Fix: "inspect the exact QEMU binary and its help output"}
@@ -132,31 +136,39 @@ func (p Probe) capability(ctx context.Context, binary, name string, args []strin
 // Run performs no installation or host mutation.
 func (p Probe) Run(ctx context.Context) Report {
 	report := Report{OS: runtime.GOOS, Arch: runtime.GOARCH}
+	add := func(checks ...Check) {
+		report.Checks = append(report.Checks, checks...)
+		for _, check := range checks {
+			p.reportCheck(check)
+		}
+	}
+	p.checking("host", "checking host platform")
 	profile, err := platform.Native()
 	if err != nil {
 		report.Tier = platform.Unsupported.String()
-		report.Checks = append(report.Checks, Check{Name: "host", Status: Error, Evidence: err.Error()})
+		add(Check{Name: "host", Status: Error, Evidence: err.Error()})
 		return report
 	}
 	report.Tier = profile.Tier.String()
-	report.Checks = append(report.Checks, Check{Name: "host", Status: OK, Evidence: fmt.Sprintf("%s/%s %s", profile.OS, profile.Arch, profile.Tier)})
+	add(Check{Name: "host", Status: OK, Evidence: fmt.Sprintf("%s/%s %s", profile.OS, profile.Arch, profile.Tier)})
 
 	qemuPath, err := platform.FindQEMUBinary(profile, p.lookPath)
 	if err != nil {
-		report.Checks = append(report.Checks, Check{Name: "qemu", Status: Error, Evidence: profile.QEMUBinary + " not found", Fix: qemuInstallFix(profile.OS)})
+		add(Check{Name: "qemu", Status: Error, Evidence: profile.QEMUBinary + " not found", Fix: qemuInstallFix(profile.OS)})
 	} else {
-		report.Checks = append(report.Checks, Check{Name: "qemu-path", Status: OK, Evidence: qemuPath})
+		add(Check{Name: "qemu-path", Status: OK, Evidence: qemuPath})
 		qemuVersion := ""
+		p.checking("qemu-version", "checking QEMU version")
 		result, versionErr := p.runner().Run(ctx, qemuPath, "--version")
 		if versionErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: versionErr.Error(), Fix: qemuInstallFix(profile.OS)})
+			add(Check{Name: "qemu-version", Status: Error, Evidence: versionErr.Error(), Fix: qemuInstallFix(profile.OS)})
 		} else if version, parseErr := platform.ParseQEMUVersion(combined(result)); parseErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: parseErr.Error(), Fix: qemuInstallFix(profile.OS)})
+			add(Check{Name: "qemu-version", Status: Error, Evidence: parseErr.Error(), Fix: qemuInstallFix(profile.OS)})
 		} else if !version.AtLeast(profile.MinimumQEMU) {
-			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: Error, Evidence: version.String() + " is below " + profile.MinimumQEMU.String(), Fix: qemuInstallFix(profile.OS)})
+			add(Check{Name: "qemu-version", Status: Error, Evidence: version.String() + " is below " + profile.MinimumQEMU.String(), Fix: qemuInstallFix(profile.OS)})
 		} else {
 			qemuVersion = version.String()
-			report.Checks = append(report.Checks, Check{Name: "qemu-version", Status: OK, Evidence: qemuVersion})
+			add(Check{Name: "qemu-version", Status: OK, Evidence: qemuVersion})
 		}
 		staticChecks := []Check{
 			p.capability(ctx, qemuPath, "accelerator", []string{"-accel", "help"}, profile.Accelerator),
@@ -165,23 +177,24 @@ func (p Probe) Run(ctx context.Context) Report {
 			p.capability(ctx, qemuPath, "devices", []string{"-device", "help"}, "virtio-blk-pci", "virtio-net-pci", "virtio-scsi-pci"),
 			p.capability(ctx, qemuPath, "netdev", []string{"-machine", "none", "-netdev", "help"}, "user"),
 		}
-		report.Checks = append(report.Checks, staticChecks...)
+		add(staticChecks...)
+		p.checking(profile.Accelerator+"-real-smoke", "testing native accelerator")
 		if evidence, smokeErr := p.acceleratorSmoke(ctx, qemuPath, profile); smokeErr != nil {
-			report.Checks = append(report.Checks, Check{Name: profile.Accelerator + "-real-smoke", Status: Error, Evidence: smokeErr.Error(), Fix: "verify the native accelerator entitlement/device and retry doctor"})
+			add(Check{Name: profile.Accelerator + "-real-smoke", Status: Error, Evidence: smokeErr.Error(), Fix: "verify the native accelerator entitlement/device and retry doctor"})
 		} else {
-			report.Checks = append(report.Checks, Check{Name: profile.Accelerator + "-real-smoke", Status: OK, Evidence: evidence})
+			add(Check{Name: profile.Accelerator + "-real-smoke", Status: OK, Evidence: evidence})
 		}
 	}
 
 	qemuImgPath, err := p.lookPath("qemu-img")
 	if err != nil {
-		report.Checks = append(report.Checks, Check{Name: "qemu-img", Status: Error, Evidence: "qemu-img not found", Fix: qemuInstallFix(profile.OS)})
+		add(Check{Name: "qemu-img", Status: Error, Evidence: "qemu-img not found", Fix: qemuInstallFix(profile.OS)})
 	} else {
 		result, versionErr := p.runner().Run(ctx, qemuImgPath, "--version")
 		if versionErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "qemu-img", Status: Error, Evidence: versionErr.Error(), Fix: qemuInstallFix(profile.OS)})
+			add(Check{Name: "qemu-img", Status: Error, Evidence: versionErr.Error(), Fix: qemuInstallFix(profile.OS)})
 		} else {
-			report.Checks = append(report.Checks, Check{Name: "qemu-img", Status: OK, Evidence: qemuImgPath + ": " + strings.Split(combined(result), "\n")[0]})
+			add(Check{Name: "qemu-img", Status: OK, Evidence: qemuImgPath + ": " + strings.Split(combined(result), "\n")[0]})
 		}
 	}
 
@@ -190,35 +203,50 @@ func (p Probe) Run(ctx context.Context) Report {
 	// fail later during up.
 	firmware, firmwareErr := platform.FindFirmwareForBoot(profile, "uefi")
 	if firmwareErr != nil {
-		report.Checks = append(report.Checks, Check{Name: "firmware", Status: Error, Evidence: "no matching UEFI code/vars pair found", Fix: qemuInstallFix(profile.OS)})
+		add(Check{Name: "firmware", Status: Error, Evidence: "no matching UEFI code/vars pair found", Fix: qemuInstallFix(profile.OS)})
 	} else {
-		report.Checks = append(report.Checks, Check{Name: "firmware", Status: OK, Evidence: firmware.Code + " + " + firmware.Vars})
+		add(Check{Name: "firmware", Status: OK, Evidence: firmware.Code + " + " + firmware.Vars})
 	}
 
 	if profile.OS == "linux" {
 		file, openErr := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
 		if openErr != nil {
-			report.Checks = append(report.Checks, Check{Name: "kvm", Status: Error, Evidence: openErr.Error(), Fix: "enable KVM and grant the invoking user read/write access to /dev/kvm"})
+			add(Check{Name: "kvm", Status: Error, Evidence: openErr.Error(), Fix: "enable KVM and grant the invoking user read/write access to /dev/kvm"})
 		} else {
 			_ = file.Close()
-			report.Checks = append(report.Checks, Check{Name: "kvm", Status: OK, Evidence: "/dev/kvm is readable and writable"})
+			add(Check{Name: "kvm", Status: OK, Evidence: "/dev/kvm is readable and writable"})
 		}
 	}
 
 	if sshPath, sshErr := p.lookPath("ssh"); sshErr != nil {
-		report.Checks = append(report.Checks, Check{Name: "ssh", Status: Error, Evidence: "OpenSSH client not found", Fix: "install an OpenSSH client"})
+		add(Check{Name: "ssh", Status: Error, Evidence: "OpenSSH client not found", Fix: "install an OpenSSH client"})
 	} else {
-		report.Checks = append(report.Checks, Check{Name: "ssh", Status: OK, Evidence: filepath.Clean(sshPath)})
+		add(Check{Name: "ssh", Status: OK, Evidence: filepath.Clean(sshPath)})
 	}
 	if p.HostOnly {
 		return report
 	}
-	report.Checks = append(report.Checks, p.deploymentChecks()...)
+	p.Progress.Report(activity.Event{Phase: "doctor", Message: "checking deployment state"})
+	deployment := p.deploymentChecks()
+	add(deployment...)
+	p.Progress.Report(activity.Event{Phase: "doctor", Message: "checking host network"})
 	if profile.OS == "darwin" {
-		report.Checks = append(report.Checks, markClass(networkPreflightChecks(ctx, profile, netpreflight.Probe{Runner: p.runner()}), ClassNetwork)...)
+		add(markClass(networkPreflightChecks(ctx, profile, netpreflight.Probe{Runner: p.runner()}), ClassNetwork)...)
 	} else if profile.OS == "linux" {
-		report.Checks = append(report.Checks, markClass(p.linuxPrivateChecks(ctx), ClassNetwork)...)
-		report.Checks = append(report.Checks, markClass(networkPreflightChecks(ctx, profile, netpreflight.Probe{Runner: p.runner()}), ClassNetwork)...)
+		add(markClass(p.linuxPrivateChecks(ctx), ClassNetwork)...)
+		add(markClass(networkPreflightChecks(ctx, profile, netpreflight.Probe{Runner: p.runner()}), ClassNetwork)...)
 	}
 	return report
+}
+
+func (p Probe) checking(name, message string) {
+	p.Progress.Report(activity.Event{Phase: "doctor", Item: name, State: "checking", Message: message})
+}
+
+func (p Probe) reportCheck(check Check) {
+	state := string(check.Status)
+	if check.Class == ClassNetwork && check.Status == Error {
+		state = "blocked"
+	}
+	p.Progress.Report(activity.Event{Phase: "doctor", Item: check.Name, State: state, Message: check.Evidence, Done: true})
 }

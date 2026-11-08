@@ -22,6 +22,13 @@ type lifecycleIntegrator interface {
 	RecordEvent(context.Context, string, string, string) error
 }
 
+func reportLifecycleNodes(report activity.Reporter, nodes []privatevm.NodeStatus, event activity.Event) {
+	for _, node := range nodes {
+		event.Node, event.Address = node.Name, node.Address
+		report.Report(event)
+	}
+}
+
 // The VM result is already known. Each optional integration gets its own
 // deadline so a busy lock or an unresponsive guest cannot use the lifecycle's
 // entire timeout, or prevent the next integration from being attempted.

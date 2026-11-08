@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/doctor"
 	"github.com/pgsty/barn/internal/execx"
@@ -437,19 +438,23 @@ func runNetwork(parent context.Context, options networkOptions, stderr io.Writer
 			readiness = "not ready"
 		}
 		textField(stdout, 9, "network", fmt.Sprintf("%s (%s, %s)", preflightReport.CIDR, installationWords(preflightReport.Installation.Status), readiness))
+		rows := make([][]string, 0, len(preflightReport.Findings)+len(checks))
 		for _, finding := range preflightReport.Findings {
-			line := finding.Evidence
-			if finding.Severity == netpreflight.Error && finding.Fix != "" {
-				line += "; fix: " + finding.Fix
-			}
-			bestEffortf(stdout, "[%s] %s\n", finding.Severity, line)
+			rows = append(rows, []string{finding.Code, string(finding.Severity), finding.Evidence})
 		}
 		for _, check := range checks {
-			line := check.Evidence
-			if check.Status == doctor.Error && check.Fix != "" {
-				line += "; fix: " + check.Fix
+			rows = append(rows, []string{check.Name, string(check.Status), check.Evidence})
+		}
+		printTable(stdout, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
+		for _, finding := range preflightReport.Findings {
+			if finding.Severity == netpreflight.Error && finding.Fix != "" {
+				textField(stdout, 5, "fix", finding.Code+": "+finding.Fix)
 			}
-			bestEffortf(stdout, "[%s] %s\n", check.Status, line)
+		}
+		for _, check := range checks {
+			if check.Status == doctor.Error && check.Fix != "" {
+				textField(stdout, 5, "fix", check.Name+": "+check.Fix)
+			}
 		}
 		return nil
 	}
@@ -669,27 +674,45 @@ func runSSH(parent context.Context, commandName string, args []string, stdout, s
 }
 
 func printProvisionReport(stdout, stderr io.Writer, report provision.Report) {
-	textField(stdout, 10, "script", report.Script.Name)
-	textField(stdout, 10, "sha256", report.Script.SHA256)
-	textField(stdout, 10, "bytes", report.Script.Size)
-	textField(stdout, 10, "sudo", report.Sudo)
-	textField(stdout, 10, "parallel", report.Parallelism)
-	for _, result := range report.Results {
-		state := "failed"
-		if result.Success {
-			state = "success"
-		}
-		bestEffortf(stdout, "%-16s %s  exit=%d  duration=%dms\n", result.Node, statusValue(stdout, state), result.ExitCode, result.DurationMS)
-		if result.Stdout != "" {
-			bestEffortf(stdout, "--- %s stdout ---\n%s", result.Node, result.Stdout)
-			if !strings.HasSuffix(result.Stdout, "\n") {
-				bestEffortln(stdout)
+	frozen := lifecycleProgressFrozen(stdout)
+	if !frozen {
+		rows := make([][]string, 0, len(report.Results))
+		for _, result := range report.Results {
+			state := "failed"
+			if result.Success {
+				state = "success"
 			}
+			rows = append(rows, []string{result.Node, result.Address, state, fmt.Sprintf("exit %d · %s", result.ExitCode, time.Duration(result.DurationMS)*time.Millisecond)})
 		}
-		if result.Stderr != "" {
-			bestEffortf(stderr, "--- %s stderr ---\n%s", result.Node, result.Stderr)
-			if !strings.HasSuffix(result.Stderr, "\n") {
-				bestEffortln(stderr)
+		printTable(stdout, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
+		marker := "DONE"
+		if report.Failed > 0 || report.AuditError != "" {
+			marker = "FAILED"
+		}
+		bestEffortf(stdout, "provision %d/%d nodes: %s [%s]\n", report.Successful, len(report.Results), elapsedLabel(time.Duration(report.DurationMS)*time.Millisecond), marker)
+	}
+	if verboseOutput(stdout) {
+		textField(stdout, 10, "script", report.Script.Name)
+		textField(stdout, 10, "sha256", report.Script.SHA256)
+		textField(stdout, 10, "bytes", report.Script.Size)
+		textField(stdout, 10, "sudo", report.Sudo)
+		textField(stdout, 10, "parallel", report.Parallelism)
+	}
+	output := outputContextFrom(stdout)
+	showOutput := verboseOutput(stdout) || output == nil || !output.stdoutTTY
+	for _, result := range report.Results {
+		if showOutput || !result.Success {
+			if result.Stdout != "" {
+				bestEffortf(stdout, "--- %s stdout ---\n%s", result.Node, result.Stdout)
+				if !strings.HasSuffix(result.Stdout, "\n") {
+					bestEffortln(stdout)
+				}
+			}
+			if result.Stderr != "" {
+				bestEffortf(stderr, "--- %s stderr ---\n%s", result.Node, result.Stderr)
+				if !strings.HasSuffix(result.Stderr, "\n") {
+					bestEffortln(stderr)
+				}
 			}
 		}
 		if result.StdoutTruncated {
@@ -702,7 +725,6 @@ func printProvisionReport(stdout, stderr io.Writer, report provision.Report) {
 			bestEffortf(stderr, "[%s] %s\n", result.Node, result.Error)
 		}
 	}
-	bestEffortf(stdout, "%s %d successful, %d failed, %dms total\n", styled(stdout, ansiBold, "provisioned"), report.Successful, report.Failed, report.DurationMS)
 }
 
 func provisionConnectionExit(err error) int {
@@ -803,7 +825,7 @@ type provisionOptions struct {
 	Timeout     time.Duration
 }
 
-func runProvision(parent context.Context, options provisionOptions, nodes []string, stderr io.Writer) (commandOutcome, error) {
+func runProvision(parent context.Context, options provisionOptions, nodes []string, stderr io.Writer) (_ commandOutcome, returnErr error) {
 	if options.ScriptPath == "" {
 		return commandOutcome{}, newUsageError(errors.New("--script is required"))
 	}
@@ -850,6 +872,10 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	resolved := deploymentState.Resolved
 
 	targets := make([]provision.Target, 0)
+	addresses := make(map[string]string, len(resolved.Nodes))
+	for _, node := range resolved.Nodes {
+		addresses[node.Name] = node.Address
+	}
 	selectedNames := make([]string, 0)
 	var recordEvent func(context.Context, string, string, string) error
 	if resolved.Network == "private" {
@@ -862,7 +888,7 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 			if connection.Host != "127.0.0.1" {
 				return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("will not provision node %s: its SSH endpoint is not on loopback", connection.Node))
 			}
-			targets = append(targets, provision.Target{Node: connection.Node, User: connection.User, Port: connection.Port, PrivateKey: connection.PrivateKey, KnownHosts: connection.KnownHosts, HostKeyAlias: connection.HostKeyAlias})
+			targets = append(targets, provision.Target{Node: connection.Node, Address: addresses[connection.Node], User: connection.User, Port: connection.Port, PrivateKey: connection.PrivateKey, KnownHosts: connection.KnownHosts, HostKeyAlias: connection.HostKeyAlias})
 			selectedNames = append(selectedNames, connection.Node)
 		}
 		recordEvent = manager.RecordEvent
@@ -883,11 +909,11 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("will not provision without recording it in the event log: %w", err)).withOperation(operationID)
 	}
 	debugf(stderr, "provision operation_id=%s targets=%s timeout=%s parallel=%d sudo=%t script_sha256=%s", operationID, strings.Join(selectedNames, ","), options.Timeout, options.Parallelism, options.Sudo, script.SHA256)
-	progressItem := startProgress(ctx, stderr, fmt.Sprintf("Provisioning %d node(s)", len(targets)))
+	progressItem := startOperationProgress(ctx, stderr, fmt.Sprintf("Provisioning %d node(s)", len(targets)), "provision")
+	defer func() { progressItem.Stop(returnErr) }()
 	report, err := (provision.Executor{
-		Runner: provision.SSHRunner{SSHPath: sshPath}, Parallelism: options.Parallelism, OperationID: operationID,
+		Runner: provision.SSHRunner{SSHPath: sshPath, Progress: progressItem.Report}, Parallelism: options.Parallelism, OperationID: operationID, Progress: progressItem.Report,
 	}).Execute(ctx, script, targets, options.Sudo)
-	progressItem.Stop(err)
 	if errors.Is(parent.Err(), context.Canceled) {
 		return commandOutcome{}, ErrCancelled
 	}
@@ -1011,9 +1037,9 @@ func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
 			if node.Accel == "tcg" {
 				phase += " (tcg/" + node.GuestArch + ")"
 			}
-			rows = append(rows, []string{node.Name, phase, node.Address, node.Image, fmt.Sprint(node.CPUs), fmt.Sprintf("%.1f GiB", float64(node.Memory)/float64(spec.GiB))})
+			rows = append(rows, []string{node.Name, node.Address, phase, node.Image, fmt.Sprint(node.CPUs), fmt.Sprintf("%.1f GiB", float64(node.Memory)/float64(spec.GiB))})
 		}
-		printTable(out, []string{"NAME", "STATE", "ADDRESS", "IMAGE", "CPU", "MEMORY"}, rows, 1)
+		printTable(out, []string{"NAME", "ADDRESS", "STATE", "IMAGE", "CPU", "MEMORY"}, rows, 2)
 		for _, node := range status.Nodes {
 			if errors && node.Error != "" {
 				bestEffortf(out, "%s: %s\n", node.Name, node.Error)
@@ -1159,6 +1185,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			return lifecycleNodeCommand(action, source, selected, retryOptions)
 		}
 		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
+			printPlanTable(stdout, plan, resolved)
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
 			textField(stdout, 12, "resources", fmt.Sprintf("%d vCPU, %s RAM, %s virtual disk capacity", plan.CPUs, planSize(plan.Memory), planSize(plan.Storage)))
 			textField(stdout, 12, "data", planDataDisks(resolved, plan.Nodes))
@@ -1275,11 +1302,17 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			if err != nil || !deletePersistent {
 				return status, err
 			}
+			reportLifecycleNodes(manager.Progress, status.Nodes, activity.Event{
+				Phase: command, State: "cleaning", Message: "removing persistent data disks",
+			})
 			deleted, err := manager.DeletePersistent(ctx)
 			if err != nil {
 				return status, &persistentDeleteError{err: err}
 			}
 			status.Message = fmt.Sprintf("destroyed node artifacts; explicitly deleted %d persistent data disk(s); image cache and keys preserved", len(deleted))
+			reportLifecycleNodes(manager.Progress, status.Nodes, activity.Event{
+				Phase: command, State: "removed", Message: "node and persistent disks removed", Done: true,
+			})
 			return status, nil
 		}
 	default:
@@ -1296,7 +1329,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	defer cancel()
 	debugf(stderr, "lifecycle=%s mode=private timeout=%s operation_id=%s nodes=%d", command, timeout, operationID, len(resolved.Nodes))
 	if command != "status" {
-		progressItem = startProgress(ctx, stderr, lifecycleMessage(command))
+		progressItem = startLifecycleProgress(ctx, stderr, command)
 	}
 	status, err := operation(ctx)
 	err = lifecycleOverrideRecovery(err, source, nodes, retryOptions)
@@ -1325,6 +1358,9 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	reconciledSSHConfig, warnings := finishLifecycleIntegrations(ctx, command, deploymentHasNodes, noWait,
 		metadataRetry, status, err, fullDeploymentSSHManager(manager), deferredProgressReporter(&progressItem))
 	if lifecycleSucceeded && (command == "purge" || command == "destroy" && purge) {
+		reportLifecycleNodes(manager.Progress, status.Nodes, activity.Event{
+			Phase: command, State: "cleaning", Message: "removing deployment keys and state",
+		})
 		if purgeErr := purgeDeployment(ctx); purgeErr != nil {
 			if err == nil {
 				err = fmt.Errorf("destroy succeeded but purge failed: %w", purgeErr)
@@ -1333,6 +1369,9 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			}
 		} else {
 			status.Message = "destroyed node artifacts and persistent data disks; purged deployment keys and state; images remain cached"
+			reportLifecycleNodes(manager.Progress, status.Nodes, activity.Event{
+				Phase: command, State: "purged", Message: "node, disks, keys and state removed", Done: true,
+			})
 		}
 	}
 	if errors.Is(parent.Err(), context.Canceled) {
@@ -1451,7 +1490,7 @@ func purgeScope(resolved spec.Resolved) string {
 // can still delete strictly inventoried persistent disks and allowlisted keys.
 // A missing state document never authorizes deletion of retained node
 // artifacts, whose process and path identity can no longer be proven.
-func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (commandOutcome, error) {
+func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (_ commandOutcome, returnErr error) {
 	resolved, err := currentDeploymentResolved()
 	if err == nil {
 		if resolved.Network != "private" {
@@ -1494,16 +1533,21 @@ func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (comman
 
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
-	manager := privatevm.Manager{BarnVersion: version.Version}
+	progressItem := startLifecycleProgress(ctx, stderr, "purge")
+	defer func() { progressItem.Stop(returnErr) }()
+	manager := privatevm.Manager{BarnVersion: version.Version, Progress: progressItem.Report}
+	progressItem.Report(activity.Event{Phase: "purge", Message: "Removing retained persistent disks"})
 	deleted, deleteErr := manager.DeletePersistent(ctx)
 	if deleteErr != nil {
 		return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("deployment state is missing; refuse unsafe residual purge: %w", deleteErr))
 	}
+	progressItem.Report(activity.Event{Phase: "purge", Message: "Removing deployment keys and state"})
 	if purgeErr := purgeDeployment(ctx); purgeErr != nil {
 		return commandOutcome{}, newCommandError(exitRuntime, fmt.Errorf("purge residual deployment data: %w", purgeErr))
 	}
 
-	sshResult, sshErr := (privatevm.Manager{BarnVersion: version.Version}).RemoveSSHConfig("barn", "")
+	progressItem.Report(activity.Event{Phase: "purge", Message: "Removing the SSH client configuration"})
+	sshResult, sshErr := manager.RemoveSSHConfig("barn", "")
 	status := privatevm.Status{Message: fmt.Sprintf("purged residual deployment data and %d persistent data disk(s); image cache and host network remain installed", len(deleted))}
 	result := lifecycleResult{Status: status, SSHConfig: &sshResult}
 	if sshErr != nil {
@@ -1539,7 +1583,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 				recordOperationPhase(ctx, id, command, "complete", returnErr, stderr)
 			}
 		}()
-		progressItem := startProgress(ctx, stderr, lifecycleMessage(command))
+		progressItem := startLifecycleProgress(ctx, stderr, command)
 		defer func() { progressItem.Stop(returnErr) }()
 	}
 	if (options.DeletePersistent || options.Purge) && !options.Force && !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -1745,7 +1789,13 @@ type sshConfigOptions struct {
 
 func sshConfigOutcome(result sshconfig.Result, name string) commandOutcome {
 	return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
-		bestEffortf(stdout, "%s SSH config %s (changed=%t)\nfragment: %s\nconfig: %s\n", result.Action, name, result.Changed, result.Fragment, result.Config)
+		phase := "unchanged"
+		if result.Changed {
+			phase = "applied"
+		}
+		printItemResult(stdout, "ssh-config", phase, result.Action+" SSH config "+name)
+		textField(stdout, 10, "fragment", result.Fragment)
+		textField(stdout, 10, "config", result.Config)
 		return nil
 	}}
 }
@@ -2236,9 +2286,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if err != nil {
 			return commandOutcome{}, newRuntimeError(err)
 		}
-		progressItem = startProgress(ctx, stderr, "Updating the image catalog")
+		progressItem = startImageProgress(ctx, stderr, "update", "catalog")
 		result, err := service.UpdateCatalog(ctx)
-		progressItem.Stop(err)
+		finishProgressItem(progressItem, "catalog", "active", fmt.Sprintf("catalog revision %d", result.ActiveVersion), err)
 		if errors.Is(parent.Err(), context.Canceled) {
 			return commandOutcome{}, ErrCancelled
 		}
@@ -2247,9 +2297,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
 			if result.Updated {
-				bestEffortf(stdout, "updated image catalog from revision %d to %d\n", result.PreviousVersion, result.ActiveVersion)
+				printItemResult(stdout, "catalog", "active", fmt.Sprintf("updated image catalog from revision %d to %d", result.PreviousVersion, result.ActiveVersion))
 			} else {
-				bestEffortf(stdout, "image catalog revision %d is current\n", result.ActiveVersion)
+				printItemResult(stdout, "catalog", "unchanged", fmt.Sprintf("image catalog revision %d is current", result.ActiveVersion))
 			}
 			textField(stdout, 12, "repository", result.Repository)
 			textField(stdout, 12, "source", result.Source)
@@ -2274,9 +2324,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			textField(stdout, 9, "catalog", fmt.Sprintf("revision %d (%s)", manifestState.ActiveVersion, catalogOrigin(manifestState.Source)))
 			rows := make([][]string, 0, len(entries))
 			for _, entry := range entries {
-				rows = append(rows, []string{entry.Alias, entry.Release, entry.Arch, strings.Join(entry.Channels, ","), entry.Status})
+				rows = append(rows, []string{entry.Alias, entry.Status, entry.Release, entry.Arch, strings.Join(entry.Channels, ",")})
 			}
-			printTable(stdout, []string{"ALIAS", "RELEASE", "ARCH", "CHANNELS", "STATUS"}, rows, 4)
+			printTable(stdout, []string{"IMAGE", "STATE", "RELEASE", "ARCH", "CHANNELS"}, rows, 1)
 			return nil
 		}}, nil
 	case "info", "pull":
@@ -2290,7 +2340,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		var info image.Info
 		if options.Action == "pull" {
 			debugf(stderr, "image pull alias=%s (inactivity timeout; resumable)", options.Alias)
-			progressItem = startProgress(ctx, stderr, fmt.Sprintf("Pulling image %s", options.Alias))
+			progressItem = startImageProgress(ctx, stderr, "pull", options.Alias)
 			if options.Arch == "" {
 				info, err = service.PullAlias(ctx, options.Alias)
 			} else {
@@ -2303,7 +2353,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 				info, err = service.InfoArch(ctx, options.Alias, options.Arch)
 			}
 		}
-		progressItem.Stop(err)
+		finishProgressItem(progressItem, options.Alias, "cached", info.Entry.Release+" · "+info.Entry.Arch, err)
 		if errors.Is(parent.Err(), context.Canceled) {
 			return commandOutcome{}, ErrCancelled
 		}
@@ -2312,7 +2362,14 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		printImageStatusWarning(stderr, info.Entry)
 		return commandOutcome{payload: info, text: func(stdout, _ io.Writer) error {
-			bestEffortf(stdout, "%s %s %s status=%s sha256:%s cached=%t\n", info.Entry.Alias, info.Entry.Release, info.Entry.Arch, info.Entry.Status, info.Entry.SHA256, info.Cached)
+			if !lifecycleProgressFrozen(stdout) {
+				state := "available"
+				if info.Cached {
+					state = "cached"
+				}
+				printTable(stdout, []string{"IMAGE", "STATE", "ARCH", "RELEASE"}, [][]string{{info.Entry.Alias, state, info.Entry.Arch, info.Entry.Release}}, 1)
+			}
+			textField(stdout, 10, "sha256", info.Entry.SHA256)
 			if info.Path != "" {
 				bestEffortf(stdout, "path: %s\n", info.Path)
 				return nil
@@ -2371,11 +2428,16 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 		defer cancel()
-		service, err := imageService(options.Repository, options.Mirror, nil)
+		var progressItem *progress
+		service, err := imageService(options.Repository, options.Mirror, deferredProgressReporter(&progressItem))
 		if err != nil {
 			return commandOutcome{}, newRuntimeError(err)
 		}
-		progressItem := startProgress(ctx, stderr, "Scanning unreferenced image cache entries")
+		operation := "image prune"
+		if !options.Apply {
+			operation += " plan"
+		}
+		progressItem = startOperationProgress(ctx, stderr, "Scanning unreferenced image cache entries", operation)
 		report, err := service.PruneAll(ctx, options.Apply, func(refCtx context.Context) (map[string]struct{}, error) {
 			return nodeImageReferences(service.DataRoot)
 		})
@@ -2391,16 +2453,16 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 				bestEffortf(stdout, "no unreferenced cache images\n")
 				return nil
 			}
-			for _, item := range report.Items {
-				action := "would delete"
-				if item.Applied {
-					action = "deleted"
+			if !lifecycleProgressFrozen(stdout) {
+				rows := make([][]string, 0, len(report.Items))
+				for _, item := range report.Items {
+					state := "planned"
+					if item.Applied {
+						state = "removed"
+					}
+					rows = append(rows, []string{item.ImagePath, state, item.Kind, progressBytes(item.Bytes)})
 				}
-				if item.Digest == "" {
-					bestEffortf(stdout, "%s %s (%d bytes, %s)\n", action, item.ImagePath, item.Bytes, item.Kind)
-				} else {
-					bestEffortf(stdout, "%s %s sha256:%s (%d bytes)\n", action, item.ImagePath, item.Digest, item.Bytes)
-				}
+				printTable(stdout, []string{"IMAGE", "STATE", "KIND", "SIZE"}, rows, 1)
 			}
 			return nil
 		}}, nil
@@ -2416,9 +2478,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if err != nil {
 			return commandOutcome{}, newRuntimeError(err)
 		}
-		progressItem = startProgress(ctx, stderr, "Activating the image catalog")
+		progressItem = startImageProgress(ctx, stderr, "sync", "catalog")
 		state, err := service.SyncManifest(ctx, options.Source, options.AllowDowngrade)
-		progressItem.Stop(err)
+		finishProgressItem(progressItem, "catalog", "active", fmt.Sprintf("catalog revision %d", state.ActiveVersion), err)
 		if errors.Is(parent.Err(), context.Canceled) {
 			return commandOutcome{}, ErrCancelled
 		}
@@ -2426,7 +2488,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return commandOutcome{}, newRuntimeError(err)
 		}
 		return commandOutcome{payload: state, text: func(stdout, _ io.Writer) error {
-			bestEffortf(stdout, "activated image catalog revision %d (digest %s, key %s)\n", state.ActiveVersion, state.ActiveDigest, state.KeyID)
+			printItemResult(stdout, "catalog", "active", fmt.Sprintf("activated image catalog revision %d", state.ActiveVersion))
+			textField(stdout, 10, "sha256", state.ActiveDigest)
+			textField(stdout, 10, "key", state.KeyID)
 			return nil
 		}}, nil
 	case "reset":
@@ -2441,7 +2505,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return commandOutcome{}, newRuntimeError(err)
 		}
 		return commandOutcome{payload: state, text: func(stdout, _ io.Writer) error {
-			bestEffortf(stdout, "image catalog reset to the built-in revision %d; downgrade protection still at %d\n", state.ActiveVersion, state.HighestVersion)
+			printItemResult(stdout, "catalog", "active", fmt.Sprintf("image catalog reset to the built-in revision %d; downgrade protection still at %d", state.ActiveVersion, state.HighestVersion))
 			return nil
 		}}, nil
 	case "import":
@@ -2457,7 +2521,8 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 		defer cancel()
-		service, err := imageService("", false, nil)
+		var progressItem *progress
+		service, err := imageService("", false, deferredProgressReporter(&progressItem))
 		if err != nil {
 			return commandOutcome{}, newRuntimeError(err)
 		}
@@ -2465,7 +2530,11 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		var metadata image.Metadata
 		var localEntry *image.Entry
 		debugf(stderr, "image import source=%s expected_sha256=%s alias=%s", options.Path, options.ExpectedSHA256, options.Name)
-		progressItem := startProgress(ctx, stderr, "Importing and verifying the image")
+		name := options.Name
+		if name == "" {
+			name = filepath.Base(options.Path)
+		}
+		progressItem = startImageProgress(ctx, stderr, "import", name)
 		if options.Name == "" {
 			path, metadata, err = service.ImportFile(ctx, options.Path, options.ExpectedSHA256)
 		} else {
@@ -2475,7 +2544,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 				localEntry = &entry
 			}
 		}
-		progressItem.Stop(err)
+		finishProgressItem(progressItem, name, "imported", progressBytes(metadata.ArtifactSize)+" · verified", err)
 		if errors.Is(parent.Err(), context.Canceled) {
 			return commandOutcome{}, ErrCancelled
 		}
@@ -2489,7 +2558,9 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}{Path: path, Metadata: metadata, Entry: localEntry}
 		renderText := func(stdout, _ io.Writer) error {
 			if path != "" {
-				bestEffortf(stdout, "imported %s\nsha256 %s\n", path, metadata.Digest)
+				printItemResult(stdout, name, "imported", progressBytes(metadata.ArtifactSize)+" · verified")
+				textField(stdout, 10, "path", path)
+				textField(stdout, 10, "sha256", metadata.Digest)
 				return nil
 			}
 			return nil
@@ -2514,28 +2585,47 @@ func doctorCheckLabel(check doctor.Check) string {
 func runDoctor(parent context.Context, stderr io.Writer) (commandOutcome, error) {
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
-	progressItem := startProgress(ctx, stderr, "Checking host capabilities")
-	report := (doctor.Probe{}).Run(ctx)
-	progressItem.Stop(nil)
+	progressItem := startOperationProgress(ctx, stderr, "Checking host capabilities", "doctor")
+	report := (doctor.Probe{Progress: progressItem.Report}).Run(ctx)
+	var reportErr error
+	if report.HasErrors() {
+		reportErr = errors.New("host compute capability is not ready")
+	}
+	if ctx.Err() != nil {
+		reportErr = ctx.Err()
+	}
+	progressItem.Stop(reportErr)
 	if errors.Is(parent.Err(), context.Canceled) {
 		return commandOutcome{}, ErrCancelled
 	}
 	renderText := func(stdout, _ io.Writer) error {
+		if !lifecycleProgressFrozen(stdout) {
+			rows := make([][]string, 0, len(report.Checks))
+			for _, check := range report.Checks {
+				rows = append(rows, []string{check.Name, doctorCheckLabel(check), check.Evidence})
+			}
+			printTable(stdout, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
+		}
 		for _, check := range report.Checks {
-			bestEffortf(stdout, "%s %-20s %s\n", statusCell(stdout, 10, doctorCheckLabel(check)), check.Name, check.Evidence)
+			if check.Status != doctor.OK && check.Evidence != "" {
+				textField(stdout, 5, "detail", check.Name+": "+check.Evidence)
+			}
 			if check.Fix != "" {
-				bestEffortf(stdout, "  fix: %s\n", check.Fix)
+				textField(stdout, 5, "fix", check.Name+": "+check.Fix)
 			}
 		}
 		if report.HasErrors() {
 			bestEffortf(stdout, "this host cannot run Barn guests until the errors above are resolved\n")
-		} else {
+		} else if !lifecycleProgressFrozen(stdout) {
 			bestEffortf(stdout, "host compute capability is ready\n")
 		}
 		if !report.NetworkReady() {
 			bestEffortf(stdout, "the Barn network is not ready; run barn setup to prepare it\n")
 		}
 		return nil
+	}
+	if ctx.Err() != nil {
+		return commandOutcome{}, newCommandError(exitRuntime, ctx.Err()).withPayload(report).withText(renderText)
 	}
 	if report.HasErrors() {
 		return commandOutcome{}, newCommandError(exitCapability, errors.New("host compute capability is not ready")).withPayload(report).withText(renderText).quiet()

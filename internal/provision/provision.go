@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/naming"
@@ -120,6 +121,7 @@ func LoadScript(path string) (Script, error) {
 
 type Target struct {
 	Node         string
+	Address      string
 	User         string
 	Port         uint16
 	PrivateKey   string
@@ -142,6 +144,7 @@ func (t Target) validate() error {
 
 type NodeResult struct {
 	Node            string `json:"node"`
+	Address         string `json:"address,omitempty"`
 	Success         bool   `json:"success"`
 	ExitCode        int    `json:"exit_code"`
 	DurationMS      int64  `json:"duration_ms"`
@@ -173,6 +176,7 @@ type Executor struct {
 	Runner      Runner
 	Parallelism int
 	OperationID string
+	Progress    activity.Reporter
 }
 
 func (e Executor) Execute(ctx context.Context, script Script, targets []Target, sudo bool) (Report, error) {
@@ -207,6 +211,15 @@ func (e Executor) Execute(ctx context.Context, script Script, targets []Target, 
 	}
 
 	started := time.Now()
+	var progressMu sync.Mutex
+	reportNode := func(target Target, state, message string, done bool) {
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		e.Progress.Report(activity.Event{Phase: "provision", Node: target.Node, Address: target.Address, State: state, Message: message, Done: done})
+	}
+	for _, target := range targets {
+		reportNode(target, "queued", "waiting to run "+script.Name, false)
+	}
 	report := Report{
 		Schema: 1, OperationID: e.OperationID,
 		Script: Script{Name: script.Name, Size: script.Size, SHA256: script.SHA256},
@@ -223,7 +236,25 @@ func (e Executor) Execute(ctx context.Context, script Script, targets []Target, 
 		go func() {
 			defer wait.Done()
 			for index := range jobs {
-				report.Results[index] = e.Runner.Run(ctx, targets[index], script, sudo)
+				target := targets[index]
+				if ctx.Err() != nil {
+					report.Results[index] = NodeResult{Node: target.Node, ExitCode: -1, Error: ctx.Err().Error()}
+				} else {
+					reportNode(target, "running", "running "+script.Name, false)
+					report.Results[index] = e.Runner.Run(ctx, target, script, sudo)
+				}
+				result := report.Results[index]
+				report.Results[index].Address = target.Address
+				state := "success"
+				message := fmt.Sprintf("exit %d · %s", result.ExitCode, (time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond))
+				if !result.Success {
+					state = "failed"
+					if errors.Is(ctx.Err(), context.Canceled) {
+						state = "cancelled"
+					}
+					message += ": " + result.Error
+				}
+				reportNode(target, state, message, true)
 			}
 		}()
 	}
@@ -246,10 +277,11 @@ func (e Executor) Execute(ctx context.Context, script Script, targets []Target, 
 type SSHRunner struct {
 	SSHPath     string
 	OutputLimit int
+	Progress    activity.Reporter
 }
 
 func (r SSHRunner) Run(ctx context.Context, target Target, script Script, sudo bool) (result NodeResult) {
-	result = NodeResult{Node: target.Node, ExitCode: -1}
+	result = NodeResult{Node: target.Node, Address: target.Address, ExitCode: -1}
 	started := time.Now()
 	defer func() { result.DurationMS = time.Since(started).Milliseconds() }()
 	if _, ok := ctx.Deadline(); !ok {
@@ -282,7 +314,23 @@ func (r SSHRunner) Run(ctx context.Context, target Target, script Script, sudo b
 	command.Stdin = bytes.NewReader(script.Content)
 	command.Stdout = stdout
 	command.Stderr = stderr
+	var liveStdout, liveStderr *progressOutput
+	if r.Progress != nil {
+		var progressMu sync.Mutex
+		publish := func(line string) {
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			r.Progress.Report(activity.Event{Phase: "provision", Node: target.Node, Address: target.Address, State: "running", Message: line})
+		}
+		liveStdout = &progressOutput{output: stdout, publish: publish}
+		liveStderr = &progressOutput{output: stderr, publish: func(line string) { publish("stderr: " + line) }}
+		command.Stdout, command.Stderr = liveStdout, liveStderr
+	}
 	err := command.Run()
+	if liveStdout != nil {
+		liveStdout.flush()
+		liveStderr.flush()
+	}
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
 	result.StdoutTruncated = stdout.truncated

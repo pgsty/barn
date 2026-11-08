@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/state"
 	"github.com/pgsty/barn/internal/vm"
 )
@@ -86,14 +87,35 @@ func TestStopRunningParallelAndIdempotent(t *testing.T) {
 func TestStopRunningPreservesPartialFailure(t *testing.T) {
 	startConfig := runningStopFixture(t)
 	fake := &fakeStopLifecycle{fail: map[string]bool{"node-1": true}}
+	store := state.Store{Root: startConfig.Deployment.Root}
+	deployment, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	addresses := resolvedNodeAddresses(deployment.Resolved)
+	latest := make(map[string]activity.Event)
 	outcomes, err := StopRunning(context.Background(), StopConfig{
 		Deployment: startConfig.Deployment, Lifecycle: fake,
 		Nodes: startConfig.Nodes, Concurrency: 2, CleanupRuntime: func(state.NodeState) error { return nil },
+		NodeAddresses: addresses, Progress: func(event activity.Event) {
+			latest[event.Node] = event
+			if event.State == "stopped" {
+				node, err := store.ReadNode(event.Node)
+				if err != nil || node.Phase != state.Stopped {
+					t.Errorf("reported a stopped node before saving its state: %+v, %v", node, err)
+				}
+			}
+		},
 	})
 	if err != nil || len(stoppedNames(outcomes)) != 1 || outcomes[1].Error == "" {
 		t.Fatalf("partial stop outcomes=%#v err=%v", outcomes, err)
 	}
-	store := state.Store{Root: startConfig.Deployment.Root}
+	for name, want := range map[string]string{"meta": "stopped", "node-1": "failed"} {
+		event := latest[name]
+		if event.State != want || !event.Done || event.Address != addresses[name] {
+			t.Fatalf("stop result lost its state or address: %+v", event)
+		}
+	}
 	meta, metaErr := store.ReadNode("meta")
 	if metaErr != nil || meta.Phase != state.Stopped {
 		t.Fatalf("successful stop not persisted: %#v, %v", meta, metaErr)

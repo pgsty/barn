@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/disk"
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/lock"
@@ -73,7 +74,7 @@ type pruneCandidate struct {
 	kind string
 }
 
-func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, apply bool) (PruneReport, error) {
+func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, apply bool) (_ PruneReport, returnErr error) {
 	report := PruneReport{Apply: apply, Referenced: make([]string, 0, len(referenced)), Items: []PruneItem{}}
 	for digest := range referenced {
 		report.Referenced = append(report.Referenced, digest)
@@ -120,7 +121,33 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].path < candidates[j].path })
+	active := ""
+	reportItem := func(path, state, message string, done bool) {
+		name, _ := filepath.Rel(s.imagesRoot(), path)
+		s.Progress.Report(activity.Event{Phase: "image-prune", Item: name, State: state, Message: message, Done: done})
+	}
+	defer func() {
+		if returnErr != nil && active != "" {
+			state := "failed"
+			if errors.Is(returnErr, context.Canceled) {
+				state = "cancelled"
+			}
+			reportItem(active, state, returnErr.Error(), true)
+		}
+	}()
 	for _, candidate := range candidates {
+		reportItem(candidate.path, "queued", "waiting to check cache references", false)
+	}
+	reportResult := func(item PruneItem) {
+		state, message := "planned", "would delete"
+		if item.Applied {
+			state, message = "removed", "deleted"
+		}
+		reportItem(item.ImagePath, state, fmt.Sprintf("%s · %s · %d bytes", message, item.Kind, item.Bytes), true)
+	}
+	for _, candidate := range candidates {
+		active = candidate.path
+		reportItem(candidate.path, "checking", "checking cache entry", false)
 		info, statErr := os.Lstat(candidate.path)
 		if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return report, fmt.Errorf("managed image cache entry is not a regular non-symlink file: %s", candidate.path)
@@ -143,12 +170,13 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 				item.Applied = true
 			}
 			report.Items = append(report.Items, item)
+			reportResult(item)
 			continue
 		}
 		if info.Mode().Perm()&0o222 != 0 {
 			return report, fmt.Errorf("managed image is not immutable: %s", candidate.path)
 		}
-		digest, size, digestErr := digestFile(candidate.path)
+		digest, size, digestErr := digestFileWithProgress(candidate.path, s.Progress, activity.Event{Phase: "image-verify", Message: "verifying cache entry before pruning"})
 		if digestErr != nil {
 			return report, digestErr
 		}
@@ -160,6 +188,7 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 			return report, validateErr
 		}
 		if _, keep := referenced[digest]; keep {
+			reportItem(candidate.path, "kept", "image is still referenced", true)
 			continue
 		}
 		item := PruneItem{Kind: candidate.kind, Digest: digest, ImagePath: candidate.path, Bytes: size}
@@ -173,6 +202,7 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 			item.Applied = true
 		}
 		report.Items = append(report.Items, item)
+		reportResult(item)
 	}
 	return report, nil
 }

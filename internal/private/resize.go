@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/lock"
@@ -511,6 +512,22 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 	if len(selected) != 0 {
 		selectedNames = selected
 	}
+	addresses := resolvedNodeAddresses(merged)
+	reportNode := func(name, phase, message string, done bool) {
+		m.Progress.Report(activity.Event{Phase: "resize", Node: name, Address: addresses[name], State: phase, Message: message, Done: done})
+	}
+	resourceChange := func(name string) string {
+		before, _ := resizeTargetNode(current.Resolved, name)
+		after, _ := resizeTargetNode(merged, name)
+		return fmt.Sprintf("CPU %d → %d · RAM %.1f → %.1f GiB", before.CPUs, after.CPUs, float64(before.Memory)/float64(spec.GiB), float64(after.Memory)/float64(spec.GiB))
+	}
+	for _, name := range selectedNames {
+		if _, changing := resizeSet[name]; changing {
+			reportNode(name, "queued", resourceChange(name), false)
+		} else {
+			reportNode(name, "unchanged", "CPU and memory already match", true)
+		}
+	}
 	if len(resizeNames) == 0 {
 		return m.statusFor(ctx, deploymentValue, "CPU and memory already match the inventory")
 	}
@@ -536,8 +553,10 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 		target, ok := resizeTargetNode(merged, name)
 		if !ok {
 			failures = append(failures, NodeFailure{Node: name, Stage: "resize", Error: "desired node disappeared while resizing"})
+			reportNode(name, "failed", "desired node disappeared while resizing", true)
 			continue
 		}
+		reportNode(name, "resizing", resourceChange(name), false)
 		applied, guestChanged, err := m.resizeOnline(ctx, target)
 		if err != nil {
 			if guestChanged && ctx.Err() == nil {
@@ -552,20 +571,24 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 					} else {
 						stopped = append(stopped, name)
 					}
+					reportNode(name, "resized", resourceChange(name)+" · "+mode, true)
 					continue
 				}
 				err = errors.Join(fmt.Errorf("online resize did not finish: %w", err), fmt.Errorf("offline recovery failed: %w", recoveryErr))
 			}
 			failures = append(failures, resizeNodeFailure(name, err))
+			reportNode(name, "failed", err.Error(), true)
 			continue
 		}
 		if applied {
 			online = append(online, name)
+			reportNode(name, "resized", resourceChange(name)+" · online", true)
 			continue
 		}
 		mode, err := m.resizeOffline(ctx, target)
 		if err != nil {
 			failures = append(failures, resizeNodeFailure(name, err))
+			reportNode(name, "failed", err.Error(), true)
 			continue
 		}
 		if mode == "offline restart" {
@@ -573,6 +596,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 		} else {
 			stopped = append(stopped, name)
 		}
+		reportNode(name, "resized", resourceChange(name)+" · "+mode, true)
 	}
 	message := "resized the deployment"
 	parts := make([]string, 0, 3)

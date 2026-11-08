@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -21,6 +22,7 @@ type progress struct {
 	context    *outputContext
 	parent     *progress
 	summary    string
+	operation  string
 	started    time.Time
 	cancel     context.CancelFunc
 	done       chan struct{}
@@ -30,11 +32,15 @@ type progress struct {
 	verbose    bool
 	tty        bool
 	stopped    bool
+	stopErr    error
 	suspended  int
 	lines      int
 	last       time.Time
 	event      activity.Event
 	nodes      map[string]activity.Event
+	items      map[string]activity.Event
+	itemOrder  []string
+	activeItem string
 	phase      string
 	phaseAt    time.Time
 	timings    map[string]time.Duration
@@ -42,8 +48,16 @@ type progress struct {
 }
 
 func startProgress(parent context.Context, stderr io.Writer, message string) *progress {
+	return startOperationProgress(parent, stderr, message, "")
+}
+
+func startLifecycleProgress(parent context.Context, stderr io.Writer, command string) *progress {
+	return startOperationProgress(parent, stderr, lifecycleMessage(command), command)
+}
+
+func startOperationProgress(parent context.Context, stderr io.Writer, message, operation string) *progress {
 	state := outputContextFrom(stderr)
-	item := &progress{stderr: rawWriter(stderr), context: state, summary: message, started: time.Now(), done: make(chan struct{}), nodes: make(map[string]activity.Event)}
+	item := &progress{stderr: rawWriter(stderr), context: state, summary: message, operation: operation, started: time.Now(), done: make(chan struct{}), nodes: make(map[string]activity.Event)}
 	item.enabled = state != nil && (state.stderrFile || state.verbose)
 	if !item.enabled {
 		close(item.done)
@@ -59,6 +73,7 @@ func startProgress(parent context.Context, stderr io.Writer, message string) *pr
 	item.parent = state.active
 	if item.parent == nil {
 		state.active = item
+		state.finalProgress = false
 	}
 	state.mu.Unlock()
 	if item.parent != nil {
@@ -104,7 +119,35 @@ func (item *progress) Report(event activity.Event) {
 	item.recordPhase(event.Phase, time.Now())
 	item.event = event
 	if event.Node != "" {
+		if previousNode, ok := item.nodes[event.Node]; ok && event.Address == "" {
+			event.Address = previousNode.Address
+		}
 		item.nodes[event.Node] = event
+	} else if event.Item != "" {
+		if item.items == nil {
+			item.items = make(map[string]activity.Event)
+		}
+		if _, exists := item.items[event.Item]; !exists {
+			item.itemOrder = append(item.itemOrder, event.Item)
+		}
+		item.items[event.Item] = event
+		if !event.Done {
+			item.activeItem = event.Item
+		} else if item.activeItem == event.Item {
+			item.activeItem = ""
+		}
+	} else if item.activeItem != "" && event.Message != "" {
+		row := item.items[item.activeItem]
+		row.Message = event.Message
+		if strings.HasPrefix(item.operation, "image ") {
+			switch event.Phase {
+			case "image-download":
+				row.State = "downloading"
+			case "image-verify":
+				row.State = "verifying"
+			}
+		}
+		item.items[item.activeItem] = row
 	}
 	// Plain logs retain meaningful milestones, while fast checks remain silent.
 	// Waiting on another command is always worth one line, even in scripts.
@@ -119,8 +162,8 @@ func phaseLabel(phase string) string {
 		return "image"
 	case phase == "guest-ready":
 		return "boot"
-	case phase == "stop":
-		return "stop"
+	case phase == "stop" || phase == "destroy" || phase == "purge":
+		return phase
 	case phase == "guest-metadata":
 		return "guests"
 	case phase == "ssh-config":
@@ -149,19 +192,31 @@ func (item *progress) logEvent(now time.Time) {
 		event = compactActivity(event)
 	}
 	message := formatActivity(event, now)
+	label := phaseLabel(event.Phase)
 	if event.Node != "" {
-		ready := 0
-		for _, node := range item.nodes {
-			if node.State == "ready" || node.State == "limited" {
-				ready++
+		var completed, started int
+		label, completed, started = item.nodeProgress()
+		result := "ready"
+		switch label {
+		case "provision", "resize":
+			result = "complete"
+		case "stop":
+			result = "stopped"
+		case "destroy":
+			result = "removed"
+		case "purge":
+			result = "purged"
+		default:
+			if started == len(item.nodes) {
+				completed, result = started, "started"
 			}
 		}
-		message = fmt.Sprintf("%d/%d nodes ready", ready, len(item.nodes))
+		message = fmt.Sprintf("%d/%d nodes %s", completed, len(item.nodes), result)
 		if item.verbose {
 			message += "; " + event.Node + ": " + event.State
 		}
 	}
-	bestEffortf(item.stderr, "  %s  %s (%s)\n", phaseLabel(event.Phase), message, elapsedLabel(now.Sub(item.started)))
+	bestEffortf(item.stderr, "  %s  %s (%s)\n", label, message, elapsedLabel(now.Sub(item.started)))
 	item.last = now
 }
 
@@ -181,12 +236,222 @@ func (item *progress) repaint(now time.Time) {
 		return
 	}
 	item.clearTTY()
-	lines := item.render(now)
+	lines := item.renderLive(now)
 	for _, line := range lines {
 		bestEffortf(item.stderr, "\r\x1b[2K%s\n", line)
 	}
 	item.lines = len(lines)
 	item.last = now
+}
+
+// A table taller than the viewport cannot be redrawn with cursor-up without
+// erasing unrelated scrollback. Keep progress compact until the final table.
+func (item *progress) renderLive(now time.Time) []string {
+	lines := item.render(now)
+	if len(lines) < outputRows(item.context, item.stderr) {
+		return lines
+	}
+	lines = lines[:1]
+	if outputRows(item.context, item.stderr) > 2 {
+		event := item.event
+		name := event.Node
+		if name == "" {
+			name = event.Item
+		}
+		detail := strings.TrimSpace(name + " " + event.State + " " + event.Message)
+		lines = append(lines, progressLine(detail, outputColumns(item.context, item.stderr)))
+	}
+	return lines
+}
+
+const (
+	progressNodeMaxWidth    = 64
+	progressMessageMinWidth = 18
+)
+
+func compactNodeState(state string) string {
+	switch state {
+	case "waiting for guest setup", "waiting for SSH":
+		return "waiting"
+	case "SSH pending":
+		return "pending"
+	case "prepare failed", "setup failed":
+		return "failed"
+	case "setup incomplete":
+		return "incomplete"
+	default:
+		return state
+	}
+}
+
+func nodeActivity(event activity.Event, final bool) string {
+	if final && event.Node != "" && (event.State == "ready" || event.State == "limited") {
+		return "SSH ready: barn ssh " + event.Node
+	}
+	message := strings.Join(strings.Fields(event.Message), " ")
+	message = strings.TrimPrefix(message, event.Node+":")
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = event.State
+	}
+	return message
+}
+
+func progressLine(line string, columns int) string {
+	return fitDisplay(line, max(1, columns-1))
+}
+
+func (item *progress) progressStateCell(state, cell string) string {
+	if item.context == nil || !item.context.color || !item.tty {
+		return cell
+	}
+	writer := &outputWriter{Writer: item.stderr, context: item.context, stderr: true}
+	return styled(writer, statusStyle(state), cell)
+}
+
+func (item *progress) progressHeader(line string, columns int) string {
+	line = progressLine(line, columns)
+	if item.context == nil || !item.context.color || !item.tty {
+		return line
+	}
+	writer := &outputWriter{Writer: item.stderr, context: item.context, stderr: true}
+	return styled(writer, ansiDim, line)
+}
+
+func (item *progress) renderNodes(columns int) []string {
+	names := make([]string, 0, len(item.nodes))
+	for name := range item.nodes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return item.renderRows(columns, names, item.nodes, "NAME", true)
+}
+
+func (item *progress) renderRows(columns int, names []string, events map[string]activity.Event, nameHeader string, addresses bool) []string {
+	if len(names) == 0 {
+		return nil
+	}
+
+	nameWidth, addressWidth := displayWidth(nameHeader), 0
+	if addresses {
+		addressWidth = displayWidth("ADDRESS")
+	}
+	stateWidth := displayWidth("STATE")
+	for _, name := range names {
+		node := events[name]
+		address := strings.TrimSpace(node.Address)
+		if address == "" {
+			address = "—"
+		}
+		state := compactNodeState(strings.TrimSpace(node.State))
+		if state == "" {
+			state = "pending"
+		}
+		nameWidth = max(nameWidth, displayWidth(name))
+		if addresses {
+			addressWidth = max(addressWidth, displayWidth(address))
+		}
+		stateWidth = max(stateWidth, displayWidth(state))
+	}
+	nameWidth = min(progressNodeMaxWidth, nameWidth)
+	gapCount := 1
+	if addresses {
+		gapCount++
+	}
+	columnGap := 2
+	if nameWidth+addressWidth+stateWidth+columnGap*gapCount >= columns {
+		columnGap = 1
+	}
+	maxNameForTerminal := columns - 1 - addressWidth - stateWidth - columnGap*gapCount
+	if maxNameForTerminal >= displayWidth(nameHeader) {
+		nameWidth = min(nameWidth, maxNameForTerminal)
+	}
+	baseWidth := nameWidth + addressWidth + stateWidth + columnGap*gapCount
+	availableMessageWidth := columns - 1 - baseWidth - columnGap
+	showMessage := availableMessageWidth >= progressMessageMinWidth
+	messageWidth := max(0, availableMessageWidth)
+	separator := strings.Repeat(" ", columnGap)
+	header := padDisplay(nameHeader, nameWidth) + separator
+	if addresses {
+		header += padDisplay("ADDRESS", addressWidth) + separator
+	}
+	header += padDisplay("STATE", stateWidth)
+	if showMessage {
+		header += separator + padDisplay("MESSAGE", messageWidth)
+	}
+	lines := []string{item.progressHeader(header, columns)}
+	for _, name := range names {
+		node := events[name]
+		address := strings.TrimSpace(node.Address)
+		if address == "" {
+			address = "—"
+		}
+		state := compactNodeState(strings.TrimSpace(node.State))
+		if state == "" {
+			state = "pending"
+		}
+		nameCell := padDisplay(fitDisplay(name, nameWidth), nameWidth)
+		addressCell := padDisplay(fitDisplay(address, addressWidth), addressWidth)
+		stateCell := padDisplay(fitDisplay(state, stateWidth), stateWidth)
+		prefix := nameCell + separator
+		if addresses {
+			prefix += addressCell + separator
+		}
+		plainLine := prefix + stateCell
+		if showMessage {
+			plainLine += separator + padDisplay(fitDisplay(nodeActivity(node, item.stopped), messageWidth), messageWidth)
+		}
+		line := progressLine(plainLine, columns)
+		if displayWidth(plainLine) < columns {
+			line = prefix + item.progressStateCell(state, stateCell)
+			if showMessage {
+				line += separator + padDisplay(fitDisplay(nodeActivity(node, item.stopped), messageWidth), messageWidth)
+			}
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// Count the command's final state, not an intermediate stop during destroy
+// or restart. The root operation survives nested progress and cleanup phases.
+func (item *progress) nodeProgress() (label string, completed, started int) {
+	label = item.operation
+	if label == "" || label == "up" || label == "start" {
+		label = "boot"
+	}
+	for _, node := range item.nodes {
+		switch label {
+		case "provision":
+			if node.State == "success" {
+				completed++
+			}
+		case "resize":
+			if node.State == "resized" || node.State == "unchanged" {
+				completed++
+			}
+		case "stop":
+			if node.State == "stopped" {
+				completed++
+			}
+		case "destroy":
+			if node.State == "removed" || node.State == "purged" {
+				completed++
+			}
+		case "purge":
+			if node.State == "purged" {
+				completed++
+			}
+		default:
+			if node.State == "ready" || node.State == "limited" {
+				completed++
+			}
+			if node.State == "started" {
+				started++
+			}
+		}
+	}
+	return label, completed, started
 }
 
 func (item *progress) render(now time.Time) []string {
@@ -197,21 +462,37 @@ func (item *progress) render(now time.Time) []string {
 		message = item.summary
 	}
 	label := phaseLabel(event.Phase)
-	showNodes := len(item.nodes) > 0 && event.Phase == "guest-ready"
-	ready := 0
+	showNodes := len(item.nodes) > 0
+	showItems := !showNodes && len(item.items) > 0
+	elapsed := elapsedLabel(now.Sub(item.started))
+	line := ""
 	if showNodes {
-		for _, node := range item.nodes {
-			if node.State == "ready" || node.State == "limited" {
-				ready++
+		label, completed, started := item.nodeProgress()
+		line = fmt.Sprintf("%s %d/%d nodes: %s", label, completed, len(item.nodes), elapsed)
+		if started == len(item.nodes) {
+			line = fmt.Sprintf("%s %d/%d nodes: %s", label, started, len(item.nodes), elapsed)
+		} else if started > 0 {
+			line = fmt.Sprintf("%s %d/%d nodes: %s · %d started", label, completed, len(item.nodes), elapsed, started)
+		}
+		line = item.summaryLine(line, columns)
+	} else if showItems {
+		completed := 0
+		for _, event := range item.items {
+			if event.Done {
+				completed++
 			}
 		}
-		message = fmt.Sprintf("%d/%d nodes ready", ready, len(item.nodes))
-	}
-	elapsed := elapsedLabel(now.Sub(item.started))
-	prefix := "  ·  " + padDisplay(label, 9) + " "
-	line := prefix + fitDisplay(message, columns-displayWidth(prefix)-1)
-	if columns >= 60 {
-		line = prefix + padDisplay(fitDisplay(message, columns-displayWidth(prefix)-len(elapsed)-3), columns-displayWidth(prefix)-len(elapsed)-2) + " " + elapsed
+		label := item.operation
+		if label == "" {
+			label = phaseLabel(event.Phase)
+		}
+		line = item.summaryLine(fmt.Sprintf("%s %d/%d items: %s", label, completed, len(item.items), elapsed), columns)
+	} else {
+		prefix := "  ·  " + padDisplay(label, 9) + " "
+		line = prefix + fitDisplay(message, columns-displayWidth(prefix)-1)
+		if columns >= 60 {
+			line = prefix + padDisplay(fitDisplay(message, columns-displayWidth(prefix)-len(elapsed)-3), columns-displayWidth(prefix)-len(elapsed)-2) + " " + elapsed
+		}
 	}
 	lines := []string{line}
 	if event.TotalBytes > 0 || event.CurrentBytes > 0 {
@@ -227,31 +508,36 @@ func (item *progress) render(now time.Time) []string {
 		}
 	}
 	if showNodes {
-		names := make([]string, 0, len(item.nodes))
-		for name := range item.nodes {
-			names = append(names, name)
+		lines = append(lines, item.renderNodes(columns)...)
+	} else if showItems {
+		header := "ITEM"
+		if strings.HasPrefix(item.operation, "image ") {
+			header = "IMAGE"
 		}
-		sort.Strings(names)
-		shown := 0
-		for _, name := range names {
-			node := item.nodes[name]
-			if len(names) > 4 && (node.State == "ready" || node.State == "limited") {
-				continue
-			}
-			if shown == 4 {
-				break
-			}
-			lines = append(lines, "     "+fitDisplay(padDisplay(name, 16)+" "+node.State, columns-6))
-			shown++
-		}
-		if len(names)-ready > shown {
-			lines = append(lines, fmt.Sprintf("     %d more waiting", len(names)-ready-shown))
-		}
+		lines = append(lines, item.renderRows(columns, item.itemOrder, item.items, header, false)...)
 	}
-	if columns < 60 {
+	if columns < 60 && !showNodes && !showItems {
 		lines = append(lines, "     elapsed   "+elapsed)
 	}
 	return lines
+}
+
+func (item *progress) summaryLine(line string, columns int) string {
+	marker := item.completionMarker()
+	return fitDisplay(line, max(0, columns-1-displayWidth(marker))) + marker
+}
+
+func (item *progress) completionMarker() string {
+	if !item.stopped {
+		return ""
+	}
+	if errors.Is(item.stopErr, ErrCancelled) || errors.Is(item.stopErr, context.Canceled) {
+		return " [CANCELLED]"
+	}
+	if item.stopErr != nil {
+		return " [FAILED]"
+	}
+	return " [DONE]"
 }
 
 func elapsedLabel(duration time.Duration) string {
@@ -281,6 +567,7 @@ func (item *progress) recordPhase(phase string, now time.Time) {
 }
 
 func (item *progress) clearTTY() {
+	item.lines = min(item.lines, max(0, outputRows(item.context, item.stderr)-1))
 	for item.tty && item.lines > 0 {
 		bestEffortf(item.stderr, "\x1b[1A\r\x1b[2K")
 		item.lines--
@@ -321,10 +608,20 @@ func (item *progress) Stop(err error) {
 		<-item.done
 		item.mu.Lock()
 		item.stopped = true
+		item.stopErr = err
 		item.recordPhase("", time.Now())
 		item.clearTTY()
+		freezeResult := item.tty && (len(item.nodes) > 0 || len(item.items) > 0)
+		if freezeResult {
+			for _, line := range item.render(time.Now()) {
+				bestEffortf(item.stderr, "\r\x1b[2K%s\n", line)
+			}
+		}
 		item.mu.Unlock()
 		item.context.mu.Lock()
+		if freezeResult {
+			item.context.finalProgress = true
+		}
 		if item.context.active == item {
 			item.context.active = nil
 		}

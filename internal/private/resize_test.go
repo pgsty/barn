@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/qemu"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
@@ -88,12 +89,18 @@ func TestResizeStoppedNodePatchesInvocationWithoutStartingIt(t *testing.T) {
 	}
 	desired := cloneResolved(resolved)
 	desired.Nodes[0].Memory = 4 * spec.GiB
-	status, err := (Manager{BarnVersion: "test"}).Resize(context.Background(), desired)
+	var events []activity.Event
+	manager := Manager{BarnVersion: "test", Progress: func(event activity.Event) { events = append(events, event) }}
+	status, err := manager.Resize(context.Background(), desired)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(status.Message, "while stopped") {
 		t.Fatalf("resize status = %#v", status)
+	}
+	last := events[len(events)-1]
+	if last.State != "resized" || last.Address != desired.Nodes[0].Address || !last.Done || !strings.Contains(last.Message, "RAM 2.0 → 4.0") || !strings.Contains(last.Message, "offline") {
+		t.Fatalf("resize progress = %+v", events)
 	}
 	node, err := store.ReadNode("meta")
 	if err != nil {
@@ -106,5 +113,12 @@ func TestResizeStoppedNodePatchesInvocationWithoutStartingIt(t *testing.T) {
 	deployment, err := store.ReadDeployment()
 	if err != nil || deployment.Resolved.Nodes[0].Memory != 4*spec.GiB {
 		t.Fatalf("stopped resize deployment = %#v err=%v", deployment, err)
+	}
+	events = nil
+	if _, err := manager.Resize(context.Background(), desired); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].State != "unchanged" || !events[0].Done {
+		t.Fatalf("unchanged node disappeared from progress: %+v", events)
 	}
 }

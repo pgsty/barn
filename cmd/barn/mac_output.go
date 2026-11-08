@@ -48,9 +48,9 @@ func macStatusOutcome(status macvm.Status) commandOutcome {
 			for _, share := range view.Shares {
 				shares = append(shares, share.Name)
 			}
-			rows = append(rows, []string{view.Name, view.State, view.Address, ssh, view.User, system, fmt.Sprintf("%d", view.CPUs), macBytes(view.MemoryBytes), disk, strings.Join(shares, ",")})
+			rows = append(rows, []string{view.Name, view.Address, view.State, ssh, view.User, system, fmt.Sprintf("%d", view.CPUs), macBytes(view.MemoryBytes), disk, strings.Join(shares, ",")})
 		}
-		printTable(out, []string{"NAME", "STATE", "ADDRESS", "SSH", "USER", "OS", "CPU", "MEMORY", "DISK", "SHARED"}, rows, 1)
+		printTable(out, []string{"NAME", "ADDRESS", "STATE", "SSH", "USER", "OS", "CPU", "MEMORY", "DISK", "SHARED"}, rows, 2)
 		for _, view := range status.Machines {
 			if view.Error != "" {
 				textField(out, 10, view.Name, view.Error)
@@ -75,14 +75,13 @@ func macLifecycleOutcome(outcome macvm.Outcome, stderr io.Writer) commandOutcome
 		for _, warning := range outcome.Warnings {
 			warningf(stderr, "%s", warning)
 		}
-		macOutcomeLine(out, outcome)
+		printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, [][]string{macOutcomeRow(outcome)}, 2)
 		switch {
 		case outcome.Action == "configured":
 			if outcome.State != "running" {
 				textField(out, 10, "start", "barn mac start "+outcome.Name)
 			}
 		case outcome.Ready:
-			textField(out, 10, "shell", "barn mac ssh "+outcome.Name)
 			if !outcome.Window {
 				textField(out, 10, "desktop", "barn mac open "+outcome.Name)
 			}
@@ -96,7 +95,7 @@ func macLifecycleOutcome(outcome macvm.Outcome, stderr io.Writer) commandOutcome
 	}}
 }
 
-func macOutcomeLine(out io.Writer, outcome macvm.Outcome) {
+func macOutcomeRow(outcome macvm.Outcome) []string {
 	system := ""
 	if outcome.Version != "" {
 		system = fmt.Sprintf(" · macOS %s (%s)", outcome.Version, outcome.Build)
@@ -139,22 +138,38 @@ func macOutcomeLine(out io.Writer, outcome macvm.Outcome) {
 	default:
 		message = outcome.Name + " " + outcome.Action
 	}
-	bestEffortf(out, "  %s  %s\n", macCheck(out), message)
+	phase := outcome.State
+	if phase == "" {
+		phase = outcome.Action
+	}
+	if outcome.Action == "destroyed" {
+		phase = "removed"
+	}
+	message = strings.TrimPrefix(message, outcome.Name+" ")
+	if outcome.Ready {
+		phase = "ready"
+		message = "SSH ready: barn mac ssh " + outcome.Name + system
+	}
+	ip := outcome.Address
+	if ip == "" {
+		ip = "—"
+	}
+	return []string{outcome.Name, ip, phase, message}
 }
 
 func macOutcomesOutcome(report macvm.Outcomes, stderr io.Writer) commandOutcome {
 	return commandOutcome{payload: report, text: func(out, _ io.Writer) error {
+		rows := make([][]string, 0, len(report.Machines))
 		for _, outcome := range report.Machines {
 			for _, warning := range outcome.Warnings {
 				warningf(stderr, "%s", warning)
 			}
-			macOutcomeLine(out, outcome)
+			rows = append(rows, macOutcomeRow(outcome))
 		}
+		printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
 		if len(report.Machines) == 1 {
 			outcome := report.Machines[0]
 			switch {
-			case outcome.Ready:
-				textField(out, 10, "shell", "barn mac ssh "+outcome.Name)
 			case outcome.State == "stopped" || outcome.State == "prepared":
 				textField(out, 10, "start", "barn mac start "+outcome.Name)
 			}
@@ -178,7 +193,7 @@ func macBaseOutcome(base *macvm.BaseImage) commandOutcome {
 		if base == nil {
 			return nil
 		}
-		bestEffortf(out, "  %s  macOS %s (%s) is ready for new machines\n", macCheck(out), base.Version, base.Build)
+		printTable(out, []string{"IMAGE", "STATE", "MESSAGE"}, [][]string{{"macOS", "ready", fmt.Sprintf("macOS %s (%s) is ready for new machines", base.Version, base.Build)}}, 1)
 		textField(out, 10, "create", "barn mac up")
 		return nil
 	}}
@@ -219,9 +234,22 @@ func macPruneOutcome(report macvm.PruneReport) commandOutcome {
 			bestEffortf(out, "  %s  nothing to prune\n", macCheck(out))
 			return nil
 		}
-		for _, entry := range report.Candidates {
-			bestEffortf(out, "  %s %s (%s) · %s\n", entry.Kind, entry.Build, entry.State, progressBytes(entry.AllocatedBytes))
+		removed := make(map[string]bool)
+		for _, entry := range report.Removed {
+			removed[entry] = true
 		}
+		rows := make([][]string, 0, len(report.Candidates))
+		for _, entry := range report.Candidates {
+			phase := "planned"
+			if report.Applied {
+				phase = "kept"
+				if removed[entry.Path] {
+					phase = "removed"
+				}
+			}
+			rows = append(rows, []string{entry.Kind + "/" + entry.Build, phase, progressBytes(entry.AllocatedBytes)})
+		}
+		printTable(out, []string{"IMAGE", "STATE", "SIZE"}, rows, 1)
 		if !report.Applied {
 			textField(out, 10, "reclaim", progressBytes(report.ReclaimedBytes))
 			textField(out, 10, "apply", "rerun with --yes")
@@ -238,12 +266,12 @@ func macDoctorOutcome(report macvm.DoctorReport) commandOutcome {
 		for _, check := range report.Checks {
 			state := "ok"
 			if !check.OK {
-				state = "fail"
+				state = "failed"
 			}
 			detail := strings.Join(strings.Fields(check.Detail), " ")
 			rows = append(rows, []string{check.Name, state, detail})
 		}
-		printTable(out, []string{"CHECK", "RESULT", "DETAIL"}, rows, 1)
+		printTable(out, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
 		for _, check := range report.Checks {
 			if !check.OK && check.Next != "" {
 				textField(out, 10, "next", check.Next)

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/disk"
 	"github.com/pgsty/barn/internal/execx"
 )
@@ -51,6 +52,12 @@ func TestPruneDryRunAndApplyReadableImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := Store{DataRoot: dataRoot, QEMUImg: "/fake/qemu-img", Runner: pruneRunner{virtualSize: 1 << 30}}
+	events := make(map[string]activity.Event)
+	store.Progress = func(event activity.Event) {
+		if event.Item != "" {
+			events[event.Item] = event
+		}
+	}
 	keep, keepPath := writeCachedFixture(t, store, "u24", "u24-1-arm64.qcow2", "keep-image")
 	remove, removePath := writeCachedFixture(t, store, "u22", "u22-1-arm64.qcow2", "remove-image")
 	resolver := func() (map[string]struct{}, error) { return map[string]struct{}{keep.SHA256: {}}, nil }
@@ -58,6 +65,9 @@ func TestPruneDryRunAndApplyReadableImages(t *testing.T) {
 	dryRun, err := store.Prune(context.Background(), false, resolver)
 	if err != nil || len(dryRun.Items) != 1 || dryRun.Items[0].Digest != remove.SHA256 || dryRun.Items[0].Applied {
 		t.Fatalf("dry-run prune = %#v, %v", dryRun, err)
+	}
+	if events[remove.CacheFile].State != "planned" || !events[remove.CacheFile].Done || events[keep.CacheFile].State != "kept" {
+		t.Fatalf("prune preview misrepresented changes: %+v", events)
 	}
 	for _, pathname := range []string{keepPath, removePath} {
 		if _, err := os.Lstat(pathname); err != nil {
@@ -68,6 +78,9 @@ func TestPruneDryRunAndApplyReadableImages(t *testing.T) {
 	applied, err := store.Prune(context.Background(), true, resolver)
 	if err != nil || len(applied.Items) != 1 || !applied.Items[0].Applied {
 		t.Fatalf("applied prune = %#v, %v", applied, err)
+	}
+	if events[remove.CacheFile].State != "removed" || events[keep.CacheFile].State != "kept" {
+		t.Fatalf("prune result lost removed or retained image: %+v", events)
 	}
 	if _, err := os.Lstat(removePath); !os.IsNotExist(err) {
 		t.Fatalf("pruned path remains: %s: %v", removePath, err)

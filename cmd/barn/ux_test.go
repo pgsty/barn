@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -36,11 +37,124 @@ func TestNoColorProgressStillRedrawsAndSharesOneRegion(t *testing.T) {
 	child.Stop(nil)
 	parent.Stop(nil)
 	got := stderr.String()
-	if child.parent != parent || !strings.Contains(got, "1/2 nodes ready") || !strings.Contains(got, "waiting for SSH") || !strings.Contains(got, "\x1b[1A") {
+	if child.parent != parent || !strings.Contains(got, "boot 1/2 nodes:") || !strings.Contains(got, "waiting for SSH") || !strings.Contains(got, "\x1b[1A") {
 		t.Fatalf("missing shared live region: %q", got)
 	}
-	if strings.Contains(got, "\x1b[32m") || strings.Contains(got, "\x1b[0m") || !strings.HasSuffix(got, "Password:\n") {
+	if strings.Contains(got, "\x1b[32m") || strings.Contains(got, "\x1b[0m") || !strings.Contains(got, "Password:\n") || !strings.Contains(got, "barn ssh meta") {
 		t.Fatalf("color or redraw interfered with prompt: %q", got)
+	}
+}
+
+func TestProgressRendersEveryNodeWithAddressAndActivity(t *testing.T) {
+	now := time.Now()
+	item := &progress{
+		context: &outputContext{columns: 100},
+		started: now.Add(-time.Second),
+		event:   activity.Event{Phase: "guest-ready", Message: "Starting nodes"},
+		nodes:   make(map[string]activity.Event),
+	}
+	for index, name := range []string{"d12", "d13", "el10", "el9", "node-1", "node-2", "node-3"} {
+		item.nodes[name] = activity.Event{
+			Phase: "guest-ready", Node: name, Address: fmt.Sprintf("10.10.10.%d", index+10),
+			State: "waiting for guest setup", Message: "waiting for guest setup",
+		}
+	}
+	item.stopped = true
+	lines := item.render(now)
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "more waiting") || !strings.Contains(joined, "boot 0/7 nodes: 1s [DONE]") || len(lines) != 1+1+len(item.nodes) {
+		t.Fatalf("node live region is incomplete: %d lines\n%s", len(lines), joined)
+	}
+	for index, name := range []string{"d12", "d13", "el10", "el9", "node-1", "node-2", "node-3"} {
+		for _, want := range []string{name, fmt.Sprintf("10.10.10.%d", index+10), "waiting", "waiting for guest setup"} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("node live region missing %q:\n%s", want, joined)
+			}
+		}
+	}
+	for _, line := range lines {
+		if displayWidth(line) >= 100 {
+			t.Fatalf("line wraps at terminal edge: %q", line)
+		}
+	}
+
+	item.nodes["d12"] = activity.Event{Phase: "guest-ready", Node: "d12", Address: "10.10.10.10", State: "ready", Message: "SSH ready"}
+	item.event.Phase = "event-log"
+	if final := strings.Join(item.render(now), "\n"); !strings.Contains(final, "boot 1/7 nodes: 1s [DONE]") || !strings.Contains(final, "barn ssh d12") {
+		t.Fatalf("final node activity lost connect command:\n%s", final)
+	}
+}
+
+func TestProgressHidesMessageWhenTerminalIsNarrowAndCapsNodeColumn(t *testing.T) {
+	longName := strings.Repeat("node", 20)
+	item := &progress{
+		context: &outputContext{columns: 60},
+		started: time.Now().Add(-time.Second),
+		event:   activity.Event{Phase: "guest-ready"},
+		nodes: map[string]activity.Event{
+			longName: {Phase: "guest-ready", Node: longName, Address: "10.10.10.10", State: "waiting for guest setup", Message: "waiting for guest setup"},
+			"d12":    {Phase: "guest-ready", Node: "d12", Address: "10.10.10.12", State: "ready", Message: "SSH ready"},
+		},
+	}
+	lines := item.render(time.Now())
+	if strings.Contains(lines[1], "MESSAGE") || strings.Contains(strings.Join(lines, "\n"), "waiting for guest setup") {
+		t.Fatalf("narrow table still rendered message column:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.HasPrefix(lines[1], "NAME") || strings.Contains(strings.Join(lines, "\n"), longName) {
+		t.Fatalf("node table did not use top aligned capped column:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, line := range lines {
+		if displayWidth(line) >= 60 {
+			t.Fatalf("narrow table wraps at terminal edge: %q", line)
+		}
+	}
+
+	item.context = &outputContext{columns: 160}
+	wideLines := item.render(time.Now())
+	for _, line := range wideLines {
+		addressIndex := strings.Index(line, "10.10.10.10")
+		if addressIndex < 0 {
+			continue
+		}
+		if displayWidth(strings.TrimRight(line[:addressIndex], " ")) > progressNodeMaxWidth {
+			t.Fatalf("node column exceeded %d columns: %q", progressNodeMaxWidth, line)
+		}
+		return
+	}
+	t.Fatalf("wide table lost the long node address:\n%s", strings.Join(wideLines, "\n"))
+}
+
+func TestProgressUsesCompactStateColumnAndTerminalColors(t *testing.T) {
+	item := &progress{
+		context: &outputContext{columns: 100, color: true, stderrTTY: true},
+		tty:     true,
+		nodes: map[string]activity.Event{
+			"d12": {Node: "d12", Address: "10.10.10.12", State: "ready"},
+			"d13": {Node: "d13", Address: "10.10.10.13", State: "waiting for guest setup"},
+		},
+	}
+	lines := item.render(time.Now())
+	header := lines[1]
+	if strings.Index(header, "STATE")-strings.Index(header, "ADDRESS") != len("10.10.10.12")+2 {
+		t.Fatalf("state column has unexpected spacing: %q", header)
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, ansiGreen+"ready") || !strings.Contains(joined, ansiCyan+"waiting") {
+		t.Fatalf("state column is missing terminal colors: %q", joined)
+	}
+}
+
+func TestStatusTableUsesNameAddressStateOrder(t *testing.T) {
+	var out bytes.Buffer
+	printStatusTable(&out, privatevm.Status{Nodes: []privatevm.NodeStatus{{
+		Name: "d12", Address: "10.10.10.12", State: state.Running,
+	}}}, false)
+	first := strings.Split(out.String(), "\n")[0]
+	nameIndex := strings.Index(first, "NAME")
+	addressIndex := strings.Index(first, "ADDRESS")
+	stateIndex := strings.Index(first, "STATE")
+	if nameIndex < 0 || addressIndex <= nameIndex || stateIndex <= addressIndex {
+		t.Fatalf("status table columns are not aligned with progress: %q", first)
 	}
 }
 
@@ -112,6 +226,58 @@ func TestPartialLifecycleCountsMissingStateAndRetainsConnect(t *testing.T) {
 	data, err := json.Marshal(result)
 	if err != nil || !strings.Contains(string(data), "fixture full diagnostics") {
 		t.Fatalf("JSON lost diagnostics: %s, %v", data, err)
+	}
+}
+
+func TestLifecycleResultListsEveryReadyNodeConnection(t *testing.T) {
+	result := lifecycleResult{
+		Status: privatevm.Status{Nodes: []privatevm.NodeStatus{
+			{Name: "d12", Address: "10.10.10.12", State: state.Running, Runtime: "running", Ready: true},
+			{Name: "d13", Address: "10.10.10.13", State: state.Running, Runtime: "running", Ready: true},
+		}},
+	}
+	result.Message = "created and started 2 node(s)"
+	var out bytes.Buffer
+	printLifecycleResult(&out, "up", result, false)
+	for _, name := range []string{"d12", "d13"} {
+		if !strings.Contains(out.String(), "barn ssh "+name) {
+			t.Fatalf("missing connection hint for %s: %s", name, out.String())
+		}
+	}
+	if strings.Count(out.String(), "connect:") != 2 {
+		t.Fatalf("connection hints were collapsed: %s", out.String())
+	}
+}
+
+func TestFrozenLifecycleProgressDoesNotRepeatCompletionSummary(t *testing.T) {
+	var out bytes.Buffer
+	contextState := &outputContext{format: outputText, stdoutTTY: true, finalProgress: true}
+	writer := &outputWriter{Writer: &out, context: contextState}
+	result := lifecycleResult{Status: privatevm.Status{Nodes: []privatevm.NodeStatus{
+		{Name: "d12", State: state.Running, Runtime: "running", Ready: true},
+	}}}
+	result.Message = "created and started 1 node(s)"
+	printLifecycleResult(writer, "up", result, false)
+	if out.Len() != 0 {
+		t.Fatalf("frozen live result was repeated below the table: %s", out.String())
+	}
+}
+
+func TestFrozenCleanupRetainsRecoveryAndNotes(t *testing.T) {
+	var out bytes.Buffer
+	writer := &outputWriter{Writer: &out, context: &outputContext{format: outputText, stdoutTTY: true, finalProgress: true}}
+	result := lifecycleResult{
+		Status:   privatevm.Status{Note: "update the inventory control role"},
+		Failures: []privatevm.NodeFailure{{Node: "node-1", Stage: "stop", Error: "shutdown timed out"}},
+	}
+	printLifecycleResult(writer, "destroy", result, false)
+	for _, want := range []string{"shutdown timed out", "barn stop node-1", "update the inventory control role"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("cleanup lost recovery context %q: %s", want, &out)
+		}
+	}
+	if strings.Contains(out.String(), "barn up") || strings.Contains(out.String(), "NAME") {
+		t.Fatalf("failed cleanup suggested starting a VM or repeated the table: %s", &out)
 	}
 }
 

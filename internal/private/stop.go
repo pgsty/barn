@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/process"
@@ -32,6 +33,8 @@ type StopConfig struct {
 	Deployment     Deployment
 	Lifecycle      StopLifecycle
 	Nodes          []string
+	NodeAddresses  map[string]string
+	Progress       activity.Reporter
 	Concurrency    int
 	GuestTimeout   time.Duration
 	CleanupRuntime func(state.NodeState) error
@@ -158,6 +161,18 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 		config.CleanupRuntime = cleanupRuntime
 	}
 	store := state.Store{Root: config.Deployment.Root}
+	var progressMu sync.Mutex
+	reportNode := func(name, state, message string, done bool) {
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		config.Progress.Report(activity.Event{
+			Phase: "stop", Node: name, Address: config.NodeAddresses[name],
+			State: state, Message: message, Done: done,
+		})
+	}
+	for _, name := range config.Nodes {
+		reportNode(name, "queued", "waiting to stop", false)
+	}
 	nodes, err := loadStoppableNodes(store, config.Nodes)
 	if err != nil {
 		return nil, err
@@ -178,6 +193,7 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 		outcomes := make([]StopOutcome, len(nodes))
 		for index, node := range nodes {
 			outcomes[index] = StopOutcome{Node: node.Node, Stopped: true}
+			reportNode(node.Node, "stopped", "VM already stopped", true)
 		}
 		return outcomes, nil
 	}
@@ -189,6 +205,7 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 		outcomes[index].Node = node.Node
 		if node.Phase == state.Stopped || node.Phase == state.Destroying {
 			outcomes[index].Stopped = true
+			reportNode(node.Node, "stopped", "VM already stopped", true)
 		}
 	}
 	jobs := make(chan int)
@@ -199,12 +216,16 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 			defer wait.Done()
 			for index := range jobs {
 				node := nodes[index]
+				reportNode(node.Node, "stopping", "waiting for guest shutdown", false)
 				if err := config.Lifecycle.Stop(ctx, node, config.GuestTimeout); err != nil {
 					outcomes[index].Error = err.Error()
+					reportNode(node.Node, "failed", "shutdown failed: "+err.Error(), true)
 					continue
 				}
+				reportNode(node.Node, "cleaning", "removing runtime files", false)
 				if err := config.CleanupRuntime(node); err != nil {
 					outcomes[index].Error = err.Error()
+					reportNode(node.Node, "failed", "runtime cleanup failed: "+err.Error(), true)
 					continue
 				}
 				node.Phase = state.Stopped
@@ -212,10 +233,12 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 				node.UpdatedAt = config.now()
 				if err := store.WriteNode(node); err != nil {
 					outcomes[index].Error = err.Error()
+					reportNode(node.Node, "failed", "saving stopped state failed: "+err.Error(), true)
 					continue
 				}
 				nodes[index] = node
 				outcomes[index].Stopped = true
+				reportNode(node.Node, "stopped", "VM stopped", true)
 			}
 		}()
 	}
