@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/disk"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/fsutil"
@@ -73,8 +74,9 @@ type RepoBuildResult struct {
 }
 
 type RepoBuilder struct {
-	QEMUImg string
-	Runner  execx.Runner
+	QEMUImg  string
+	Runner   execx.Runner
+	Progress activity.Reporter
 }
 
 func canonicalArtifactName(image, version, arch string) string {
@@ -286,7 +288,21 @@ func (b RepoBuilder) validate() error {
 	return nil
 }
 
-func (b RepoBuilder) materialize(ctx context.Context, root string) (Catalog, []byte, RepoScanReport, error) {
+func (b RepoBuilder) materialize(ctx context.Context, root string) (_ Catalog, _ []byte, _ RepoScanReport, returnErr error) {
+	active := "catalog.json"
+	report := func(name, state, message string, done bool) {
+		b.Progress.Report(activity.Event{Phase: "repo", Item: name, State: state, Message: message, Done: done})
+	}
+	defer func() {
+		if returnErr != nil {
+			state := "failed"
+			if errors.Is(returnErr, context.Canceled) {
+				state = "cancelled"
+			}
+			report(active, state, returnErr.Error(), true)
+		}
+	}()
+	report(active, "checking", "reading repo.yaml and scanning artifacts", false)
 	if err := b.validate(); err != nil {
 		return Catalog{}, nil, RepoScanReport{}, err
 	}
@@ -298,32 +314,53 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (Catalog, []b
 	if err != nil {
 		return Catalog{}, nil, RepoScanReport{}, err
 	}
+	for _, name := range scan.Tracked {
+		report(name, "queued", "waiting to verify artifact", false)
+	}
+	for _, name := range scan.Untracked {
+		report(name, "untracked", "not referenced by repo.yaml", true)
+	}
+	for _, name := range scan.Missing {
+		report(name, "missing", "referenced artifact is missing", true)
+	}
+	for _, name := range scan.Unsafe {
+		report(name, "unsafe", "artifact is not a safe regular qcow2 file", true)
+	}
 	if len(scan.Missing) != 0 || len(scan.Unsafe) != 0 {
 		return Catalog{}, nil, scan, fmt.Errorf("repository has %d missing and %d unsafe artifacts", len(scan.Missing), len(scan.Unsafe))
 	}
 	catalog := Catalog{Schema: ManifestSchema, Version: spec.Revision, Defaults: spec.Defaults, Images: make(map[string]CatalogImage, len(spec.Images))}
 	manager := disk.Manager{QEMUImg: b.QEMUImg, Runner: b.Runner}
-	for imageName, sourceImage := range spec.Images {
+	for _, imageName := range sortedNames(spec.Images) {
+		sourceImage := spec.Images[imageName]
 		imageRecord := CatalogImage{Aliases: append([]string(nil), sourceImage.Aliases...), Boot: sourceImage.Boot, Channels: make(map[string]string, len(sourceImage.Channels)), Versions: make(map[string]CatalogVersion, len(sourceImage.Versions))}
 		for channel, version := range sourceImage.Channels {
 			imageRecord.Channels[channel] = version
 		}
-		for versionName, sourceVersion := range sourceImage.Versions {
+		for _, versionName := range sortedNames(sourceImage.Versions) {
+			sourceVersion := sourceImage.Versions[versionName]
 			version := CatalogVersion{Status: sourceVersion.Status, Provenance: sourceVersion.Provenance, Variants: make(map[string]Artifact, len(sourceVersion.Variants))}
 			if version.Status == "" {
 				version.Status = "unknown"
 			}
-			for arch, sourceVariant := range sourceVersion.Variants {
+			for _, arch := range sortedNames(sourceVersion.Variants) {
+				sourceVariant := sourceVersion.Variants[arch]
 				filename, _ := repoVariantFilename(imageName, versionName, arch, sourceVariant)
 				pathname := filepath.Join(root, RepoImagesDir, filename)
+				active = filename
+				if err := ctx.Err(); err != nil {
+					return Catalog{}, nil, scan, err
+				}
+				report(filename, "hashing", "computing SHA-256", false)
 				before, err := os.Lstat(pathname)
 				if err != nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() <= 0 || before.Size() > MaxArtifactSize {
 					return Catalog{}, nil, scan, fmt.Errorf("unsafe repository artifact %s", pathname)
 				}
-				digest, size, err := digestFile(pathname)
+				digest, size, err := digestFileWithProgress(pathname, b.Progress, activity.Event{Phase: "image-verify", Message: "computing SHA-256"})
 				if err != nil {
 					return Catalog{}, nil, scan, err
 				}
+				report(filename, "checking", "inspecting qcow2 metadata", false)
 				info, err := manager.Inspect(ctx, pathname)
 				if err != nil {
 					return Catalog{}, nil, scan, fmt.Errorf("inspect repository artifact %s: %w", filename, err)
@@ -331,6 +368,7 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (Catalog, []b
 				if err := disk.ValidateBase(info); err != nil {
 					return Catalog{}, nil, scan, fmt.Errorf("validate repository artifact %s: %w", filename, err)
 				}
+				report(filename, "checking", "checking qcow2 integrity", false)
 				if err := manager.CheckBase(ctx, pathname); err != nil {
 					return Catalog{}, nil, scan, fmt.Errorf("check repository artifact %s: %w", filename, err)
 				}
@@ -338,6 +376,7 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (Catalog, []b
 				if err != nil || before.Size() != after.Size() || before.ModTime() != after.ModTime() || size != before.Size() {
 					return Catalog{}, nil, scan, fmt.Errorf("repository artifact changed while scanning: %s", filename)
 				}
+				report(filename, "verified", fmt.Sprintf("SHA-256 and qcow2 verified · %d bytes", size), true)
 				version.Variants[arch] = Artifact{
 					File: "images/" + filename, Upstream: sourceVariant.Upstream,
 					SHA256: digest, Format: "qcow2", ArtifactSize: size, VirtualSize: info.VirtualSize,
@@ -348,6 +387,8 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (Catalog, []b
 		}
 		catalog.Images[imageName] = imageRecord
 	}
+	active = "catalog.json"
+	report(active, "checking", "validating catalog metadata", false)
 	if err := catalog.Validate(); err != nil {
 		return Catalog{}, nil, scan, err
 	}
@@ -416,4 +457,13 @@ func (b RepoBuilder) Verify(ctx context.Context, root string) (RepoBuildResult, 
 		return RepoBuildResult{}, errors.New("catalog.json is stale or differs from repo.yaml and images")
 	}
 	return RepoBuildResult{Catalog: catalog, Path: target, Bytes: len(data), Scan: scan}, nil
+}
+
+func sortedNames[T any](values map[string]T) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

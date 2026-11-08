@@ -511,7 +511,7 @@ func (item *progress) render(now time.Time) []string {
 		lines = append(lines, item.renderNodes(columns)...)
 	} else if showItems {
 		header := "ITEM"
-		if strings.HasPrefix(item.operation, "image ") {
+		if strings.HasPrefix(item.operation, "image ") || strings.HasPrefix(item.operation, "repo ") {
 			header = "IMAGE"
 		}
 		lines = append(lines, item.renderRows(columns, item.itemOrder, item.items, header, false)...)

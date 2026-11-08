@@ -2387,11 +2387,7 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 				return commandOutcome{}, newCommandError(exitRuntime, scanErr)
 			}
 			return commandOutcome{payload: report, text: func(stdout, _ io.Writer) error {
-				textField(stdout, 12, "root", report.Root)
-				textField(stdout, 12, "tracked", len(report.Tracked))
-				textField(stdout, 12, "missing", len(report.Missing))
-				textField(stdout, 12, "untracked", len(report.Untracked))
-				textField(stdout, 12, "unsafe", len(report.Unsafe))
+				printRepoScan(stdout, report, false)
 				return nil
 			}}, nil
 		}
@@ -2401,13 +2397,19 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		}
 		ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
 		defer cancel()
-		builder := image.RepoBuilder{QEMUImg: qemuImg, Runner: execx.OSRunner{Timeout: 10 * time.Minute, OutputLimit: 1 << 20}}
+		progressItem := startOperationProgress(ctx, stderr, "Checking repository artifacts", strings.ReplaceAll(options.Action, "-", " "))
+		builder := image.RepoBuilder{QEMUImg: qemuImg, Runner: execx.OSRunner{Timeout: 10 * time.Minute, OutputLimit: 1 << 20}, Progress: progressItem.Report}
 		var result image.RepoBuildResult
 		if options.Action == "repo-build" {
 			result, err = builder.Build(ctx, root)
 		} else {
 			result, err = builder.Verify(ctx, root)
 		}
+		phase := "verified"
+		if options.Action == "repo-build" {
+			phase = "created"
+		}
+		finishProgressItem(progressItem, "catalog.json", phase, fmt.Sprintf("revision %d · %d images", result.Catalog.Version, len(result.Catalog.Images)), err)
 		if err != nil {
 			fallback := exitRuntime
 			if options.Action == "repo-verify" {
@@ -2416,6 +2418,10 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			return commandOutcome{}, newCommandError(fallback, err)
 		}
 		return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
+			if !lifecycleProgressFrozen(stdout) {
+				printRepoScan(stdout, result.Scan, true)
+				printItemResult(stdout, "catalog.json", phase, fmt.Sprintf("revision %d", result.Catalog.Version))
+			}
 			textField(stdout, 12, "catalog", result.Path)
 			textField(stdout, 12, "revision", result.Catalog.Version)
 			textField(stdout, 12, "images", len(result.Catalog.Images))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/disk"
 	"github.com/pgsty/barn/internal/execx"
 )
@@ -55,12 +57,23 @@ func TestRepositoryBuildSeparatesAuthoringCatalogAndCachePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	builder := RepoBuilder{QEMUImg: "/fake/qemu-img", Runner: repoRunner{}}
+	var events []activity.Event
+	builder.Progress = func(event activity.Event) { events = append(events, event) }
 	result, err := builder.Build(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Scan.Tracked) != 1 || len(result.Scan.Untracked) != 1 || result.Scan.Tracked[0] != artifactName {
 		t.Fatalf("scan = %#v", result.Scan)
+	}
+	var queued, bytes, verified bool
+	for _, event := range events {
+		queued = queued || event.Item == artifactName && event.State == "queued"
+		bytes = bytes || event.TotalBytes == int64(len("fixture-qcow")) && event.CurrentBytes == event.TotalBytes
+		verified = verified || event.Item == artifactName && event.State == "verified" && event.Done
+	}
+	if !queued || !bytes || !verified {
+		t.Fatalf("missing artifact progress: %+v", events)
 	}
 	entry, err := result.Catalog.Entry("debian13", "arm64")
 	if err != nil {
@@ -76,6 +89,39 @@ func TestRepositoryBuildSeparatesAuthoringCatalogAndCachePaths(t *testing.T) {
 	}
 	if _, err := builder.Verify(context.Background(), root); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type failedRepoRunner struct{ repoRunner }
+
+func (r failedRepoRunner) Run(ctx context.Context, binary string, args ...string) (execx.Result, error) {
+	if args[0] == "check" {
+		return execx.Result{}, errors.New("broken qcow2")
+	}
+	return r.repoRunner.Run(ctx, binary, args...)
+}
+
+func TestRepositoryProgressMarksFailedArtifactAndDoesNotPublishCatalog(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, RepoImagesDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFixture(t, root, 1, "debian13")
+	name := "d13-1-arm64.qcow2"
+	if err := os.WriteFile(filepath.Join(root, RepoImagesDir, name), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var events []activity.Event
+	builder := RepoBuilder{QEMUImg: "/fake/qemu-img", Runner: failedRepoRunner{}, Progress: func(event activity.Event) { events = append(events, event) }}
+	if _, err := builder.Build(context.Background(), root); err == nil {
+		t.Fatal("invalid artifact passed")
+	}
+	last := events[len(events)-1]
+	if last.Item != name || last.State != "failed" || !last.Done || !strings.Contains(last.Message, "broken qcow2") {
+		t.Fatalf("failure = %+v", last)
+	}
+	if _, err := os.Stat(filepath.Join(root, CatalogFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published failed catalog: %v", err)
 	}
 }
 
