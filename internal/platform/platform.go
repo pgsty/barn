@@ -198,7 +198,9 @@ func GuestArch(requested, hostArch string) (string, error) {
 // ResolveRuntime selects the QEMU system binary and machine for one guest
 // architecture on a supported host. Acceleration is policy, never a user
 // supplied QEMU argument: native uses the host hypervisor, while compatibility
-// mode uses multi-threaded TCG with QEMU's max CPU model.
+// mode uses multi-threaded TCG. A stable ARM CPU model is used for emulated
+// arm64 guests because AAVMF can hang during firmware device discovery with
+// QEMU's synthetic max model on some x86_64 hosts.
 func ResolveRuntime(host Profile, guestArch string, emulate bool) (Profile, error) {
 	guestArch, err := GuestArch(guestArch, host.Arch)
 	if err != nil {
@@ -213,9 +215,13 @@ func ResolveRuntime(host Profile, guestArch string, emulate bool) (Profile, erro
 		// contract on an Arm host. Compatibility takes precedence over throughput.
 		accelerator = "tcg,thread=single"
 	}
+	cpu := "max"
+	if guestArch == "arm64" {
+		cpu = "cortex-a72"
+	}
 	runtimeProfile := Profile{
 		OS: host.OS, Arch: guestArch, Tier: Tier2,
-		Accelerator: accelerator, CPU: "max",
+		Accelerator: accelerator, CPU: cpu,
 		MinimumQEMU: host.MinimumQEMU, RequiresUEFI: guestArch == "arm64", Emulated: true,
 	}
 	switch guestArch {

@@ -39,7 +39,7 @@ func TestResolveRuntimeNativeAndEmulated(t *testing.T) {
 		t.Fatalf("native runtime = %#v, %v", native, err)
 	}
 	sameArch, err := ResolveRuntime(host, "arm64", true)
-	if err != nil || !sameArch.Emulated || sameArch.QEMUBinary != "qemu-system-aarch64" || sameArch.Machine != "virt" || sameArch.Accelerator != "tcg,thread=multi" || sameArch.CPU != "max" {
+	if err != nil || !sameArch.Emulated || sameArch.QEMUBinary != "qemu-system-aarch64" || sameArch.Machine != "virt" || sameArch.Accelerator != "tcg,thread=multi" || sameArch.CPU != "cortex-a72" {
 		t.Fatalf("same-arch TCG runtime = %#v, %v", sameArch, err)
 	}
 	foreign, err := ResolveRuntime(host, "amd64", false)
@@ -48,7 +48,7 @@ func TestResolveRuntimeNativeAndEmulated(t *testing.T) {
 	}
 	linuxAMD, _ := Resolve("linux", "amd64")
 	armOnAMD, err := ResolveRuntime(linuxAMD, "arm64", false)
-	if err != nil || armOnAMD.Accelerator != "tcg,thread=multi" || armOnAMD.QEMUBinary != "qemu-system-aarch64" {
+	if err != nil || armOnAMD.Accelerator != "tcg,thread=multi" || armOnAMD.QEMUBinary != "qemu-system-aarch64" || armOnAMD.CPU != "cortex-a72" {
 		t.Fatalf("arm64-on-amd64 runtime = %#v, %v", armOnAMD, err)
 	}
 	if _, err := ResolveRuntime(host, "s390x", true); err == nil {
