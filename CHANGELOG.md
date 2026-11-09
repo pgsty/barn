@@ -1,20 +1,36 @@
 # Changelog
 
-Notable user-visible changes. This project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html); everything below
-1.0.0 may include incompatible changes between minor versions. The 1.x
-compatibility scope is defined in the
-[1.0.0 release notes](.github/releases/1.0.0.md#compatibility).
+Notable user-visible changes.
 
-## Unreleased
+## 1.1.0 — 2026-11-09
 
+Barn 1.1.0 adds image and guest-architecture overrides, live progress tables,
+and more reliable resource resizing. The embedded signed image catalog remains
+revision `2026110502`.
+
+- Show live progress tables for Linux and macOS lifecycle operations, host
+  setup, network changes, image transfers, and repository maintenance. Result
+  tables and completion summaries use consistent plain-text labels; redirected
+  output remains readable without terminal redraws. Freeze progress before
+  prompts and errors.
+- Use a stable ARM CPU model for cross-architecture QEMU TCG guests so the
+  virtual CPU features match the UEFI firmware.
+
+- Serialize offline resize from state inspection through stop and commit, so a
+  concurrent start cannot invalidate the recorded QEMU process identity. Retain
+  incomplete online resize state across partial hotplug failures and cancellation;
+  status reports the mismatch and resize or restart can recover it.
+- Preserve an explicit official `--repo` in lifecycle follow-up commands even
+  when `BARN_REPO` selects another source. Plans for deployment-wide changes
+  include uncreated nodes in the recreation scope and suppress premature `up`
+  instructions.
+- Restore automatic host preparation for missing native QEMU executables.
+  Missing foreign Linux emulators now identify the manual dependencies instead
+  of suggesting native-only `barn setup`.
 - Upgrade YAML to `go.yaml.in/yaml/v4` 4.0.0 and `pflag` to 1.1.0,
   retaining the existing YAML input and output settings. Update the packaged
   dependency licenses and SBOM checks for the new module versions. Unfinished
   YAML documents now report the parser's EOF line in syntax errors.
-- Make `barn purge` delete immediately in both terminals and scripts. Replace
-  its `--yes`/`--force` options with opt-in `--ask`, which shows the nodes and
-  deletion scope and accepts `y`/`yes`; `n`/`no`, Enter, or EOF cancels.
 - Add `--image/-I` and `--arch/-A` overrides to `up`, `plan`, `reload`,
   `recreate`, and `resize`. Overrides leave the inventory intact, apply images only to
   selected nodes, and remain present in retry commands. Existing VMs still
@@ -34,9 +50,9 @@ compatibility scope is defined in the
 
 ## 1.0.0 — 2026-11-05
 
-Barn 1.0.0 is the first stable release. It freezes the 0.9.x command-line
-contract, hardens destructive operations, data-disk recovery, catalog
-integrity, and process cancellation, and updates the embedded catalog to
+Barn 1.0.0 is the first stable release. It hardens destructive operations,
+data-disk recovery, catalog integrity, and process cancellation, and updates
+the embedded catalog to
 revision `2026110502` with Debian 13 image `20261103.2651.1`.
 
 ### Changed
@@ -46,8 +62,6 @@ revision `2026110502` with Debian 13 image `20261103.2651.1`.
 - Update `golang.org/x/net` to 0.62.0 and `go.yaml.in/yaml/v3` to 3.0.6.
 - Print the complete help when `barn` runs without a command, as `barn --help`
   does. `--json` and `--yaml` keep the `actions[]` document and exit 0.
-- Ask before `barn purge` deletes anything on a terminal; type `purge`, or pass
-  `--yes` (or `--force`). Without a terminal purge does not ask, as before.
 - Accept `--yes` as the confirmation flag of `destroy`, `recreate`,
   `mac destroy`, and `mac recreate`. `--force` keeps working; `mac stop --force`
   still means power off.

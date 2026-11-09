@@ -26,7 +26,7 @@
 <p align="center">
   <a href="https://barn.pgsty.com/"><img alt="Website" src="https://img.shields.io/badge/Website-barn.pgsty.com-A9573B"></a>
   <a href="https://github.com/pgsty/barn/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/pgsty/barn/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/pgsty/barn/releases/tag/v1.0.0"><img alt="Release: 1.0.0" src="https://img.shields.io/badge/release-1.0.0-AF8250"></a>
+  <a href="https://github.com/pgsty/barn/releases/tag/v1.1.0"><img alt="Release: 1.1.0" src="https://img.shields.io/badge/release-1.1.0-AF8250"></a>
   <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/pgsty/barn?logo=go"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-344F60"></a>
 </p>
@@ -49,14 +49,15 @@ software emulation for a different guest architecture. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **1.0.0** is the first stable release, published on 2026-11-05. It defines the command-line,
-structured-output, and exit-code contract that 1.x keeps, hardens destructive
-operations and data-disk recovery, and embeds the signed image catalog revision
-**2026110502**. See the [release notes](.github/releases/1.0.0.md).
+Barn **1.1.0**, released on 2026-11-09, adds image and guest-architecture
+overrides, live progress tables, and recoverable CPU/memory resizing. Use
+`-I` to choose an image and `-A` to run native or emulated Linux guests.
+It embeds signed image catalog revision **2026110502**.
+See the [release notes](.github/releases/1.1.0.md).
 
 ## Install
 
-[1.0.0](https://github.com/pgsty/barn/releases/tag/v1.0.0) is published on
+[1.1.0](https://github.com/pgsty/barn/releases/tag/v1.1.0) is published on
 GitHub's regular release channel. `releases/latest` and the download installer
 select it by default.
 
@@ -80,7 +81,7 @@ barn version
 ```
 
 Add the PATH line to your shell configuration when using the download installer.
-Set `BARN_VERSION=1.0.0` to pin a version.
+Set `BARN_VERSION=1.1.0` to pin a version.
 DEB/RPM packages and manual archives are also available; see
 [installation](https://barn.pgsty.com/docs/start/installation/) for requirements
 and upgrades.
@@ -272,7 +273,7 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 - [Guides](https://barn.pgsty.com/docs/start/) — installation, daily operations, images, automation, and troubleshooting.
 - [Reference](https://barn.pgsty.com/docs/reference/) — configuration, Linux and Mac commands, output, and exit codes.
 - [Platforms and limits](https://barn.pgsty.com/docs/about/status/) — host requirements and guest restrictions.
-- [Release notes](.github/releases/1.0.0.md) — what's new in 1.0.0 and the 1.x compatibility scope.
+- [Release notes](.github/releases/1.1.0.md) — what's new in 1.1.0.
 - [Design and validation history](https://barn.pgsty.com/blog/design/) — design decisions, implementation boundaries, and dated acceptance records.
 - [Issues](https://github.com/pgsty/barn/issues) — bug reports and feature requests; use the [security policy](SECURITY.md) for vulnerabilities.
 
