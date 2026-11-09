@@ -230,6 +230,7 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 				}
 				node.Phase = state.Stopped
 				node.Process = state.ProcessIdentity{}
+				node.ResizeIncomplete = false
 				node.UpdatedAt = config.now()
 				if err := store.WriteNode(node); err != nil {
 					outcomes[index].Error = err.Error()

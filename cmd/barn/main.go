@@ -1142,7 +1142,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	force, deletePersistent, purge := options.Force, options.DeletePersistent, options.Purge
 	noWait, rollback := options.NoWait, options.Rollback
 	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback, Image: options.Image, Arch: options.Arch}
-	if repository == image.DefaultRepositoryURL {
+	if repository == image.DefaultRepositoryURL && strings.TrimSpace(options.Repository) == "" && !options.Mirror && strings.TrimSpace(os.Getenv("BARN_REPO")) == "" {
 		retryOptions.Repository = "" // a retry finds the default by itself
 	}
 	if command == "start" || command == "restart" {
@@ -1196,16 +1196,29 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			case "repair":
 				textField(stdout, 12, "repair", strings.Join(plan.Nodes, ", ")+"  (left mid-transition; apply: "+applyCommand("up", nodes)+")")
 			}
-			if len(plan.Start) != 0 {
-				textField(stdout, 12, "start", strings.Join(plan.Start, ", ")+"  (apply: "+applyCommand("up", nodes)+")")
-			}
-			if len(plan.Create) != 0 {
-				textField(stdout, 12, "create", strings.Join(plan.Create, ", ")+"  (apply: "+applyCommand("up", nodes)+")")
+			for _, group := range []struct {
+				label string
+				names []string
+			}{{"start", plan.Start}, {"create", plan.Create}} {
+				if len(group.names) == 0 {
+					continue
+				}
+				detail := strings.Join(group.names, ", ")
+				if plan.Blocked == "" && (plan.Action == "create" || plan.Action == "converge" || plan.Action == "start" || plan.Action == "repair") {
+					detail += "  (apply: " + applyCommand("up", nodes) + ")"
+				} else if plan.Blocked == "" && plan.WholeDeployment {
+					detail += "  (included in whole-deployment recreation)"
+				}
+				textField(stdout, 12, group.label, detail)
 			}
 			if len(plan.Recreate) != 0 {
 				detail := strings.Join(plan.Recreate, ", ")
 				if plan.Blocked == "" {
-					detail += "  (apply: " + applyCommand("recreate", plan.Recreate) + ")"
+					selected := plan.Recreate
+					if plan.WholeDeployment {
+						selected = nodes
+					}
+					detail += "  (apply: " + applyCommand("recreate", selected) + ")"
 				}
 				textField(stdout, 12, "recreate", detail)
 			} else if plan.Action == "recreate" && plan.Blocked == "" {
@@ -1712,6 +1725,10 @@ func needsHostSetup(command string, err error) bool {
 	switch command {
 	case "up", "start", "restart", "reload":
 	default:
+		return false
+	}
+	var qemuError *platform.QEMUUnavailableError
+	if errors.As(err, &qemuError) && !qemuError.SetupSupported {
 		return false
 	}
 	if errors.Is(err, exec.ErrNotFound) {

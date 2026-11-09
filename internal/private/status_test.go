@@ -181,6 +181,7 @@ func TestStatusCleansDeadInterruptedRuntimeBeforeConvergence(t *testing.T) {
 		t.Fatal(err)
 	}
 	node.Phase = state.Starting
+	node.ResizeIncomplete = true
 	node.Process = state.ProcessIdentity{}
 	node.Runtime = state.RuntimePaths{Directory: directory, QMP: filepath.Join(directory, "qmp.sock"), PIDFile: filepath.Join(directory, "qemu.pid")}
 	if err := os.WriteFile(node.Runtime.PIDFile, []byte("999999999\n"), 0o600); err != nil {
@@ -197,7 +198,7 @@ func TestStatusCleansDeadInterruptedRuntimeBeforeConvergence(t *testing.T) {
 		t.Fatalf("dead runtime directory remains: %v", err)
 	}
 	stopped, err := store.ReadNode("meta")
-	if err != nil || stopped.Phase != state.Stopped || stopped.Process != (state.ProcessIdentity{}) {
+	if err != nil || stopped.Phase != state.Stopped || stopped.Process != (state.ProcessIdentity{}) || stopped.ResizeIncomplete {
 		t.Fatalf("stopped state = %#v, %v", stopped, err)
 	}
 }

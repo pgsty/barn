@@ -68,6 +68,12 @@ func resizeTargets(current, desired spec.Resolved, selected []string, store stat
 	}
 	resizeSet := nodeNameSet(diff.Resize)
 	for _, name := range selected {
+		if node, err := store.ReadNode(name); err == nil && node.ResizeIncomplete {
+			if _, exists := resizeSet[name]; !exists {
+				diff.Resize = append(diff.Resize, name)
+				resizeSet[name] = struct{}{}
+			}
+		}
 		if _, exists := resizeSet[name]; exists {
 			continue
 		}
@@ -100,6 +106,7 @@ func resizeCanBeOnline(resources qemu.Resources, target spec.Node) bool {
 
 func resizeDeploymentState(current state.DeploymentState, name string, target spec.Node, version string, now time.Time) (state.DeploymentState, error) {
 	updated := current
+	updated.Resolved = cloneResolved(current.Resolved)
 	found := false
 	for index := range updated.Resolved.Nodes {
 		if updated.Resolved.Nodes[index].Name != name {
@@ -127,6 +134,9 @@ func resizeDeploymentState(current state.DeploymentState, name string, target sp
 }
 
 func commitResize(store state.Store, current state.DeploymentState, node state.NodeState, target spec.Node, next qemu.Invocation, online bool, version string, now time.Time) (state.NodeState, state.DeploymentState, error) {
+	if !online && ((node.Phase != state.Stopped && node.Phase != state.Prepared) || node.Process.PID != 0) {
+		return state.NodeState{}, state.DeploymentState{}, fmt.Errorf("node %s must be stopped before replacing its invocation", node.Node)
+	}
 	updatedDeployment, err := resizeDeploymentState(current, node.Node, target, version, now)
 	if err != nil {
 		return state.NodeState{}, state.DeploymentState{}, err
@@ -141,9 +151,12 @@ func commitResize(store state.Store, current state.DeploymentState, node state.N
 	}
 	if online {
 		node.PendingInvocation = next
+		// Keep the recovery marker until both state files have been written.
+		node.ResizeIncomplete = true
 	} else {
 		node.Invocation = next
 		node.PendingInvocation = qemu.Invocation{}
+		node.ResizeIncomplete = false
 	}
 	node.UpdatedAt = now.UTC()
 	if err := store.WriteNode(node); err != nil {
@@ -157,12 +170,18 @@ func commitResize(store state.Store, current state.DeploymentState, node state.N
 		}
 		return state.NodeState{}, state.DeploymentState{}, err
 	}
+	if online {
+		node.ResizeIncomplete = false
+		if err := store.WriteNode(node); err != nil {
+			return state.NodeState{}, state.DeploymentState{}, err
+		}
+	}
 	return node, updatedDeployment, nil
 }
 
 func qmpResizeClient() *qmp.Client { return &qmp.Client{Timeout: 5 * time.Second} }
 
-func hotplugCPU(ctx context.Context, client *qmp.Client, socket string, node string, current, target int) error {
+func hotplugCPU(ctx context.Context, client *qmp.Client, socket string, node string, current, target int, beforeChange func() error) error {
 	if target <= current {
 		return nil
 	}
@@ -202,6 +221,9 @@ func hotplugCPU(ctx context.Context, client *qmp.Client, socket string, node str
 		}
 		arguments["driver"] = slot.Type
 		arguments["id"] = fmt.Sprintf("barn-resize-%s-cpu-%d", node, index)
+		if err := beforeChange(); err != nil {
+			return err
+		}
 		if err := client.DeviceAdd(ctx, socket, arguments); err != nil {
 			return fmt.Errorf("%w: hotplug CPU %d: %v", errResizeOffline, current+added+count, err)
 		}
@@ -213,13 +235,16 @@ func hotplugCPU(ctx context.Context, client *qmp.Client, socket string, node str
 	return errResizeOffline
 }
 
-func hotplugMemory(ctx context.Context, client *qmp.Client, socket string, node string, current, target int64) error {
+func hotplugMemory(ctx context.Context, client *qmp.Client, socket string, node string, current, target int64, beforeChange func() error) error {
 	if target <= current {
 		return nil
 	}
 	objectID := fmt.Sprintf("barn_resize_mem_%s_%d", node, time.Now().UnixNano())
 	deviceID := fmt.Sprintf("barn_resize_dimm_%s_%d", node, time.Now().UnixNano())
 	delta := target - current
+	if err := beforeChange(); err != nil {
+		return err
+	}
 	if err := client.ObjectAdd(ctx, socket, map[string]any{"qom-type": "memory-backend-ram", "id": objectID, "size": delta}); err != nil {
 		return fmt.Errorf("%w: create hotplug memory backend: %v", errResizeOffline, err)
 	}
@@ -332,7 +357,7 @@ func (m Manager) resizeOnline(ctx context.Context, desired spec.Node) (applied, 
 	if err != nil {
 		return false, false, err
 	}
-	if node.Phase != state.Running {
+	if node.Phase != state.Running || node.ResizeIncomplete {
 		return false, false, nil
 	}
 	base := resizeBaseInvocation(node)
@@ -393,18 +418,32 @@ func (m Manager) resizeOnline(ctx context.Context, desired spec.Node) (applied, 
 	if !resizeCanBeOnline(resources, desired) {
 		return false, false, nil
 	}
-	guestChanged = desired.CPUs > resources.CPUs || desired.Memory > resources.Memory
-	if err := hotplugCPU(ctx, client, node.Runtime.QMP, node.Node, resources.CPUs, desired.CPUs); err != nil {
-		if errors.Is(err, errResizeOffline) {
-			return false, false, nil
+	beforeChange := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		return false, false, err
+		if !guestChanged {
+			node.ResizeIncomplete = true
+			node.UpdatedAt = time.Now().UTC()
+			if err := store.WriteNode(node); err != nil {
+				return fmt.Errorf("record pending resize before hotplug: %w", err)
+			}
+			// A failed or lost QMP response can still have changed the guest.
+			guestChanged = true
+		}
+		return nil
 	}
-	if err := hotplugMemory(ctx, client, node.Runtime.QMP, node.Node, resources.Memory, desired.Memory); err != nil {
-		if errors.Is(err, errResizeOffline) {
+	if err := hotplugCPU(ctx, client, node.Runtime.QMP, node.Node, resources.CPUs, desired.CPUs, beforeChange); err != nil {
+		if errors.Is(err, errResizeOffline) && !guestChanged {
 			return false, false, nil
 		}
-		return false, false, err
+		return false, guestChanged, err
+	}
+	if err := hotplugMemory(ctx, client, node.Runtime.QMP, node.Node, resources.Memory, desired.Memory, beforeChange); err != nil {
+		if errors.Is(err, errResizeOffline) && !guestChanged {
+			return false, false, nil
+		}
+		return false, guestChanged, err
 	}
 	if err := waitGuestResources(ctx, m.runner(), sshPath, deploymentState.Resolved.SSHUser, privateKey, knownHosts, node, desired); err != nil {
 		return false, guestChanged, err
@@ -415,62 +454,57 @@ func (m Manager) resizeOnline(ctx context.Context, desired spec.Node) (applied, 
 	return true, false, nil
 }
 
-func (m Manager) resizeOffline(ctx context.Context, desired spec.Node) (mode string, returnErr error) {
+func (m Manager) resizeOffline(ctx context.Context, desired spec.Node) (string, error) {
 	deploymentValue, err := m.openDeployment(false)
 	if err != nil {
 		return "", err
 	}
 	store := state.Store{Root: deploymentValue.Root}
-	node, err := store.ReadNode(desired.Name)
-	if err != nil {
-		return "", err
-	}
-	if node.Phase != state.Running && node.Phase != state.Stopped && node.Phase != state.Prepared {
-		return "", interruptedPhaseError(node)
-	}
-	base := resizeBaseInvocation(node)
-	next, err := qemu.ConfigureResources(base, desired.CPUs, desired.Memory)
-	if err != nil {
-		return "", err
-	}
-	wasRunning := node.Phase == state.Running
-	stopped := false
-	resumeAfterError := func(err error) error {
-		if err == nil || !stopped {
+	var wasRunning, stopped bool
+	// Read, stop, and commit in one critical section. In particular, a start
+	// must never slip between stopping QEMU and replacing its recorded argv.
+	err = func() (returnErr error) {
+		deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
+		if err != nil {
 			return err
 		}
-		return failure.WithNext(fmt.Errorf("resizing node %s did not finish; the node remains stopped: %w", desired.Name, err), "barn start "+desired.Name)
-	}
-	if wasRunning {
-		stopper := m
-		stopper.Nodes = []string{desired.Name}
-		if _, err := stopper.Stop(ctx); err != nil {
-			return "", err
+		defer func() { returnErr = lock.JoinRelease(returnErr, deploymentLock, "deployment resize lock") }()
+		deploymentState, err := store.ReadDeployment()
+		if err != nil {
+			return err
 		}
-		stopped = true
-	}
-	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
+		node, err := store.ReadNode(desired.Name)
+		if err != nil {
+			return err
+		}
+		if node.Phase != state.Running && node.Phase != state.Stopped && node.Phase != state.Prepared {
+			return interruptedPhaseError(node)
+		}
+		wasRunning = node.Phase == state.Running
+		if wasRunning {
+			stopper := m
+			stopper.Nodes = []string{desired.Name}
+			if _, err := stopper.stopLocked(ctx, deploymentValue); err != nil {
+				return err
+			}
+			stopped = true
+			node, err = store.ReadNode(desired.Name)
+			if err != nil {
+				return err
+			}
+		}
+		next, err := qemu.ConfigureResources(resizeBaseInvocation(node), desired.CPUs, desired.Memory)
+		if err != nil {
+			return err
+		}
+		_, _, err = commitResize(store, deploymentState, node, desired, next, false, m.BarnVersion, time.Now().UTC())
+		return err
+	}()
 	if err != nil {
-		return "", resumeAfterError(err)
-	}
-	store = state.Store{Root: deploymentValue.Root}
-	deploymentState, err := store.ReadDeployment()
-	if err != nil {
-		returnErr = resumeAfterError(lock.JoinRelease(err, deploymentLock, "deployment resize lock"))
-		return "", returnErr
-	}
-	node, err = store.ReadNode(desired.Name)
-	if err != nil {
-		returnErr = resumeAfterError(lock.JoinRelease(err, deploymentLock, "deployment resize lock"))
-		return "", returnErr
-	}
-	if _, _, err := commitResize(store, deploymentState, node, desired, next, false, m.BarnVersion, time.Now().UTC()); err != nil {
-		returnErr = resumeAfterError(lock.JoinRelease(err, deploymentLock, "deployment resize lock"))
-		return "", returnErr
-	}
-	returnErr = resumeAfterError(lock.JoinRelease(nil, deploymentLock, "deployment resize lock"))
-	if returnErr != nil {
-		return "", returnErr
+		if stopped {
+			err = failure.WithNext(fmt.Errorf("resizing node %s did not finish after stopping it: %w", desired.Name, err), "barn start "+desired.Name)
+		}
+		return "", err
 	}
 	if !wasRunning {
 		return "offline", nil

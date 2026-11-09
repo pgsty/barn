@@ -329,23 +329,24 @@ type Connection struct {
 }
 
 type LifecyclePlan struct {
-	Source      string   `json:"source,omitempty"`
-	Start       []string `json:"start,omitempty"`
-	Changes     []string `json:"changes,omitempty"`
-	Images      []string `json:"images"`
-	CPUs        int      `json:"cpus"`
-	Memory      int64    `json:"memory_bytes"`
-	Storage     int64    `json:"disk_bytes"`
-	Blocked     string   `json:"blocked,omitempty"`
-	Schema      int      `json:"schema"`
-	Action      string   `json:"action"`
-	SpecHash    string   `json:"spec_hash"`
-	Nodes       []string `json:"nodes"`
-	Destructive bool     `json:"destructive"`
-	Create      []string `json:"create,omitempty"`
-	Recreate    []string `json:"recreate,omitempty"`
-	Resize      []string `json:"resize,omitempty"`
-	Missing     []string `json:"missing,omitempty"`
+	WholeDeployment bool     `json:"whole_deployment,omitempty"`
+	Source          string   `json:"source,omitempty"`
+	Start           []string `json:"start,omitempty"`
+	Changes         []string `json:"changes,omitempty"`
+	Images          []string `json:"images"`
+	CPUs            int      `json:"cpus"`
+	Memory          int64    `json:"memory_bytes"`
+	Storage         int64    `json:"disk_bytes"`
+	Blocked         string   `json:"blocked,omitempty"`
+	Schema          int      `json:"schema"`
+	Action          string   `json:"action"`
+	SpecHash        string   `json:"spec_hash"`
+	Nodes           []string `json:"nodes"`
+	Destructive     bool     `json:"destructive"`
+	Create          []string `json:"create,omitempty"`
+	Recreate        []string `json:"recreate,omitempty"`
+	Resize          []string `json:"resize,omitempty"`
+	Missing         []string `json:"missing,omitempty"`
 }
 
 func (m Manager) runner() execx.Runner {
@@ -1044,12 +1045,14 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 					// before publishing a startable stopped state.
 					if !converge {
 						node.Phase = state.Stopped
+						node.ResizeIncomplete = false
 						return nil
 					}
 					if err := cleanupRuntime(node); err != nil {
 						return fmt.Errorf("clean dead private runtime for %s: %w", node.Node, err)
 					}
 					node.Phase = state.Stopped
+					node.ResizeIncomplete = false
 					node.Process = state.ProcessIdentity{}
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)
@@ -1100,6 +1103,7 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 						node.Phase = state.Stopped
 					}
 					node.Process = state.ProcessIdentity{}
+					node.ResizeIncomplete = false
 					node.UpdatedAt = time.Now().UTC()
 					convergenceCandidates = append(convergenceCandidates, node)
 					if node.Phase == state.Destroying {
@@ -1110,9 +1114,19 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 			return nil
 		}()
 		message := ""
+		stage, reason := "status", ""
 		if nodeErr != nil {
 			runtimeState, message = "unknown", nodeErr.Error()
-			failures = append(failures, NodeFailure{Node: node.Node, Stage: "status", Error: message})
+		}
+		if node.ResizeIncomplete {
+			resizeMessage := "online resize did not finish; live CPU and memory may differ from the applied configuration; retry barn resize or run barn restart " + node.Node
+			message = appendStatusMessage(message, resizeMessage)
+			if nodeErr == nil {
+				stage, reason = "resize", "resize_incomplete"
+			}
+		}
+		if message != "" {
+			failures = append(failures, NodeFailure{Node: node.Node, Stage: stage, Error: message, Reason: reason})
 		}
 		result.Nodes = append(result.Nodes, NodeStatus{
 			Warnings:     node.GuestWarnings,
@@ -2129,6 +2143,7 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	case diff.EnvelopeChanged:
 		result.Action = "recreate"
 		result.Destructive = true
+		result.WholeDeployment = true
 		// Deployment-level changes replace every existing selected node, even
 		// when its own definition is unchanged. Keep the plan's replacement
 		// list complete so follow-up commands cannot target only a subset.

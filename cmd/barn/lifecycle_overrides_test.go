@@ -8,10 +8,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pgsty/barn/internal/config"
+	"github.com/pgsty/barn/internal/image"
 	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/qemu"
 	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
 )
 
 const overrideInventory = `all:
@@ -137,5 +141,84 @@ func TestScopedPlanFollowUpPreservesSelectorsAndOverrides(t *testing.T) {
 	want := "barn up -f " + shellQuote(path) + " --image u24 --arch amd64 node1"
 	if !strings.Contains(out.String(), "apply: "+want+")") {
 		t.Fatalf("scoped plan expanded its follow-up scope; want %q in:\n%s", want, &out)
+	}
+}
+
+func TestPlanFollowUpPreservesExplicitDefaultRepository(t *testing.T) {
+	t.Setenv("BARN_HOME", filepath.Join(t.TempDir(), "barn"))
+	t.Setenv("BARN_REPO", image.MirrorRepositoryURL)
+	path := filepath.Join(t.TempDir(), "inventory.yml")
+	if err := os.WriteFile(path, []byte(overrideInventory), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"plan", "-f", path, "-I", "u24", "--repo", image.DefaultRepositoryURL, "meta"}, &out, &errOut); code != exitOK {
+		t.Fatalf("plan failed: %d %s %s", code, &out, &errOut)
+	}
+	want := "barn up -f " + shellQuote(path) + " --image u24 --repo " + image.DefaultRepositoryURL + " meta"
+	if !strings.Contains(out.String(), "apply: "+want+")") {
+		t.Fatalf("explicit repository was lost; want %q in:\n%s", want, &out)
+	}
+}
+
+func TestPlanArchitectureChangeIncludesUncreatedNodesInFollowUpScope(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("BARN_HOME", root)
+	t.Setenv("BARN_REPO", "")
+	inventory := strings.NewReplacer(", vm_version: 13", "", ", vm_version: 9", "").Replace(overrideInventory)
+	file, err := config.ParseInventory([]byte(inventory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := file.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := spec.Hash(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := state.Store{Root: root}
+	now := time.Now().UTC()
+	if err := store.WriteDeployment(state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash, Resolved: resolved, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	nodeHash, err := spec.NodeHash(resolved, "meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteNode(state.NodeState{
+		Schema: state.NodeSchema, BarnVersion: "test", Node: "meta",
+		VMUUID: "018f4b8e-1234-4abc-9def-0123456789ab", Phase: state.Stopped,
+		Generation: 1, SpecHash: nodeHash, CreatedAt: now, UpdatedAt: now,
+		Invocation: qemu.Invocation{Binary: "/fixture/qemu-system-aarch64", Args: []string{"-accel", "hvf"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "barn.yml")
+	if err := os.WriteFile(path, []byte(inventory), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, selected := range [][]string{nil, {"meta", "node1"}, {"meta"}} {
+		var out, errOut bytes.Buffer
+		args := append([]string{"plan", "-f", path, "-A", "amd64"}, selected...)
+		if code := run(args, &out, &errOut); code != exitOK {
+			t.Fatalf("plan %v failed: %d %s %s", selected, code, &out, &errOut)
+		}
+		if len(selected) == 1 {
+			if !strings.Contains(out.String(), "blocked") || strings.Contains(out.String(), "apply:") {
+				t.Fatalf("blocked plan offered an invalid command:\n%s", &out)
+			}
+			continue
+		}
+		want := lifecycleNodeCommand("recreate", path, selected, lifecycleRetryOptions{Arch: "amd64"})
+		if strings.Count(out.String(), "apply:") != 1 || !strings.Contains(out.String(), "apply: "+want+")") {
+			t.Fatalf("expected one applicable recreation command %q:\n%s", want, &out)
+		}
+		desired := resolved
+		desired.Arch = "amd64"
+		if _, err := (privatevm.Manager{Nodes: selected}).RecreateTargets(desired); err != nil {
+			t.Fatalf("suggested recreation scope %v is not applicable: %v", selected, err)
+		}
 	}
 }

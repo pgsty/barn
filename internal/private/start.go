@@ -554,6 +554,7 @@ func startOne(ctx context.Context, config StartConfig, store state.Store, node *
 	}
 	node.Process = recordProcess(identityValue)
 	node.Phase = state.Running
+	node.ResizeIncomplete = false
 	node.UpdatedAt = config.now()
 	if err := store.WriteNode(*node); err != nil {
 		message := fmt.Sprintf("persist running state for %s: %v", node.Node, err)

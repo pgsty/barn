@@ -88,6 +88,16 @@ func TestStopRunningPreservesPartialFailure(t *testing.T) {
 	startConfig := runningStopFixture(t)
 	fake := &fakeStopLifecycle{fail: map[string]bool{"node-1": true}}
 	store := state.Store{Root: startConfig.Deployment.Root}
+	for _, name := range startConfig.Nodes {
+		node, err := store.ReadNode(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		node.ResizeIncomplete = true
+		if err := store.WriteNode(node); err != nil {
+			t.Fatal(err)
+		}
+	}
 	deployment, err := store.ReadDeployment()
 	if err != nil {
 		t.Fatal(err)
@@ -117,11 +127,11 @@ func TestStopRunningPreservesPartialFailure(t *testing.T) {
 		}
 	}
 	meta, metaErr := store.ReadNode("meta")
-	if metaErr != nil || meta.Phase != state.Stopped {
+	if metaErr != nil || meta.Phase != state.Stopped || meta.ResizeIncomplete {
 		t.Fatalf("successful stop not persisted: %#v, %v", meta, metaErr)
 	}
 	failed, failedErr := store.ReadNode("node-1")
-	if failedErr != nil || failed.Phase != state.Stopping || failed.Process.PID == 0 {
+	if failedErr != nil || failed.Phase != state.Stopping || failed.Process.PID == 0 || !failed.ResizeIncomplete {
 		t.Fatalf("failed stop not retained for retry: %#v, %v", failed, failedErr)
 	}
 }

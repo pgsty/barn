@@ -121,9 +121,12 @@ type NodeState struct {
 	// Invocation stays bound to the currently running QEMU process until it is
 	// stopped, otherwise process identity checks would reject a healthy VM.
 	PendingInvocation qemu.Invocation `json:"pending_invocation,omitempty"`
-	Process           ProcessIdentity `json:"process"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	// ResizeIncomplete is persisted before hotplugging. Until commit or a
+	// verified stop, live resources may differ from the applied specification.
+	ResizeIncomplete bool            `json:"resize_incomplete,omitempty"`
+	Process          ProcessIdentity `json:"process"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 type Action struct {

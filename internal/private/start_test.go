@@ -107,7 +107,14 @@ func preparedStartFixture(t *testing.T) (StartConfig, []state.NodeState) {
 }
 
 func TestStartPreparedParallelSuccess(t *testing.T) {
-	config, _ := preparedStartFixture(t)
+	config, nodes := preparedStartFixture(t)
+	store := state.Store{Root: config.Deployment.Root}
+	for _, node := range nodes {
+		node.ResizeIncomplete = true
+		if err := store.WriteNode(node); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fake := &fakeNodeLifecycle{failStart: map[string]bool{}, failReady: map[string]bool{}}
 	config.Lifecycle = fake
 	outcomes, err := StartPrepared(context.Background(), config)
@@ -117,10 +124,9 @@ func TestStartPreparedParallelSuccess(t *testing.T) {
 	if fake.maxActive < 2 {
 		t.Fatalf("nodes did not start concurrently: max=%d", fake.maxActive)
 	}
-	store := state.Store{Root: config.Deployment.Root}
 	for _, name := range config.Nodes {
 		node, err := store.ReadNode(name)
-		if err != nil || node.Phase != state.Running || node.Process.PID == 0 {
+		if err != nil || node.Phase != state.Running || node.Process.PID == 0 || node.ResizeIncomplete {
 			t.Fatalf("running state %s = %#v, %v", name, node, err)
 		}
 	}

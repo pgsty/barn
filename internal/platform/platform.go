@@ -82,6 +82,10 @@ func FindQEMUBinary(profile Profile, lookup func(string) (string, error)) (strin
 		return path, nil
 	}
 	if !allowsRHELQEMUFallback(profile) {
+		if profile.OS == "linux" && profile.Emulated {
+			return "", qemuUnavailable(profile.QEMUBinary, primaryErr, false,
+				fmt.Sprintf("install %s and matching %s UEFI firmware for UEFI images, then retry (barn setup installs only native host dependencies)", profile.QEMUBinary, profile.Arch))
+		}
 		return "", QEMUMissing(profile.QEMUBinary, primaryErr)
 	}
 	path, fallbackErr := lookup(RHELQEMUBinary)
@@ -91,14 +95,31 @@ func FindQEMUBinary(profile Profile, lookup func(string) (string, error)) (strin
 	return "", QEMUMissing(profile.QEMUBinary+" or "+RHELQEMUBinary, errors.Join(primaryErr, fallbackErr))
 }
 
-// QEMUMissing reports a QEMU program that is not installed, pointing at the
-// one command that installs it.
-func QEMUMissing(program string, cause error) error {
-	err := fmt.Errorf("QEMU is not installed (%s not found in PATH)", program)
-	if !errors.Is(cause, exec.ErrNotFound) {
-		err = fmt.Errorf("QEMU is not usable (%s): %w", program, cause)
+// QEMUUnavailableError preserves the lookup cause and whether host setup can
+// install the requested runtime. Linux setup supplies only the native emulator.
+type QEMUUnavailableError struct {
+	Program        string
+	Cause          error
+	SetupSupported bool
+}
+
+func (e *QEMUUnavailableError) Error() string {
+	if errors.Is(e.Cause, exec.ErrNotFound) {
+		return fmt.Sprintf("QEMU is not installed (%s not found in PATH)", e.Program)
 	}
-	return failure.New(failure.Capability, err).Because("qemu_missing").Then("barn setup")
+	return fmt.Sprintf("QEMU is not usable (%s): %v", e.Program, e.Cause)
+}
+
+func (e *QEMUUnavailableError) Unwrap() error { return e.Cause }
+
+func qemuUnavailable(program string, cause error, setupSupported bool, next string) error {
+	err := &QEMUUnavailableError{Program: program, Cause: cause, SetupSupported: setupSupported}
+	return failure.New(failure.Capability, err).Because("qemu_missing").Then(next)
+}
+
+// QEMUMissing reports a host QEMU program that barn setup can install.
+func QEMUMissing(program string, cause error) error {
+	return qemuUnavailable(program, cause, true, "barn setup")
 }
 
 func allowsRHELQEMUFallback(profile Profile) bool {

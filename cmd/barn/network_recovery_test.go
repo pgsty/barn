@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/barn/internal/failure"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
+	"github.com/pgsty/barn/internal/platform"
 	privatevm "github.com/pgsty/barn/internal/private"
 )
 
@@ -69,5 +71,41 @@ func TestLogRepairDoesNotSkipRepairOfMissingRoute(t *testing.T) {
 	}}
 	if !networkRepairNeedsRestart(report) {
 		t.Fatal("permission repair suppressed recovery of the missing network route")
+	}
+}
+
+func TestMissingQEMURecoveryMatchesHostSetupCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		profile platform.Profile
+		setup   bool
+	}{
+		{"linux-native", platform.Profile{OS: "linux", Arch: "amd64", QEMUBinary: "qemu-system-x86_64"}, true},
+		{"linux-foreign", platform.Profile{OS: "linux", Arch: "arm64", QEMUBinary: "qemu-system-aarch64", Emulated: true}, false},
+		{"darwin-foreign", platform.Profile{OS: "darwin", Arch: "amd64", QEMUBinary: "qemu-system-x86_64", Emulated: true}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := platform.FindQEMUBinary(test.profile, func(name string) (string, error) {
+				return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
+			})
+			if !errors.Is(err, exec.ErrNotFound) {
+				t.Errorf("missing executable cause was lost: %v", err)
+			}
+			_, reason, next := failure.Classify(err)
+			if reason != "qemu_missing" || (next == "barn setup") != test.setup {
+				t.Errorf("inaccurate recovery hint: reason=%s next=%s", reason, next)
+			}
+			for _, command := range []string{"up", "start", "restart", "reload"} {
+				if needsHostSetup(command, err) != test.setup {
+					t.Errorf("%s setup=%t, want %t: %v", command, needsHostSetup(command, err), test.setup, err)
+				}
+			}
+			if !test.setup && !strings.Contains(next, test.profile.QEMUBinary) {
+				t.Errorf("foreign runtime hint omits the required emulator: %s", next)
+			}
+		})
+	}
+	if needsHostSetup("up", platform.QEMUMissing("qemu-img", errors.New("permission denied"))) {
+		t.Fatal("unusable executable incorrectly triggered package installation")
 	}
 }

@@ -43,6 +43,7 @@ func TestCommitResizePreservesRunningInvocationAndGuestMarker(t *testing.T) {
 	}
 	node := resizeNodeState(t, resolved, root)
 	node.Phase = state.Running
+	node.ResizeIncomplete = true
 	if err := store.WriteNode(node); err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +68,11 @@ func TestCommitResizePreservesRunningInvocationAndGuestMarker(t *testing.T) {
 		t.Fatalf("deployment resources = %#v", deployment.Resolved.Nodes[0])
 	}
 	readBack, err := store.ReadNode("meta")
-	if err != nil || readBack.PendingInvocation.Binary == "" {
+	if err != nil || readBack.PendingInvocation.Binary == "" || readBack.ResizeIncomplete {
 		t.Fatalf("persisted pending invocation = %#v, %v", readBack, err)
+	}
+	if resolved.Nodes[0].CPUs != 1 || resolved.Nodes[0].Memory != 2*spec.GiB {
+		t.Fatalf("commit mutated its original deployment snapshot: %+v", resolved.Nodes[0])
 	}
 }
 
