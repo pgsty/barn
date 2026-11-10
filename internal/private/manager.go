@@ -218,6 +218,7 @@ type Manager struct {
 	OperationID         string
 	Runner              execx.Runner
 	ReadyTimeout        time.Duration
+	Parallelism         *int
 	Repository          string
 	Progress            activity.Reporter
 	NoWait              bool
@@ -404,16 +405,6 @@ func nodesWithoutCommittedState(nodes []spec.Node) []spec.Node {
 		result = append(result, node)
 	}
 	return result
-}
-
-func boundedConcurrency(nodes int) int {
-	if nodes < 1 {
-		return 1
-	}
-	if nodes > 4 {
-		return 4
-	}
-	return nodes
 }
 
 func selectedNodeNames(resolved spec.Resolved, requested []string) ([]string, error) {
@@ -1746,7 +1737,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	if len(createNodes) != 0 {
 		startNodes = append([]string(nil), createNodes...)
 	}
-	controller := Controller{Deployment: deploymentValue, Prepare: prepare, Lifecycle: lifecycle, Concurrency: boundedConcurrency(len(resolved.Nodes)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, CreateNodes: createNodes, StartNodes: startNodes, Version: m.BarnVersion, Progress: m.Progress}
+	controller := Controller{Deployment: deploymentValue, Prepare: prepare, Lifecycle: lifecycle, Concurrency: m.concurrency(len(resolved.Nodes)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, CreateNodes: createNodes, StartNodes: startNodes, Version: m.BarnVersion, Progress: m.Progress}
 	createResult, err := controller.CreateAndStart(ctx)
 	if err != nil && m.RollbackFailed {
 		err = rollbackCreateFailure(deploymentValue, createResult, err)
@@ -1913,7 +1904,7 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 	default:
 		m.report("guest-ready", fmt.Sprintf("Starting %d node(s) and waiting up to %s for guest readiness", starting, readyTimeout))
 	}
-	outcomes, err := StartPrepared(ctx, StartConfig{Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Concurrency: boundedConcurrency(len(names)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, Progress: m.Progress})
+	outcomes, err := StartPrepared(ctx, StartConfig{Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Concurrency: m.concurrency(len(names)), ReadyTimeout: readyTimeout, NoWait: m.NoWait, Progress: m.Progress})
 	if err != nil {
 		return Status{}, err
 	}
@@ -1977,7 +1968,7 @@ func (m Manager) stopLocked(ctx context.Context, deploymentValue Deployment) (St
 	}
 	lifecycle := NativeLifecycle{RetryGuestSetup: m.retryGuestSetup, VM: vm.Lifecycle{Runner: m.runner(), QMP: &qmp.Client{Timeout: 5 * time.Second}, SSHUser: deploymentState.Resolved.SSHUser}}
 	outcomes, err := StopRunning(ctx, StopConfig{
-		Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, Concurrency: boundedConcurrency(len(names)),
+		Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, Concurrency: m.concurrency(len(names)),
 		NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Progress: m.Progress,
 	})
 	if err != nil {

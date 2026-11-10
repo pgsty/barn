@@ -406,12 +406,7 @@ func PrepareNode(ctx context.Context, config PrepareConfig, name string) (NodeAr
 }
 
 func PrepareSelected(ctx context.Context, config PrepareConfig, names []string, concurrency int) []PrepareOutcome {
-	if concurrency <= 0 {
-		concurrency = 4
-	}
-	if concurrency > 16 {
-		concurrency = 16
-	}
+	concurrency = boundedConcurrency(len(names), concurrency)
 	outcomes := make([]PrepareOutcome, len(names))
 	jobs := make(chan int)
 	var wait sync.WaitGroup

@@ -64,6 +64,7 @@ type lifecycleOptions struct {
 	DeletePersistent bool
 	Purge            bool
 	NoWait           bool
+	Parallelism      *int
 	Rollback         bool
 	ConfigPath       string
 	Repository       string
@@ -1141,7 +1142,7 @@ type lifecycleResult struct {
 func runPrivateCommand(parent context.Context, command string, resolved spec.Resolved, nodes []string, repository, source string, options lifecycleOptions, stderr io.Writer) (commandOutcome, error) {
 	force, deletePersistent, purge := options.Force, options.DeletePersistent, options.Purge
 	noWait, rollback := options.NoWait, options.Rollback
-	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback, Image: options.Image, Arch: options.Arch}
+	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback, Image: options.Image, Arch: options.Arch, Parallelism: options.Parallelism}
 	if repository == image.DefaultRepositoryURL && strings.TrimSpace(options.Repository) == "" && !options.Mirror && strings.TrimSpace(os.Getenv("BARN_REPO")) == "" {
 		retryOptions.Repository = "" // a retry finds the default by itself
 	}
@@ -1164,7 +1165,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		}
 	}
 	var progressItem *progress
-	manager := privatevm.Manager{BarnVersion: version.Version, OperationID: operationID, Repository: repository, NoWait: noWait, RollbackFailed: rollback, Nodes: append([]string(nil), nodes...)}
+	manager := privatevm.Manager{BarnVersion: version.Version, OperationID: operationID, Repository: repository, NoWait: noWait, Parallelism: options.Parallelism, RollbackFailed: rollback, Nodes: append([]string(nil), nodes...)}
 	manager.Progress = deferredProgressReporter(&progressItem)
 	if command == "plan" {
 		ctx, cancel := context.WithTimeout(parent, time.Minute)
@@ -1497,7 +1498,7 @@ func purgeScope(resolved spec.Resolved) string {
 // can still delete strictly inventoried persistent disks and allowlisted keys.
 // A missing state document never authorizes deletion of retained node
 // artifacts, whose process and path identity can no longer be proven.
-func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (_ commandOutcome, returnErr error) {
+func runPurgeCommand(parent context.Context, ask bool, parallelism *int, stderr io.Writer) (_ commandOutcome, returnErr error) {
 	resolved, err := currentDeploymentResolved()
 	if err == nil {
 		if resolved.Network != "private" {
@@ -1506,7 +1507,7 @@ func runPurgeCommand(parent context.Context, ask bool, stderr io.Writer) (_ comm
 		if err := confirmPurge(ask, purgeScope(resolved), os.Stdin, stderr); err != nil {
 			return commandOutcome{}, err
 		}
-		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", lifecycleOptions{Force: true, DeletePersistent: true, Purge: true}, stderr)
+		return runPrivateCommand(parent, "purge", resolved, nil, "", "applied deployment state", lifecycleOptions{Force: true, DeletePersistent: true, Purge: true, Parallelism: parallelism}, stderr)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("read deployment state for purge: %w", err))

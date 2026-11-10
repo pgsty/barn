@@ -11,18 +11,38 @@ import (
 )
 
 func TestScopedRetryPreservesInventoryRepositoryAndFlags(t *testing.T) {
-	options := lifecycleRetryOptions{Repository: "https://images.example.test/private/channel", NoWait: true, Rollback: true, Image: "el9:stable", Arch: "amd64"}
+	parallelism := 32
+	options := lifecycleRetryOptions{Repository: "https://images.example.test/private/channel", NoWait: true, Rollback: true, Image: "el9:stable", Arch: "amd64", Parallelism: &parallelism}
 	var out bytes.Buffer
 	printNodeFailures(&out, "/labs/team's lab.yml", []privatevm.NodeFailure{{Node: "meta", Stage: "prepare", Error: "temporary failure"}}, options)
-	for _, want := range []string{"-f " + shellQuote("/labs/team's lab.yml"), "--repo " + options.Repository, "--no-wait", "--rollback", "--image el9:stable", "--arch amd64", " meta"} {
+	for _, want := range []string{"-f " + shellQuote("/labs/team's lab.yml"), "--repo " + options.Repository, "--parallel 32", "--no-wait", "--rollback", "--image el9:stable", "--arch amd64", " meta"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("retry lost %q: %s", want, &out)
 		}
 	}
 	options.Action = "start"
 	got := lifecycleRetryCommand("applied deployment state", []string{"meta"}, options)
-	if got != "barn start --no-wait meta" {
+	if got != "barn start --parallel 32 --no-wait meta" {
 		t.Fatalf("start retry must use applied state without creating nodes: %s", got)
+	}
+}
+
+func TestRetryPreservesExplicitZeroParallelism(t *testing.T) {
+	parallelism := 0
+	for _, action := range []string{"up", "start", "stop", "restart", "reload", "recreate", "destroy", "purge"} {
+		options := lifecycleRetryOptions{Action: action, Parallelism: &parallelism}
+		if got, want := lifecycleRetryCommand("applied deployment state", nil, options), "barn "+action+" --parallel 0"; got != want {
+			t.Errorf("retry = %q, want %q", got, want)
+		}
+		options.Parallelism = nil
+		if got, want := lifecycleRetryCommand("applied deployment state", nil, options), "barn "+action; got != want {
+			t.Errorf("automatic retry = %q, want %q", got, want)
+		}
+	}
+	for _, action := range []string{"plan", "resize", "status"} {
+		if got := lifecycleNodeCommand(action, "applied deployment state", nil, lifecycleRetryOptions{Parallelism: &parallelism}); strings.Contains(got, "--parallel") {
+			t.Errorf("unsupported flag in %q", got)
+		}
 	}
 }
 
@@ -49,7 +69,8 @@ func TestOverrideDriftRecoveryKeepsTheRequestedImageAndArchitecture(t *testing.T
 }
 
 func TestOverrideResizeRecoveryKeepsDesiredStateWithoutUnsupportedFlags(t *testing.T) {
-	options := lifecycleRetryOptions{Image: "u24", Arch: "arm64", Repository: "https://images.example.test", NoWait: true, Rollback: true}
+	parallelism := 8
+	options := lifecycleRetryOptions{Image: "u24", Arch: "arm64", Repository: "https://images.example.test", NoWait: true, Rollback: true, Parallelism: &parallelism}
 	err := lifecycleOverrideRecovery(privatevm.ErrResizeRequired, "applied deployment state", []string{"node1"}, options)
 	_, _, next := failure.Classify(err)
 	if next != "barn resize --image u24 --arch arm64 node1" {

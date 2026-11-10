@@ -25,6 +25,7 @@ type lifecycleRetryOptions struct {
 	Action, Repository string
 	Image, Arch        string
 	NoWait, Rollback   bool
+	Parallelism        *int
 }
 
 func sshIntegrationWarning(action string, err error) lifecycleWarning {
@@ -331,6 +332,9 @@ func lifecycleNodeCommand(action, source string, nodes []string, options ...life
 		}
 		if readsConfig && action != "resize" && option.Repository != "" {
 			command += " --repo " + shellQuote(option.Repository)
+		}
+		if lifecycleSupportsParallelism(action) && option.Parallelism != nil {
+			command += fmt.Sprintf(" --parallel %d", *option.Parallelism)
 		}
 		if startupCommand(action) && option.NoWait {
 			command += " --no-wait"

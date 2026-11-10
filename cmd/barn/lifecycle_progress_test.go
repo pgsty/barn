@@ -127,7 +127,7 @@ func TestDestroyAndPurgeFreezeTheirActualResult(t *testing.T) {
 			if mode == "destroy" {
 				outcome, err = runLifecycleCommand(context.Background(), mode, lifecycleOptions{Force: true}, nil, errOut)
 			} else {
-				outcome, err = runPurgeCommand(context.Background(), false, errOut)
+				outcome, err = runPurgeCommand(context.Background(), false, nil, errOut)
 			}
 			if mode == "failed-purge" {
 				if err == nil || !strings.Contains(stderr.String(), "[FAILED]") || strings.Contains(stderr.String(), "[DONE]") || strings.Contains(stderr.String(), ansiGreen+"purged") {

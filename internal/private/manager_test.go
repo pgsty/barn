@@ -703,15 +703,6 @@ func TestPrivatePlanDoesNotRequireForeignRuntimeInstallation(t *testing.T) {
 	}
 }
 
-func TestBoundedConcurrency(t *testing.T) {
-	t.Parallel()
-	for nodes, want := range map[int]int{0: 1, 1: 1, 2: 2, 4: 4, 20: 4} {
-		if got := boundedConcurrency(nodes); got != want {
-			t.Errorf("boundedConcurrency(%d)=%d, want %d", nodes, got, want)
-		}
-	}
-}
-
 func TestManagerUsesResolvedReadinessTimeout(t *testing.T) {
 	t.Parallel()
 	resolved := singlePrivateResolved()

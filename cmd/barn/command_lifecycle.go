@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io"
 
+	privatevm "github.com/pgsty/barn/internal/private"
 	"github.com/spf13/cobra"
 )
 
@@ -138,6 +140,9 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 		command.Aliases = []string{"de"}
 	}
 	options := lifecycleOptions{}
+	if lifecycleSupportsParallelism(name) {
+		addLifecycleParallelFlag(command)
+	}
 	switch name {
 	case "plan":
 		command.Flags().StringVarP(&options.ConfigPath, "file", "f", "", "desired inventory; defaults to the discovered inventory, then the applied state")
@@ -183,6 +188,13 @@ guests use slower QEMU TCG emulation. Up never replaces existing VM disks;
 use recreate to apply image or architecture changes to existing nodes.`
 	}
 	command.RunE = func(command *cobra.Command, nodes []string) error {
+		if lifecycleSupportsParallelism(name) {
+			parallelism, err := lifecycleParallelism(command)
+			if err != nil {
+				return err
+			}
+			options.Parallelism = parallelism
+		}
 		outcome, err := runLifecycleCommand(command.Context(), name, options, nodes, stderr)
 		if err != nil {
 			return err
@@ -213,7 +225,11 @@ artifacts rather than deleting them by path alone.`,
   barn --json purge   # stable output for automation`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			outcome, err := runPurgeCommand(command.Context(), ask, stderr)
+			parallelism, err := lifecycleParallelism(command)
+			if err != nil {
+				return err
+			}
+			outcome, err := runPurgeCommand(command.Context(), ask, parallelism, stderr)
 			if err != nil {
 				return err
 			}
@@ -221,6 +237,32 @@ artifacts rather than deleting them by path alone.`,
 		},
 	}
 	command.Flags().BoolVar(&ask, "ask", false, "show the deletion scope and ask for y/yes before purging")
+	addLifecycleParallelFlag(command)
 	noFileCompletions(command, "ask")
 	return command
+}
+
+func lifecycleSupportsParallelism(name string) bool {
+	return startupCommand(name) || name == "stop" || name == "destroy" || name == "purge"
+}
+
+func addLifecycleParallelFlag(command *cobra.Command) {
+	command.Flags().IntP("parallel", "p", privatevm.DefaultParallelism(), "node concurrency; 0 runs all selected nodes concurrently; defaults to logical CPUs minus two (minimum 1)")
+	noFileCompletions(command, "parallel")
+}
+
+func lifecycleParallelism(command *cobra.Command) (*int, error) {
+	parallelism, err := command.Flags().GetInt("parallel")
+	if err != nil {
+		return nil, newUsageError(err)
+	}
+	if parallelism < 0 {
+		return nil, newUsageError(fmt.Errorf("--parallel must be zero or positive, got %d", parallelism))
+	}
+	// Keep automatic scheduling out of retry commands so only an explicit
+	// override is carried to the next invocation.
+	if !command.Flags().Changed("parallel") {
+		return nil, nil
+	}
+	return &parallelism, nil
 }

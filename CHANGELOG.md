@@ -2,6 +2,14 @@
 
 Notable user-visible changes.
 
+## Unreleased
+
+- Default Linux VM lifecycle concurrency to the logical CPU count minus two
+  (minimum one). Add `--parallel/-p` to `up`, `start`, `stop`, `restart`,
+  `reload`, `recreate`, `destroy`, and `purge`: zero runs all selected nodes
+  concurrently, and a positive value sets the maximum. Preserve explicit
+  overrides in retry commands and remove the previous fixed concurrency caps.
+
 ## 1.1.0 — 2026-11-09
 
 Barn 1.1.0 adds image and guest-architecture overrides, live progress tables,

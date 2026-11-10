@@ -371,12 +371,7 @@ func StartPrepared(ctx context.Context, config StartConfig) ([]StartOutcome, err
 	if config.Deployment.Root == "" || config.Lifecycle == nil {
 		return nil, errors.New("start deployment or lifecycle is incomplete")
 	}
-	if config.Concurrency <= 0 {
-		config.Concurrency = 4
-	}
-	if config.Concurrency > 16 {
-		config.Concurrency = 16
-	}
+	config.Concurrency = boundedConcurrency(len(config.Nodes), config.Concurrency)
 	if config.ReadyTimeout <= 0 {
 		config.ReadyTimeout = 180 * time.Second
 	}
