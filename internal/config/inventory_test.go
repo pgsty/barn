@@ -215,6 +215,58 @@ all:
 	}
 }
 
+func TestParseInventoryVMHostsPublishesServicesWithoutVMDrift(t *testing.T) {
+	base := `all:
+  vars:
+    vm_hosts:
+      - {address: 10.10.10.30, names: [pg-dns-service, pg-meta.pigsty]}
+      - {address: 10.10.10.10, names: [repo.pigsty, META]}
+      - {address: 10.10.10.10, names: [repo.pigsty]}
+  hosts:
+    10.10.10.10: {nodename: meta}
+`
+	file := mustParseInventory(t, base)
+	entries, err := file.HostEntries()
+	if err != nil || len(entries) != 2 || entries[0].Address != "10.10.10.10" || strings.Join(entries[0].Names, ",") != "meta,repo.pigsty" {
+		t.Fatalf("normalized entries = %#v, %v", entries, err)
+	}
+	first, err := file.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file = mustParseInventory(t, strings.ReplaceAll(base, "repo.pigsty", "new.pigsty"))
+	second, err := file.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("DNS edit changed VM spec: %#v -> %#v", first, second)
+	}
+}
+
+func TestParseInventoryVMHostsIsGlobalAndRejectsAmbiguity(t *testing.T) {
+	for name, text := range map[string]string{
+		"group scope":        `all: {children: {nodes: {vars: {vm_hosts: []}, hosts: {10.10.10.10: {}}}}}`,
+		"later host":         `all: {hosts: {10.10.10.10: {}, 10.10.10.11: {vm_hosts: []}}}`,
+		"skipped host":       `all: {hosts: {10.10.10.10: {}, external: {vm_skip: true, vm_hosts: []}}}`,
+		"null":               `all: {vars: {vm_hosts: null}, hosts: {10.10.10.10: {}}}`,
+		"reserved host":      `all: {vars: {vm_hosts: [{address: 10.10.10.1, names: [service]}]}, hosts: {10.10.10.10: {}}}`,
+		"reserved dhcp":      `all: {vars: {vm_hosts: [{address: 10.10.10.2, names: [service]}]}, hosts: {10.10.10.10: {}}}`,
+		"different subnet":   `all: {vars: {vm_hosts: [{address: 10.10.20.30, names: [service]}]}, hosts: {10.10.10.10: {}}}`,
+		"node name conflict": `all: {vars: {vm_hosts: [{address: 10.10.10.30, names: [NODE-10]}]}, hosts: {10.10.10.10: {}}}`,
+		"missing names":      `all: {vars: {vm_hosts: [{address: 10.10.10.30}]}, hosts: {10.10.10.10: {}}}`,
+		"unknown key":        `all: {vars: {vm_hosts: [{address: 10.10.10.30, names: [service], alias: extra}]}, hosts: {10.10.10.10: {}}}`,
+		"bad label":          `all: {vars: {vm_hosts: [{address: 10.10.10.30, names: [bad.-name]}]}, hosts: {10.10.10.10: {}}}`,
+		"non-string name":    `all: {vars: {vm_hosts: [{address: 10.10.10.30, names: [42]}]}, hosts: {10.10.10.10: {}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseInventory([]byte(text)); err == nil || !strings.Contains(err.Error(), "vm_hosts") {
+				t.Fatalf("invalid vm_hosts accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestParseInventoryDiskFilesystemSelection(t *testing.T) {
 	file := mustParseInventory(t, `
 all:

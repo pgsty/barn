@@ -1925,26 +1925,37 @@ func classifySSHConfigFailure(result sshconfig.Result, err error) error {
 	return boundary.withPayload(sshConfigFailurePayload{commandFailure: boundary.failure, Partial: partial, Result: result})
 }
 
-func runHosts(parent context.Context, action string, apply bool, stderr io.Writer) (commandOutcome, error) {
+func runHosts(parent context.Context, action string, apply bool, configPath string, stderr io.Writer) (commandOutcome, error) {
 	if action != hostconfig.ActionInstall && action != hostconfig.ActionUninstall {
 		return commandOutcome{}, newUsageError(fmt.Errorf("unknown hosts action %q", action))
 	}
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
-	manager := privatevm.Manager{BarnVersion: version.Version}
 	var entries []hostconfig.Entry
 	var err error
 	if action == hostconfig.ActionInstall {
-		resolved, resolveErr := currentDeploymentResolved()
-		switch {
-		case errors.Is(resolveErr, os.ErrNotExist):
-			return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
-		case resolveErr != nil:
-			return commandOutcome{}, newCommandError(exitIntegrity, resolveErr)
-		case resolved.Network != "private":
-			return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
+		if configPath != "" {
+			file, _, discoverErr := config.Discover("", configPath)
+			if discoverErr != nil {
+				return commandOutcome{}, newUsageError(discoverErr)
+			}
+			entries, err = file.HostEntries()
+			if err != nil {
+				return commandOutcome{}, newUsageError(err)
+			}
+		} else {
+			resolved, resolveErr := currentDeploymentResolved()
+			switch {
+			case errors.Is(resolveErr, os.ErrNotExist):
+				return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
+			case resolveErr != nil:
+				return commandOutcome{}, newCommandError(exitIntegrity, resolveErr)
+			case resolved.Network != "private":
+				return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
+			}
+			manager := privatevm.Manager{BarnVersion: version.Version}
+			entries, err = manager.HostEntries(ctx)
 		}
-		entries, err = manager.HostEntries(ctx)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return commandOutcome{}, newCommandError(exitConflict, errNoDeployment)
@@ -1960,7 +1971,11 @@ func runHosts(parent context.Context, action string, apply bool, stderr io.Write
 	confirm := !apply && interactiveTextSession(stderr) && !structuredOutput(stderr)
 	next := ""
 	if !confirm {
-		next = "barn hosts " + action + " --yes"
+		next = "barn hosts " + action
+		if configPath != "" {
+			next += " -f " + shellQuote(configPath)
+		}
+		next += " --yes"
 	}
 	report, err := executor.Execute(ctx, action, entries, false)
 	if err != nil {

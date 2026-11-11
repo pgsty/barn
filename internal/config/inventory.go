@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pgsty/barn/internal/hostconfig"
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
@@ -51,7 +52,7 @@ var defaultImage = image.EmbeddedCatalog().Defaults.Image
 
 var knownVMKeys = map[string]struct{}{
 	"vm_skip": {}, "vm_image": {}, "vm_version": {}, "vm_arch": {}, "vm_cpu": {}, "vm_mem": {},
-	"vm_scale": {}, "vm_disk": {}, "vm_disks": {}, "vm_alias": {}, "vm_shares": {},
+	"vm_scale": {}, "vm_hosts": {}, "vm_disk": {}, "vm_disks": {}, "vm_alias": {}, "vm_shares": {},
 }
 
 var derivedDiskName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
@@ -205,6 +206,9 @@ func varsOf(node *yaml.Node, origin string) (map[string]*yaml.Node, error) {
 	result := make(map[string]*yaml.Node, len(entries))
 	for _, entry := range entries {
 		key := entry[0].Value
+		if key == "vm_hosts" && origin != "all.vars" && origin != "all" {
+			return nil, fmt.Errorf("line %d: vm_hosts must be declared in all.vars, not %s", entry[0].Line, origin)
+		}
 		if strings.HasPrefix(key, "vm_") {
 			if _, known := knownVMKeys[key]; !known {
 				return nil, unknownVMKeyError(entry[0], origin)
@@ -567,6 +571,54 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 	return shares, true, nil
 }
 
+func inventoryHostEntries(node *yaml.Node) ([]hostconfig.Entry, error) {
+	if node == nil {
+		return nil, nil
+	}
+	if node.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("line %d: vm_hosts must be a list of {address, names} entries", node.Line)
+	}
+	entries := make([]hostconfig.Entry, 0, len(node.Content))
+	for _, item := range node.Content {
+		fields, err := mappingEntries(item)
+		if err != nil {
+			return nil, fmt.Errorf("vm_hosts: %w", err)
+		}
+		entry := hostconfig.Entry{}
+		for _, field := range fields {
+			key, value := field[0].Value, field[1]
+			switch key {
+			case "address":
+				if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+					return nil, fmt.Errorf("line %d: vm_hosts address must be a string", value.Line)
+				}
+				entry.Address = value.Value
+			case "names":
+				if value.Kind != yaml.SequenceNode {
+					return nil, fmt.Errorf("line %d: vm_hosts names must be a list of strings", value.Line)
+				}
+				for _, name := range value.Content {
+					name, err = resolveAlias(name)
+					if err != nil {
+						return nil, fmt.Errorf("vm_hosts: %w", err)
+					}
+					if name.Kind != yaml.ScalarNode || name.Tag != "!!str" {
+						return nil, fmt.Errorf("line %d: vm_hosts names must be strings", name.Line)
+					}
+					entry.Names = append(entry.Names, name.Value)
+				}
+			default:
+				return nil, fmt.Errorf("line %d: vm_hosts entry has unknown key %q", field[0].Line, key)
+			}
+		}
+		if entry.Address == "" || len(entry.Names) == 0 {
+			return nil, fmt.Errorf("line %d: vm_hosts entry requires address and a non-empty names list", item.Line)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
 // nodeName resolves the VM name: explicit nodename, then the Pigsty
 // node_id_from_pg convention (<pg_cluster>-<pg_seq>), then node-<last octet>.
 func (host inventoryHost) nodeName() (string, error) {
@@ -822,6 +874,10 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 	if err != nil {
 		return File{}, err
 	}
+	hostEntries, err := inventoryHostEntries(globalVars["vm_hosts"])
+	if err != nil {
+		return File{}, err
+	}
 
 	file := File{
 		directory: directory,
@@ -829,6 +885,7 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 		Name:      InventoryDeploymentName,
 		Arch:      "native",
 		Network:   NetworkConfig{Mode: "private", CIDR: layout.CIDR(), HostAddress: layout.HostAddress(), DHCPEnd: layout.DHCPEnd()},
+		Hosts:     hostEntries,
 	}
 
 	sshUser := ""

@@ -137,7 +137,9 @@ func newHostsCommand(stdout, stderr io.Writer) *cobra.Command {
 		`Publish or remove the deployment's block in /etc/hosts through the
 digest-matched Barn helper. Both operations show their exact privileged plan
 before applying it.`,
-		`  barn hosts install          # show the proposed /etc/hosts block
+		`  barn hosts install          # publish applied node names
+  barn hosts install -f pigsty.yml  # publish inventory nodes and vm_hosts
+  barn hosts install -f pigsty.yml --json  # preview without applying
   barn hosts install --yes    # apply it
   barn hosts uninstall --yes  # remove only the Barn-owned block`,
 		stdout, stderr,
@@ -145,6 +147,7 @@ before applying it.`,
 	for _, action := range []string{"install", "uninstall"} {
 		action := action
 		apply := false
+		configPath := ""
 		short := "Install deployment host entries"
 		if action == "uninstall" {
 			short = "Remove deployment host entries"
@@ -157,7 +160,7 @@ before applying it.`,
 			Example: example,
 			Args:    cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
-				outcome, err := runHosts(command.Context(), action, apply, stderr)
+				outcome, err := runHosts(command.Context(), action, apply, configPath, stderr)
 				if err != nil {
 					return err
 				}
@@ -166,6 +169,8 @@ before applying it.`,
 		}
 		if action == "install" {
 			command.Aliases = []string{"i"}
+			command.Flags().StringVarP(&configPath, "file", "f", "", "inventory to publish (including vm_hosts), even before VM creation; default: applied node names")
+			command.Example += "\n  barn hosts install -f pigsty.yml --json\n  barn hosts install -f pigsty.yml --yes"
 		} else {
 			command.Aliases = []string{"u"}
 		}

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -182,6 +183,7 @@ func validateEntries(entries []Entry) error {
 			if !validHostName(name) {
 				return fmt.Errorf("invalid hosts name %q", name)
 			}
+			name = strings.ToLower(name)
 			if _, exists := seenInEntry[name]; exists {
 				return fmt.Errorf("duplicate hosts name %q", name)
 			}
@@ -193,6 +195,41 @@ func validateEntries(entries []Entry) error {
 		}
 	}
 	return nil
+}
+
+// Normalize combines identical mappings from node aliases and service records.
+// Conflicting destinations still fail; DNS names compare without case.
+func Normalize(entries []Entry) ([]Entry, error) {
+	byAddress := make(map[string]map[string]struct{})
+	for _, entry := range entries {
+		if len(entry.Names) == 0 {
+			return nil, fmt.Errorf("hosts entry %q requires at least one name", entry.Address)
+		}
+		if byAddress[entry.Address] == nil {
+			byAddress[entry.Address] = make(map[string]struct{})
+		}
+		for _, name := range entry.Names {
+			byAddress[entry.Address][strings.ToLower(name)] = struct{}{}
+		}
+	}
+	addresses := make([]string, 0, len(byAddress))
+	for address := range byAddress {
+		addresses = append(addresses, address)
+	}
+	sort.Strings(addresses)
+	result := make([]Entry, 0, len(addresses))
+	for _, address := range addresses {
+		names := make([]string, 0, len(byAddress[address]))
+		for name := range byAddress[address] {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		result = append(result, Entry{Address: address, Names: names})
+	}
+	if err := validateEntries(result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func renderBlock(entries []Entry) ([]byte, []string, error) {
@@ -231,6 +268,7 @@ func validateNoHostConflicts(before []byte, entries []Entry) error {
 			continue
 		}
 		for _, name := range fields[1:] {
+			name = strings.ToLower(name)
 			if mappings[name] == nil {
 				mappings[name] = make(map[string]struct{})
 			}
@@ -239,7 +277,12 @@ func validateNoHostConflicts(before []byte, entries []Entry) error {
 	}
 	for _, entry := range entries {
 		for _, name := range entry.Names {
-			for address := range mappings[name] {
+			addresses := make([]string, 0, len(mappings[strings.ToLower(name)]))
+			for address := range mappings[strings.ToLower(name)] {
+				addresses = append(addresses, address)
+			}
+			sort.Strings(addresses)
+			for _, address := range addresses {
 				if address != entry.Address {
 					return failure.New(failure.Conflict, fmt.Errorf("/etc/hosts already maps %s to %s outside the Barn block", name, address)).Because("hosts_name_taken").Then(fmt.Sprintf("remove or rename the %s %s line in /etc/hosts, then retry", address, name))
 				}

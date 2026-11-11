@@ -12,6 +12,7 @@ import (
 
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/hostconfig"
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
@@ -123,13 +124,14 @@ type NodeConfig struct {
 type File struct {
 	Resources []ResourceResolution `yaml:"-"`
 	directory string
-	Version   int            `yaml:"version"`
-	Name      string         `yaml:"name"`
-	Arch      string         `yaml:"arch,omitempty"`
-	Network   NetworkConfig  `yaml:"network"`
-	Defaults  DefaultsConfig `yaml:"defaults,omitempty"`
-	SSH       SSHConfig      `yaml:"ssh,omitempty"`
-	Nodes     []NodeConfig   `yaml:"nodes"`
+	Version   int                `yaml:"version"`
+	Name      string             `yaml:"name"`
+	Arch      string             `yaml:"arch,omitempty"`
+	Network   NetworkConfig      `yaml:"network"`
+	Defaults  DefaultsConfig     `yaml:"defaults,omitempty"`
+	SSH       SSHConfig          `yaml:"ssh,omitempty"`
+	Nodes     []NodeConfig       `yaml:"nodes"`
+	Hosts     []hostconfig.Entry `yaml:"-"`
 }
 
 var (
@@ -426,7 +428,37 @@ func (f *File) Validate() error {
 	if controls == 0 {
 		f.Nodes[0].Control = true
 	}
+	if len(f.Hosts) != 0 {
+		if _, err := f.HostEntries(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// HostEntries adds inventory-only service names to the VM names. Keeping this
+// view outside spec.Resolved lets DNS edits leave VM identity and drift intact.
+func (f File) HostEntries() ([]hostconfig.Entry, error) {
+	layout, err := subnet.Parse(f.Network.CIDR)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]hostconfig.Entry, 0, len(f.Nodes)+len(f.Hosts))
+	for _, node := range f.Nodes {
+		names := append([]string{node.Name}, node.HostAliases...)
+		entries = append(entries, hostconfig.Entry{Address: node.Address, Names: names})
+	}
+	for _, entry := range f.Hosts {
+		if _, err := layout.Last(entry.Address); err != nil {
+			return nil, fmt.Errorf("vm_hosts address %q must be in %s", entry.Address, layout.CIDR())
+		}
+		entries = append(entries, entry)
+	}
+	result, err := hostconfig.Normalize(entries)
+	if err != nil {
+		return nil, fmt.Errorf("vm_hosts: %w", err)
+	}
+	return result, nil
 }
 
 func (f File) Resolve() (spec.Resolved, error) {

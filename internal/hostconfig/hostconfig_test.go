@@ -100,6 +100,21 @@ func TestReconcileRejectsNameConflictOutsideOwnedBlock(t *testing.T) {
 	}
 }
 
+func TestReconcileRejectsReservedServiceAddressAndCaseConflict(t *testing.T) {
+	entries := []Entry{{Address: "10.10.10.2", Names: []string{"pg-dns-service"}}}
+	if _, _, _, err := ReconcileContent([]byte("127.0.0.1 localhost\n"), ActionInstall, entries); err == nil {
+		t.Fatal("DHCP address was accepted")
+	}
+	entries[0].Address = "10.10.10.30"
+	if _, _, _, err := ReconcileContent([]byte("10.10.10.31 PG-DNS-SERVICE\n"), ActionInstall, entries); err == nil {
+		t.Fatal("case-insensitive external name conflict was accepted")
+	}
+	entries = append(entries, Entry{Address: "10.10.10.31", Names: []string{"PG-DNS-SERVICE"}})
+	if _, err := Normalize(entries); err == nil {
+		t.Fatal("case-insensitive inventory name conflict was accepted")
+	}
+}
+
 func TestApplyHelperIsDigestBoundAndAtomic(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
