@@ -4,6 +4,19 @@ Notable user-visible changes.
 
 ## Unreleased
 
+## 1.2.0 — Unreleased
+
+Prepared on 2026-11-11; publication is pending.
+
+- Require Go 1.27.4 for source builds, CI, and release artifacts. Refresh all
+  direct and indirect requirements to their latest stable versions as of
+  2026-11-11: `golang.org/x/sys` 0.50.0, `golang.org/x/term` 0.48.0,
+  `golang.org/x/text` 0.44.0, and `github.com/klauspost/compress` 1.20.4.
+  Update the packaged license inventory to match the reachable dependencies.
+- Upgrade GoReleaser to 2.20.1, its bundled nFPM to 2.48.0, and Syft to
+  1.57.1, with verified download checksums. The other pinned quality tools
+  and GitHub Actions remain at their latest stable releases. Validate RPM
+  payload timestamps against `SOURCE_DATE_EPOCH`, as preserved by nFPM 2.48.
 - Add `--cpu/-C`, `--mem/-M`, `--scale/-S`, and `--disk/-D` alongside
   image and architecture inputs. Support corresponding `BARN_IMAGE`,
   `BARN_ARCH`, `BARN_CPU`, `BARN_MEM`, `BARN_SCALE`, and `BARN_DISK`

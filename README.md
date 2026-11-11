@@ -55,6 +55,10 @@ overrides, live progress tables, and recoverable CPU/memory resizing. Use
 It embeds signed image catalog revision **2026110502**.
 See the [release notes](.github/releases/1.1.0.md).
 
+The next minor release, **1.2.0**, is being prepared with Go 1.27.4,
+updated dependencies, resource overrides, root-disk growth, and configurable
+lifecycle concurrency. See the [draft release notes](.github/releases/1.2.0.md).
+
 ## Install
 
 [1.1.0](https://github.com/pgsty/barn/releases/tag/v1.1.0) is published on

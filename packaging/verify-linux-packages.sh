@@ -124,10 +124,8 @@ extract_package() {
   else
     verify_payload_archive "${package}" "${package}"
     bsdtar -xf "${package}" -C "${root}"
-    # nFPM canonicalizes RPM cpio member mtimes to the Unix epoch. Binding that
-    # format-specific zero is deterministic; BUILD_INFO separately binds the
-    # requested source epoch and its derived UTC build date.
-    verify_archive_member_mtimes "${package}" "${root}" "${package} payload" 0
+    # nFPM 2.48 preserves the requested source epoch in the RPM cpio payload.
+    verify_archive_member_mtimes "${package}" "${root}" "${package} payload" "${source_epoch}"
   fi
 }
 

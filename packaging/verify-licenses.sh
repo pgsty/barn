@@ -17,9 +17,9 @@ expected=$(printf '%s\n' \
   $'go.yaml.in/yaml/v4\tv4.0.0' \
   $'golang.org/x/crypto\tv0.58.0' \
   $'golang.org/x/net\tv0.62.0' \
-  $'golang.org/x/sys\tv0.49.0' \
-  $'golang.org/x/term\tv0.47.0' \
-  $'golang.org/x/text\tv0.43.0' | LC_ALL=C sort)
+  $'golang.org/x/sys\tv0.50.0' \
+  $'golang.org/x/term\tv0.48.0' \
+  $'golang.org/x/text\tv0.44.0' | LC_ALL=C sort)
 actual=$(
   cd "${repo}"
   go list -deps -json ./cmd/barn ./cmd/barn-hosts-helper |

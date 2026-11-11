@@ -88,7 +88,7 @@ jobs:
       - name: Set up pinned Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           check-latest: false
           cache: true
 
@@ -96,7 +96,7 @@ jobs:
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: v2.18.3
+          version: v2.20.1
           install-only: true
 
       - name: Install pinned standalone nFPM and Syft
@@ -112,9 +112,9 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           install -d -m 0755 "${RUNNER_TEMP}/bin"
           curl -fsSLo "${RUNNER_TEMP}/syft.tar.gz" \
-            https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_amd64.tar.gz
+            https://github.com/anchore/syft/releases/download/v1.57.1/syft_1.57.1_linux_amd64.tar.gz
           printf '%s  %s\n' \
-            bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d \
+            bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c \
             "${RUNNER_TEMP}/syft.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/syft.tar.gz" -C "${RUNNER_TEMP}/bin" syft
           printf '%s\n' "${RUNNER_TEMP}/bin" >>"${GITHUB_PATH}"
