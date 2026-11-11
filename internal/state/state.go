@@ -124,6 +124,7 @@ type NodeState struct {
 	// ResizeIncomplete is persisted before hotplugging. Until commit or a
 	// verified stop, live resources may differ from the applied specification.
 	ResizeIncomplete bool            `json:"resize_incomplete,omitempty"`
+	RootResize       *RootResize     `json:"root_resize,omitempty"`
 	Process          ProcessIdentity `json:"process"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
@@ -306,6 +307,11 @@ func validateNode(value NodeState, expectedNode string) error {
 	}
 	if value.BarnVersion == "" || value.Node != expectedNode || value.VMUUID == "" || !validPhase(value.Phase) || value.Generation == 0 || value.SpecHash == "" || value.CreatedAt.IsZero() || value.UpdatedAt.IsZero() {
 		return errors.New("node state version, identity, phase, generation, hash, or time is invalid")
+	}
+	if value.RootResize != nil {
+		if err := value.RootResize.Validate(); err != nil {
+			return err
+		}
 	}
 	for _, disk := range value.DataDisks {
 		requested := disk.RequestedFilesystem

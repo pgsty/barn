@@ -22,8 +22,8 @@ type lifecycleWarning struct {
 }
 
 type lifecycleRetryOptions struct {
+	vmInputs
 	Action, Repository string
-	Image, Arch        string
 	NoWait, Rollback   bool
 	Parallelism        *int
 }
@@ -151,11 +151,20 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 						}
 					}
 				}
-				rows = append(rows, []string{node.Name, node.Address, phase})
+				rows = append(rows, []string{node.Name, node.Address, compactSpec(node.CPUs, node.Memory), phase})
 			}
-			printTable(out, []string{"NAME", "ADDRESS", "STATE"}, rows, 2)
+			printTable(out, []string{"NAME", "ADDRESS", "SPEC", "STATE"}, rows, 3)
 		}
 		printResultSummary(out, command, summaryState, summary)
+		var specifications []string
+		for _, node := range result.Nodes {
+			if value := compactSpec(node.CPUs, node.Memory); value != "-" {
+				specifications = append(specifications, node.Name+": "+value)
+			}
+		}
+		if len(specifications) > 0 {
+			textField(out, 10, "SPEC", strings.Join(specifications, "; "))
+		}
 	}
 	if frozen && result.Note != "" {
 		textField(out, 5, "note", result.Note)
@@ -189,10 +198,10 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 		for _, repair := range node.Repairs {
 			infof(out, "%s: %s", node.Name, repair)
 		}
-		if node.State != state.Running {
-			continue
-		}
 		for _, warning := range node.Warnings {
+			if node.State != state.Running && warning.Stage != "root-resize" {
+				continue
+			}
 			detail := strings.Join(strings.Fields(warning.Detail), " ")
 			label := map[string]string{"data-disks": "data disks", "hosts": "guest hostnames", "shares": "shared directories", "control-ssh": "node-to-node SSH", "private-network": "private network", "warning-state": "saved status"}[warning.Stage]
 			if label == "" {
@@ -201,7 +210,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 			message := label + ": " + detail
 			groups[message] = append(groups[message], node.Name)
 			needsKeyRestore := warning.Stage == "control-ssh" && strings.Contains(warning.Detail, "restore the original deployment private key")
-			if repairNode == "" && warning.Stage != "warning-state" && !needsKeyRestore {
+			if repairNode == "" && warning.Stage != "warning-state" && warning.Stage != "root-resize" && !needsKeyRestore {
 				repairNode = node.Name
 			}
 		}
@@ -328,6 +337,7 @@ func lifecycleNodeCommand(action, source string, nodes []string, options ...life
 	if len(options) != 0 {
 		option := options[0]
 		if readsConfig {
+			option.Action = action
 			command += lifecycleOverrideFlags(option)
 		}
 		if readsConfig && action != "resize" && option.Repository != "" {

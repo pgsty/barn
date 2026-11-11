@@ -99,7 +99,11 @@ func TestGeneratedArchitectureSurvivesDiscoveryAndNetworkRebase(t *testing.T) {
 					t.Fatal(err)
 				}
 				selection, err = resolveSetupSelection("", "", "", cwd)
-				if err != nil || !selection.Generated || selection.Arch != guest || selection.Image != selectedImage {
+				wantImage := selectedImage
+				if wantImage == "" {
+					wantImage = "u24"
+				}
+				if err != nil || !selection.Generated || selection.Arch != guest || selection.Image != wantImage {
 					t.Fatalf("generated architecture not recognized: %+v %v", selection, err)
 				}
 				if err := selection.rebaseGenerated("172.31.251.0/24"); err != nil {

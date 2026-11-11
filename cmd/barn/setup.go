@@ -40,34 +40,36 @@ type setupStep struct {
 }
 
 type setupResult struct {
-	OperationID       string                   `json:"operation_id,omitempty"`
-	Schema            int                      `json:"schema"`
-	OS                string                   `json:"os"`
-	Arch              string                   `json:"arch"`
-	GuestArch         string                   `json:"guest_arch,omitempty"`
-	Profile           string                   `json:"profile"`
-	Config            string                   `json:"config,omitempty"`
-	Image             string                   `json:"image,omitempty"`
-	DryRun            bool                     `json:"dry_run"`
-	Applicable        bool                     `json:"applicable"`
-	Ready             bool                     `json:"ready"`
-	Blocked           bool                     `json:"blocked"`
-	Changed           bool                     `json:"changed"`
-	MutationUncertain bool                     `json:"mutation_uncertain,omitempty"`
-	ExitCode          int                      `json:"exit_code"`
-	Error             string                   `json:"error,omitempty"`
-	Dependencies      setuphost.DependencyPlan `json:"dependencies"`
-	Network           *netpreflight.Report     `json:"network,omitempty"`
-	NetworkCIDR       string                   `json:"network_cidr,omitempty"`
-	NetworkMode       string                   `json:"network_mode,omitempty"`
-	Checks            []doctor.Check           `json:"checks,omitempty"`
-	Steps             []setupStep              `json:"steps"`
-	Next              string                   `json:"next"`
-	NextArgv          []string                 `json:"next_argv"`
-	Resolution        string                   `json:"resolution,omitempty"`
+	Resources         []config.ResourceResolution `json:"resources,omitempty"`
+	OperationID       string                      `json:"operation_id,omitempty"`
+	Schema            int                         `json:"schema"`
+	OS                string                      `json:"os"`
+	Arch              string                      `json:"arch"`
+	GuestArch         string                      `json:"guest_arch,omitempty"`
+	Profile           string                      `json:"profile"`
+	Config            string                      `json:"config,omitempty"`
+	Image             string                      `json:"image,omitempty"`
+	DryRun            bool                        `json:"dry_run"`
+	Applicable        bool                        `json:"applicable"`
+	Ready             bool                        `json:"ready"`
+	Blocked           bool                        `json:"blocked"`
+	Changed           bool                        `json:"changed"`
+	MutationUncertain bool                        `json:"mutation_uncertain,omitempty"`
+	ExitCode          int                         `json:"exit_code"`
+	Error             string                      `json:"error,omitempty"`
+	Dependencies      setuphost.DependencyPlan    `json:"dependencies"`
+	Network           *netpreflight.Report        `json:"network,omitempty"`
+	NetworkCIDR       string                      `json:"network_cidr,omitempty"`
+	NetworkMode       string                      `json:"network_mode,omitempty"`
+	Checks            []doctor.Check              `json:"checks,omitempty"`
+	Steps             []setupStep                 `json:"steps"`
+	Next              string                      `json:"next"`
+	NextArgv          []string                    `json:"next_argv"`
+	Resolution        string                      `json:"resolution,omitempty"`
 }
 
 type setupSelection struct {
+	Inputs          vmInputs
 	Profile         string
 	Image           string
 	Arch            string
@@ -82,10 +84,9 @@ type setupSelection struct {
 }
 
 type setupCLIOptions struct {
+	vmInputs
 	FilePath     string
 	CIDR         string
-	Image        string
-	Arch         string
 	Mode         string
 	Repo         string
 	Mirror       bool
@@ -106,12 +107,7 @@ func (options setupCLIOptions) arguments(profileName string) []string {
 	if options.CIDR != "" {
 		arguments = append(arguments, "--cidr="+options.CIDR)
 	}
-	if options.Image != "" {
-		arguments = append(arguments, "--image="+options.Image)
-	}
-	if options.Arch != "" {
-		arguments = append(arguments, "--arch="+options.Arch)
-	}
+	arguments = append(arguments, options.vmInputs.arguments(true)...)
 	if options.Repo != "" {
 		arguments = append(arguments, "--repo="+options.Repo)
 	}
@@ -143,12 +139,12 @@ func loadSetupFile(path string) (config.File, spec.Resolved, error) {
 	return file, resolved, err
 }
 
-func generatedSetupProfile(name, cidr, imageOverride, archOverride, target string) (setupSelection, error) {
-	overrides, err := normalizeLifecycleOverrides(lifecycleOptions{Image: imageOverride, Arch: archOverride})
+func generatedSetupProfile(name, cidr, target string, input vmInputs) (setupSelection, error) {
+	input, err := input.resolve(false, true)
 	if err != nil {
 		return setupSelection{}, failure.New(failure.Usage, err)
 	}
-	data, err := config.TemplateWithOptions(name, cidr, config.TemplateOptions{Image: overrides.Image, Arch: overrides.Arch})
+	data, err := config.TemplateWithOptions(name, cidr, input.templateOptions())
 	if err != nil {
 		return setupSelection{}, err
 	}
@@ -161,7 +157,7 @@ func generatedSetupProfile(name, cidr, imageOverride, archOverride, target strin
 		return setupSelection{}, err
 	}
 	return setupSelection{
-		Profile: name, Image: overrides.Image, Arch: overrides.Arch, Resolved: resolved, File: file,
+		Profile: name, Image: file.Nodes[0].Image, Arch: file.Arch, Inputs: input, Resolved: resolved, File: file,
 		ConfigData: data, ConfigPath: target, Generated: true, Publish: true,
 		ExplicitNetwork: cidr != "",
 	}, nil
@@ -192,7 +188,7 @@ func reconcileGeneratedTarget(selection setupSelection) (setupSelection, error) 
 	if err != nil {
 		return selection, err
 	}
-	if wantedHash != existingHash {
+	if wantedHash != existingHash || !sameResourceBases(existingFile.Resources, selection.File.Resources) {
 		return selection, failure.New(failure.Conflict, fmt.Errorf("existing %s differs from the %s template and was kept", selection.ConfigPath, selection.Profile)).Then(fmt.Sprintf("barn setup -f %s, or run setup in another directory", shellQuote(selection.ConfigPath)))
 	}
 	selection.File = existingFile
@@ -228,12 +224,16 @@ func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelect
 }
 
 func resolveSetupSelectionWithOverrides(profileName, filePath, cidr, imageOverride, archOverride, cwd string) (setupSelection, error) {
+	return resolveSetupSelectionInputs(profileName, filePath, cidr, vmInputs{Image: imageOverride, Arch: archOverride}, cwd)
+}
+
+func resolveSetupSelectionInputs(profileName, filePath, cidr string, input vmInputs, cwd string) (setupSelection, error) {
 	target := filepath.Join(cwd, "barn.yml")
 	if filePath != "" && profileName != "" {
 		return setupSelection{}, failure.New(failure.Usage, errors.New("setup accepts either a lab template or -f, not both"))
 	}
-	if filePath != "" && (imageOverride != "" || archOverride != "") {
-		return setupSelection{}, failure.New(failure.Usage, errors.New("--image/--arch apply only to a generated lab template; edit the existing inventory instead"))
+	if filePath != "" && input.any() {
+		return setupSelection{}, failure.New(failure.Usage, errors.New("--image/--arch and resource flags apply only to a generated lab template; edit the existing inventory instead"))
 	}
 	if filePath != "" && cidr != "" {
 		return setupSelection{}, failure.New(failure.Usage, errors.New("--cidr cannot change the network of an existing inventory; edit its addresses instead"))
@@ -254,8 +254,8 @@ func resolveSetupSelectionWithOverrides(profileName, filePath, cidr, imageOverri
 		return setupSelection{}, err
 	}
 	if discovered != "" && profileName == "" {
-		if imageOverride != "" || archOverride != "" {
-			return setupSelection{}, failure.New(failure.Usage, errors.New("--image/--arch apply only to a generated lab template; pass a template name or edit the discovered inventory"))
+		if input.any() {
+			return setupSelection{}, failure.New(failure.Usage, errors.New("--image/--arch and resource flags apply only to a generated lab template; pass a template name or edit the discovered inventory"))
 		}
 		if cidr != "" {
 			return setupSelection{}, errors.New("--cidr cannot silently rebase the discovered configuration; edit the file as one coordinated change")
@@ -278,7 +278,11 @@ func resolveSetupSelectionWithOverrides(profileName, filePath, cidr, imageOverri
 		// idempotent; a different existing configuration is preserved.
 		target = discovered
 	}
-	selection, err := generatedSetupProfile(profileName, cidr, imageOverride, archOverride, target)
+	input, err = input.resolve(true, true)
+	if err != nil {
+		return setupSelection{}, failure.New(failure.Usage, err)
+	}
+	selection, err := generatedSetupProfile(profileName, cidr, target, input)
 	if err != nil {
 		return setupSelection{}, err
 	}
@@ -289,7 +293,7 @@ func (selection *setupSelection) rebaseGenerated(cidr string) error {
 	if !selection.Generated || selection.ExplicitNetwork {
 		return errors.New("setup selection cannot be automatically rebased")
 	}
-	rebased, err := generatedSetupProfile(selection.Profile, cidr, selection.Image, selection.Arch, selection.ConfigPath)
+	rebased, err := generatedSetupProfile(selection.Profile, cidr, selection.ConfigPath, selection.Inputs)
 	if err != nil {
 		return err
 	}
@@ -908,6 +912,8 @@ func darwinSocketVMNetSource() string {
 // root and why, and where any download would come from — before the single
 // confirmation prompt.
 func printSetupPlan(stderr io.Writer, plan setuphost.DependencyPlan, selection setupSelection, report *netpreflight.Report, dryRun bool) {
+	printSpecificationTable(stderr, selection.Resolved, nil)
+	printResourceCalculations(stderr, resourceInputSources(selection.File.Resources, selection.Inputs, nil))
 	networkAction := setupNetworkAction(report)
 	networkInstall := networkAction == "install" || networkAction == "repair"
 	source := ""
@@ -1140,11 +1146,24 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		Profile: profileName, DryRun: options.DryRun,
 		Steps: make([]setupStep, 0, 6), NextArgv: nil,
 	}
-	overrides, err := normalizeLifecycleOverrides(lifecycleOptions{Image: options.Image, Arch: options.Arch})
+
+	inputDirectory, err := os.Getwd()
+	if err != nil {
+		return failSetup(&result, exitRuntime, err)
+	}
+	useEnvironment := options.Applied == nil && options.FilePath == ""
+	if useEnvironment && profileName == "" {
+		discovered, discoverErr := discoverSetupConfig(inputDirectory)
+		if discoverErr != nil {
+			return failSetup(&result, exitUsage, discoverErr)
+		}
+		useEnvironment = discovered == ""
+	}
+	options.vmInputs, err = options.vmInputs.resolve(useEnvironment, true)
 	if err != nil {
 		return failSetup(&result, exitUsage, err)
 	}
-	options.Image, options.Arch = overrides.Image, overrides.Arch
+
 	parent, operationID, operationErr := operationContext(parent)
 	if operationErr != nil {
 		return commandOutcome{}, newRuntimeError(operationErr)
@@ -1191,6 +1210,7 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	if runtime.GOOS != "darwin" && options.Mode != "host" {
 		return failSetup(&result, exitUsage, errors.New("--mode shared is available only on Darwin"))
 	}
+
 	repository, _, err := image.ResolveRepository(options.Repo, options.Mirror)
 	if err != nil {
 		return failSetup(&result, exitUsage, err)
@@ -1201,17 +1221,18 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	}
 	var selection setupSelection
 	if options.Applied != nil {
-		if options.Image != "" || options.Arch != "" {
+		if options.vmInputs.any() {
 			return failSetup(&result, exitUsage, errors.New("--image/--arch cannot be used while preparing an already-applied deployment"))
 		}
 		selection = setupSelection{Resolved: *options.Applied, ExplicitNetwork: true}
-	} else if selection, err = resolveSetupSelectionWithOverrides(profileName, options.FilePath, options.CIDR, options.Image, options.Arch, cwd); err != nil {
+	} else if selection, err = resolveSetupSelectionInputs(profileName, options.FilePath, options.CIDR, options.vmInputs, cwd); err != nil {
 		code := exitConflict
 		if class, _, _ := failure.Classify(err); class != "" {
 			code = classExit(class)
 		}
 		return failSetup(&result, code, err)
 	}
+	result.Resources = resourceInputSources(selection.File.Resources, selection.Inputs, nil)
 	result.Profile = selection.Profile
 	result.Config = selection.ConfigPath
 	result.Image = selection.Image

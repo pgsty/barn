@@ -38,7 +38,8 @@ func TestLifecycleOverridesReplaceInheritedAndNodeImagesWithoutMutatingSource(t 
 		t.Fatal(err)
 	}
 	originalHash, _ := spec.Hash(original)
-	options, err := normalizeLifecycleOverrides(lifecycleOptions{Image: "ubuntu24:stable", Arch: "x64"})
+	input, err := (vmInputs{Image: "ubuntu24:stable", Arch: "x64"}).resolve(false, true)
+	options := lifecycleOptions{vmInputs: input}
 	if err != nil || options.Image != "u24:stable" || options.Arch != "amd64" {
 		t.Fatalf("normalized options: %+v, %v", options, err)
 	}
@@ -57,7 +58,7 @@ func TestLifecycleOverridesReplaceInheritedAndNodeImagesWithoutMutatingSource(t 
 	if got, _ := spec.Hash(original); got != originalHash {
 		t.Fatal("override mutated the source specification")
 	}
-	native := applyLifecycleOverrides(original, nil, lifecycleOptions{Arch: "native"})
+	native := applyLifecycleOverrides(original, nil, lifecycleOptions{vmInputs: vmInputs{Arch: "native"}})
 	if native.Arch != "" {
 		t.Fatalf("native did not reset inventory architecture: %q", native.Arch)
 	}
@@ -73,7 +74,7 @@ func TestLifecycleOverridesReplaceInheritedAndNodeImagesWithoutMutatingSource(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	overridden := applyLifecycleOverrides(original, nil, lifecycleOptions{Image: "u24", Arch: "amd64"})
+	overridden := applyLifecycleOverrides(original, nil, lifecycleOptions{vmInputs: vmInputs{Image: "u24", Arch: "amd64"}})
 	if !reflect.DeepEqual(persisted, overridden) {
 		t.Fatalf("saved config and override differ:\nsaved=%+v\noverride=%+v", persisted, overridden)
 	}
@@ -211,7 +212,7 @@ func TestPlanArchitectureChangeIncludesUncreatedNodesInFollowUpScope(t *testing.
 			}
 			continue
 		}
-		want := lifecycleNodeCommand("recreate", path, selected, lifecycleRetryOptions{Arch: "amd64"})
+		want := lifecycleNodeCommand("recreate", path, selected, lifecycleRetryOptions{vmInputs: vmInputs{Arch: "amd64"}})
 		if strings.Count(out.String(), "apply:") != 1 || !strings.Contains(out.String(), "apply: "+want+")") {
 			t.Fatalf("expected one applicable recreation command %q:\n%s", want, &out)
 		}

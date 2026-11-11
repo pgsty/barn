@@ -8,6 +8,7 @@ import (
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/network/subnet"
 	"github.com/pgsty/barn/internal/platform"
+	"github.com/pgsty/barn/internal/spec"
 )
 
 // Built-in templates are deliberately generic topologies — nodes, addresses,
@@ -41,20 +42,20 @@ func Template(name, cidr string) ([]byte, error) {
 }
 
 // TemplateWithImage renders a built-in lab and, when imageOverride is set,
-// writes the selected image into all.vars so every generated node inherits
-// the same explicit image reference. A blank override preserves the original
-// implicit embedded-catalog default.
+// writes the selected image into all.vars. A blank override materializes the
+// embedded-catalog default alongside the other specification defaults.
 func TemplateWithImage(name, cidr, imageOverride string) ([]byte, error) {
 	return TemplateWithOptions(name, cidr, TemplateOptions{Image: imageOverride})
 }
 
 type TemplateOptions struct {
-	Image string
-	Arch  string
+	Resources ResourceOverrides
+	Image     string
+	Arch      string
 }
 
-// TemplateWithOptions writes explicit image and architecture choices into
-// all.vars. Empty choices retain the catalog default and native architecture.
+// TemplateWithOptions saves all six specification inputs, including defaults.
+// CPU and memory remain base values so later scale overrides are repeatable.
 func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, error) {
 	nodes, exists := templateProfiles[name]
 	if !exists {
@@ -68,7 +69,7 @@ func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, er
 		}
 		selectedImage = canonical
 	}
-	selectedArch := ""
+	selectedArch := "native"
 	if options.Arch != "" {
 		var err error
 		selectedArch, err = platform.NormalizeArch(options.Arch)
@@ -88,18 +89,21 @@ func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, er
 	fmt.Fprintf(&output, "---\n")
 	fmt.Fprintf(&output, "# Barn lab %q: %d fixed-IP node(s) on %s.\n", name, len(nodes), layout.CIDR())
 	fmt.Fprintf(&output, "# Start: barn up; connect: barn ssh.\n")
-	fmt.Fprintf(&output, "# Optional per-host settings: vm_cpu: 2, vm_mem: 4096, vm_disk: 64, vm_image: %s.\n", selectedImage)
+	fmt.Fprintf(&output, "# Optional per-host settings: vm_cpu: 1, vm_mem: 2048, vm_scale: 2, vm_disk: 64, vm_image: %s.\n", selectedImage)
 	fmt.Fprintf(&output, "# Each node also gets a %d GiB /data disk; set vm_disks to change it, or vm_disks: [] for none.\n", defaultDataGiB)
 	fmt.Fprintf(&output, "# Other Pigsty/Ansible variables can stay in this inventory.\n")
 	fmt.Fprintf(&output, "all:\n")
 	fmt.Fprintf(&output, "  vars:\n")
 	fmt.Fprintf(&output, "    admin_ip: %s.%d\n", prefix, nodes[0].LastOctet)
-	if options.Image != "" {
-		fmt.Fprintf(&output, "    vm_image: %s\n", selectedImage)
+	resources, err := ResolveResources(ResourceResolution{Node: name, CPU: defaultCPU, Memory: defaultMemMiB << 20, Scale: 1, Disk: defaultDiskGiB * spec.GiB}, options.Resources)
+	if err != nil {
+		return nil, err
 	}
-	if selectedArch != "" {
-		fmt.Fprintf(&output, "    vm_arch: %s\n", selectedArch)
-	}
+	memory, _ := Size(resources.Memory).MarshalYAML()
+	disk, _ := Size(resources.Disk).MarshalYAML()
+	fmt.Fprintf(&output, "    vm_image: %s\n    vm_arch: %s\n", selectedImage, selectedArch)
+	fmt.Fprintf(&output, "    vm_cpu: %d\n    vm_mem: %s\n    vm_scale: %d\n    vm_disk: %s\n", resources.CPU, memory, resources.Scale, disk)
+
 	fmt.Fprintf(&output, "  children:\n")
 	fmt.Fprintf(&output, "    nodes:\n")
 	fmt.Fprintf(&output, "      hosts:\n")

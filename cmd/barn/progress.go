@@ -119,8 +119,13 @@ func (item *progress) Report(event activity.Event) {
 	item.recordPhase(event.Phase, time.Now())
 	item.event = event
 	if event.Node != "" {
-		if previousNode, ok := item.nodes[event.Node]; ok && event.Address == "" {
-			event.Address = previousNode.Address
+		if previousNode, ok := item.nodes[event.Node]; ok {
+			if event.Address == "" {
+				event.Address = previousNode.Address
+			}
+			if event.CPUs == 0 {
+				event.CPUs, event.Memory = previousNode.CPUs, previousNode.Memory
+			}
 		}
 		item.nodes[event.Node] = event
 	} else if event.Item != "" {
@@ -332,7 +337,7 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 		return nil
 	}
 
-	nameWidth, addressWidth := displayWidth(nameHeader), 0
+	nameWidth, addressWidth, specWidth := displayWidth(nameHeader), 0, 0
 	if addresses {
 		addressWidth = displayWidth("ADDRESS")
 	}
@@ -350,6 +355,9 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 		nameWidth = max(nameWidth, displayWidth(name))
 		if addresses {
 			addressWidth = max(addressWidth, displayWidth(address))
+			if node.CPUs > 0 {
+				specWidth = max(specWidth, displayWidth("SPEC"), displayWidth(compactSpec(node.CPUs, node.Memory)))
+			}
 		}
 		stateWidth = max(stateWidth, displayWidth(state))
 	}
@@ -358,15 +366,18 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 	if addresses {
 		gapCount++
 	}
+	if specWidth > 0 {
+		gapCount++
+	}
 	columnGap := 2
-	if nameWidth+addressWidth+stateWidth+columnGap*gapCount >= columns {
+	if nameWidth+addressWidth+specWidth+stateWidth+columnGap*gapCount >= columns {
 		columnGap = 1
 	}
-	maxNameForTerminal := columns - 1 - addressWidth - stateWidth - columnGap*gapCount
+	maxNameForTerminal := columns - 1 - addressWidth - specWidth - stateWidth - columnGap*gapCount
 	if maxNameForTerminal >= displayWidth(nameHeader) {
 		nameWidth = min(nameWidth, maxNameForTerminal)
 	}
-	baseWidth := nameWidth + addressWidth + stateWidth + columnGap*gapCount
+	baseWidth := nameWidth + addressWidth + specWidth + stateWidth + columnGap*gapCount
 	availableMessageWidth := columns - 1 - baseWidth - columnGap
 	showMessage := availableMessageWidth >= progressMessageMinWidth
 	messageWidth := max(0, availableMessageWidth)
@@ -374,6 +385,9 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 	header := padDisplay(nameHeader, nameWidth) + separator
 	if addresses {
 		header += padDisplay("ADDRESS", addressWidth) + separator
+	}
+	if specWidth > 0 {
+		header += padDisplay("SPEC", specWidth) + separator
 	}
 	header += padDisplay("STATE", stateWidth)
 	if showMessage {
@@ -396,6 +410,9 @@ func (item *progress) renderRows(columns int, names []string, events map[string]
 		prefix := nameCell + separator
 		if addresses {
 			prefix += addressCell + separator
+		}
+		if specWidth > 0 {
+			prefix += padDisplay(compactSpec(node.CPUs, node.Memory), specWidth) + separator
 		}
 		plainLine := prefix + stateCell
 		if showMessage {

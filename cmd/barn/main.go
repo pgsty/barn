@@ -60,6 +60,9 @@ const (
 )
 
 type lifecycleOptions struct {
+	ResourceInputs []config.ResourceResolution
+	Applied        *spec.Resolved
+	vmInputs
 	Force            bool
 	DeletePersistent bool
 	Purge            bool
@@ -69,8 +72,6 @@ type lifecycleOptions struct {
 	ConfigPath       string
 	Repository       string
 	Mirror           bool
-	Image            string
-	Arch             string
 }
 
 func configurationWarnings(resolved spec.Resolved) []string {
@@ -960,22 +961,22 @@ func lifecycleReadsConfig(command string) bool {
 	return command == "up" || command == "plan" || command == "recreate" || command == "reload" || command == "resize"
 }
 
-func loadLifecycleConfig(command, configPath string) (spec.Resolved, string, error) {
+func loadLifecycleConfig(command, configPath string, nodes []string, input vmInputs) (spec.Resolved, string, []config.ResourceResolution, error) {
 	if !lifecycleReadsConfig(command) {
-		return spec.Resolved{}, "", nil
+		return spec.Resolved{}, "", nil, nil
 	}
-	file, path, err := config.Discover("", configPath)
+	file, path, err := config.Discover("", configPath, config.InventoryOptions{Resources: input.Resources, Nodes: nodes})
 	if errors.Is(err, config.ErrNoConfig) {
-		return spec.Resolved{}, "", nil
+		return spec.Resolved{}, "", nil, nil
 	}
 	if err != nil {
-		return spec.Resolved{}, "", err
+		return spec.Resolved{}, "", nil, err
 	}
 	resolved, err := file.Resolve()
 	if err != nil {
-		return spec.Resolved{}, "", err
+		return spec.Resolved{}, "", nil, err
 	}
-	return resolved, path, nil
+	return resolved, path, resourceInputSources(file.Resources, input, nodes), nil
 }
 
 func currentDeploymentResolved() (spec.Resolved, error) {
@@ -1031,9 +1032,13 @@ func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
 			if node.Accel == "tcg" {
 				phase += " (tcg/" + node.GuestArch + ")"
 			}
-			rows = append(rows, []string{node.Name, node.Address, phase, node.Image, fmt.Sprint(node.CPUs), fmt.Sprintf("%.1f GiB", float64(node.Memory)/float64(spec.GiB))})
+			root := "-"
+			if node.RootDisk > 0 {
+				root = planSize(node.RootDisk)
+			}
+			rows = append(rows, []string{node.Name, node.Address, phase, node.Image, compactSpec(node.CPUs, node.Memory), root})
 		}
-		printTable(out, []string{"NAME", "ADDRESS", "STATE", "IMAGE", "CPU", "MEMORY"}, rows, 2)
+		printTable(out, []string{"NAME", "ADDRESS", "STATE", "IMAGE", "SPEC", "ROOT"}, rows, 2)
 		for _, node := range status.Nodes {
 			if errors && node.Error != "" {
 				bestEffortf(out, "%s: %s\n", node.Name, node.Error)
@@ -1129,6 +1134,7 @@ func classifyPrivateLifecycleError(err error, operationID string) error {
 }
 
 type lifecycleResult struct {
+	Resources    []config.ResourceResolution `json:"resources,omitempty"`
 	retryOptions lifecycleRetryOptions
 	Source       string `json:"source,omitempty"`
 	Error        string `json:"error,omitempty"`
@@ -1142,7 +1148,7 @@ type lifecycleResult struct {
 func runPrivateCommand(parent context.Context, command string, resolved spec.Resolved, nodes []string, repository, source string, options lifecycleOptions, stderr io.Writer) (commandOutcome, error) {
 	force, deletePersistent, purge := options.Force, options.DeletePersistent, options.Purge
 	noWait, rollback := options.NoWait, options.Rollback
-	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback, Image: options.Image, Arch: options.Arch, Parallelism: options.Parallelism}
+	retryOptions := lifecycleRetryOptions{Repository: repository, NoWait: noWait, Rollback: rollback, Parallelism: options.Parallelism, vmInputs: options.vmInputs}
 	if repository == image.DefaultRepositoryURL && strings.TrimSpace(options.Repository) == "" && !options.Mirror && strings.TrimSpace(os.Getenv("BARN_REPO")) == "" {
 		retryOptions.Repository = "" // a retry finds the default by itself
 	}
@@ -1166,7 +1172,17 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	}
 	var progressItem *progress
 	manager := privatevm.Manager{BarnVersion: version.Version, OperationID: operationID, Repository: repository, NoWait: noWait, Parallelism: options.Parallelism, RollbackFailed: rollback, Nodes: append([]string(nil), nodes...)}
-	manager.Progress = deferredProgressReporter(&progressItem)
+	report := deferredProgressReporter(&progressItem)
+	resourceNodes := make(map[string]spec.Node)
+	for _, node := range resolved.Nodes {
+		resourceNodes[node.Name] = node
+	}
+	manager.Progress = func(event activity.Event) {
+		if node, ok := resourceNodes[event.Node]; ok && event.CPUs == 0 {
+			event.CPUs, event.Memory = node.CPUs, node.Memory
+		}
+		report.Report(event)
+	}
 	if command == "plan" {
 		ctx, cancel := context.WithTimeout(parent, time.Minute)
 		defer cancel()
@@ -1178,8 +1194,12 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		applyCommand := func(action string, selected []string) string {
 			return lifecycleNodeCommand(action, source, selected, retryOptions)
 		}
-		return commandOutcome{payload: plan, text: func(stdout, _ io.Writer) error {
-			printPlanTable(stdout, plan, resolved)
+		return commandOutcome{payload: struct {
+			privatevm.LifecyclePlan
+			Resources []config.ResourceResolution `json:"resources"`
+		}{plan, options.ResourceInputs}, text: func(stdout, _ io.Writer) error {
+			printPlanTable(stdout, plan, resolved, options.Applied)
+			printResourceCalculations(stdout, options.ResourceInputs)
 			planState, planMessage := planSummary(plan)
 			printResultSummary(stdout, "plan", planState, planMessage)
 			textField(stdout, 12, "images", strings.Join(plan.Images, ", "))
@@ -1397,7 +1417,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		var partial *privatevm.PartialError
 		isPartial := errors.As(err, &partial)
 		if isPartial || len(status.Nodes) != 0 && command == "status" {
-			result := lifecycleResult{retryOptions: retryOptions, Source: source, Error: "partial", Status: status, SSHConfig: reconciledSSHConfig, Warnings: warnings}
+			result := lifecycleResult{Resources: options.ResourceInputs, retryOptions: retryOptions, Source: source, Error: "partial", Status: status, SSHConfig: reconciledSSHConfig, Warnings: warnings}
 			result.Message = err.Error()
 			if isPartial {
 				result.Failures = partial.Failures
@@ -1442,7 +1462,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			}
 		}
 	}
-	result := lifecycleResult{retryOptions: retryOptions, Source: source, Status: status, SSHConfig: reconciledSSHConfig, Warnings: warnings}
+	result := lifecycleResult{Resources: options.ResourceInputs, retryOptions: retryOptions, Source: source, Status: status, SSHConfig: reconciledSSHConfig, Warnings: warnings}
 	return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
 		printLifecycleResult(stdout, command, result, noWait)
 		return nil
@@ -1574,7 +1594,10 @@ func runPurgeCommand(parent context.Context, ask bool, parallelism *int, stderr 
 }
 
 func runLifecycleCommand(ctx context.Context, command string, options lifecycleOptions, nodes []string, stderr io.Writer) (_ commandOutcome, returnErr error) {
-	options, err := normalizeLifecycleOverrides(options)
+	var err error
+	if lifecycleReadsConfig(command) {
+		options.vmInputs, err = options.vmInputs.resolve(true, true)
+	}
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
@@ -1615,7 +1638,8 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 			return commandOutcome{}, newUsageError(repositoryErr)
 		}
 	}
-	resolvedFile, source, err := loadLifecycleConfig(command, options.ConfigPath)
+	resolvedFile, source, resources, err := loadLifecycleConfig(command, options.ConfigPath, nodes, options.vmInputs)
+	options.ResourceInputs = resources
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
@@ -1626,6 +1650,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	}
 	switch {
 	case persistedErr == nil && persisted.Network == "private":
+		options.Applied = &persisted
 		if !hasConfig {
 			resolvedFile = persisted
 			hasConfig = true
@@ -1634,10 +1659,12 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 	}
 	if !hasConfig && command == "up" && interactiveTextSession(stderr) {
-		if _, setupErr := runSetupCommand(ctx, "", implicitSetupOptions(options, repository), outputFormatFor(stderr), verboseOutput(stderr), stderr); setupErr != nil {
+		setupOptions := implicitSetupOptions(options, repository)
+		setupOptions.vmInputs = options.vmInputs
+		if _, setupErr := runSetupCommand(ctx, "", setupOptions, outputFormatFor(stderr), verboseOutput(stderr), stderr); setupErr != nil {
 			return commandOutcome{}, setupErr
 		}
-		resolvedFile, source, err = loadLifecycleConfig(command, options.ConfigPath)
+		resolvedFile, source, options.ResourceInputs, err = loadLifecycleConfig(command, options.ConfigPath, nodes, options.vmInputs)
 		if err != nil {
 			return commandOutcome{}, newUsageError(err)
 		}
@@ -1673,6 +1700,12 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	if err := validateNodeSelectors(resolvedFile, nodes, selectorSource); err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
+	if source == "" && lifecycleReadsConfig(command) {
+		resolvedFile, options.ResourceInputs, err = applyStateResources(resolvedFile, nodes, options.vmInputs)
+		if err != nil {
+			return commandOutcome{}, newUsageError(err)
+		}
+	}
 	resolvedFile = applyLifecycleOverrides(resolvedFile, nodes, options)
 	if source == "" {
 		source = "applied deployment state"
@@ -1682,6 +1715,9 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	}
 	printWarnings(stderr, configurationWarnings(resolvedFile))
 	printLifecycleOverrides(stderr, options)
+	if command != "plan" {
+		printResourceCalculations(stderr, options.ResourceInputs)
+	}
 	outcome, err := runPrivateCommand(ctx, command, resolvedFile, nodes, repository, source, options, stderr)
 	canPrepareHost := needsHostSetup(command, err)
 	var networkFailure *privatevm.NetworkPreflightError
@@ -1694,14 +1730,14 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 		// retry the original operation with the same inventory and selectors.
 		infof(stderr, "preparing the host before starting nodes")
 		setupOptions := implicitSetupOptions(options, repository)
-		if source == "applied deployment state" {
+		if source == "applied deployment state" || options.vmInputs.any() || !recognizeDefaultSetupTemplate(setupSelection{ConfigPath: source}).Generated {
 			setupOptions.Applied = &resolvedFile
 		}
 		if _, setupErr := runSetupCommand(ctx, "", setupOptions, outputFormatFor(stderr), verboseOutput(stderr), stderr); setupErr != nil {
 			return commandOutcome{}, setupErr
 		}
 		if source != "applied deployment state" {
-			resolvedFile, source, err = loadLifecycleConfig(command, options.ConfigPath)
+			resolvedFile, source, options.ResourceInputs, err = loadLifecycleConfig(command, options.ConfigPath, nodes, options.vmInputs)
 			if err != nil {
 				return commandOutcome{}, newUsageError(err)
 			}
@@ -2127,11 +2163,12 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 }
 
 type validateResult struct {
-	Valid    bool          `json:"valid"`
-	Source   string        `json:"source"`
-	SpecHash string        `json:"spec_hash"`
-	Resolved spec.Resolved `json:"resolved"`
-	Warnings []string      `json:"warnings,omitempty"`
+	Resources []config.ResourceResolution `json:"resources"`
+	Valid     bool                        `json:"valid"`
+	Source    string                      `json:"source"`
+	SpecHash  string                      `json:"spec_hash"`
+	Resolved  spec.Resolved               `json:"resolved"`
+	Warnings  []string                    `json:"warnings,omitempty"`
 }
 
 func runValidate(options lifecycleOptions) (commandOutcome, error) {
@@ -2145,7 +2182,8 @@ func runValidate(options lifecycleOptions) (commandOutcome, error) {
 			return nil
 		})
 	}
-	options, err := normalizeLifecycleOverrides(options)
+	input, err := options.vmInputs.resolve(true, true)
+	options.vmInputs = input
 	if err != nil {
 		return failed("options", exitUsage, err)
 	}
@@ -2156,7 +2194,7 @@ func runValidate(options lifecycleOptions) (commandOutcome, error) {
 	if err != nil {
 		return failed("configuration", exitRuntime, err)
 	}
-	file, source, err := config.Discover(cwd, options.ConfigPath)
+	file, source, err := config.Discover(cwd, options.ConfigPath, config.InventoryOptions{Resources: options.Resources})
 	if err != nil {
 		return failed("configuration", exitUsage, err)
 	}
@@ -2185,10 +2223,12 @@ func runValidate(options lifecycleOptions) (commandOutcome, error) {
 		rows[1][1] = "warning"
 	}
 	warnings = append(warnings, imageWarnings...)
-	result := validateResult{Valid: true, Source: source, SpecHash: hash, Resolved: resolved, Warnings: warnings}
+	result := validateResult{Resources: resourceInputSources(file.Resources, options.vmInputs, nil), Valid: true, Source: source, SpecHash: hash, Resolved: resolved, Warnings: warnings}
 	elapsed := time.Since(started)
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printValidationResult(stdout, rows, elapsed, true)
+		printSpecificationTable(stdout, resolved, nil)
+		printResourceCalculations(stdout, result.Resources)
 		printWarnings(stderr, warnings)
 		printLifecycleOverrides(stderr, options)
 		return nil
@@ -2196,20 +2236,20 @@ func runValidate(options lifecycleOptions) (commandOutcome, error) {
 }
 
 type initOptions struct {
+	vmInputs
 	Template string
 	CIDR     string
-	Image    string
-	Arch     string
 	Output   string
 	Force    bool
 }
 
 type initResult struct {
-	Template string `json:"template"`
-	Image    string `json:"image,omitempty"`
-	Arch     string `json:"arch,omitempty"`
-	Content  string `json:"content,omitempty"`
-	Path     string `json:"path,omitempty"`
+	Resources []config.ResourceResolution `json:"resources"`
+	Template  string                      `json:"template"`
+	Image     string                      `json:"image,omitempty"`
+	Arch      string                      `json:"arch,omitempty"`
+	Content   string                      `json:"content,omitempty"`
+	Path      string                      `json:"path,omitempty"`
 }
 
 func runInit(options initOptions) (commandOutcome, error) {
@@ -2217,15 +2257,19 @@ func runInit(options initOptions) (commandOutcome, error) {
 	if name == "" {
 		name = "meta"
 	}
-	overrides, err := normalizeLifecycleOverrides(lifecycleOptions{Image: options.Image, Arch: options.Arch})
+	input, err := options.vmInputs.resolve(true, true)
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
-	selectedImage, selectedArch := overrides.Image, overrides.Arch
-	data, err := config.TemplateWithOptions(name, options.CIDR, config.TemplateOptions{Image: selectedImage, Arch: selectedArch})
+	data, err := config.TemplateWithOptions(name, options.CIDR, input.templateOptions())
 	if err != nil {
 		return commandOutcome{}, newUsageError(err)
 	}
+	generated, err := config.ParseInventory(data)
+	if err != nil {
+		return commandOutcome{}, newUsageError(err)
+	}
+	selectedImage, selectedArch := generated.Nodes[0].Image, generated.Arch
 	warnings := make([]string, 0, 1)
 	if options.CIDR != "" {
 		if layout, parseErr := subnet.Parse(options.CIDR); parseErr == nil {
@@ -2235,7 +2279,7 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 	}
 	if options.Output == "-" {
-		result := initResult{Template: name, Image: selectedImage, Arch: selectedArch, Content: string(data)}
+		result := initResult{Resources: generated.Resources, Template: name, Image: selectedImage, Arch: selectedArch, Content: string(data)}
 		return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 			printWarnings(stderr, warnings)
 			_, _ = stdout.Write(data)
@@ -2265,10 +2309,12 @@ func runInit(options initOptions) (commandOutcome, error) {
 		}
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	result := initResult{Template: name, Image: selectedImage, Arch: selectedArch, Path: target}
+	result := initResult{Resources: generated.Resources, Template: name, Image: selectedImage, Arch: selectedArch, Path: target}
 	return commandOutcome{payload: result, text: func(stdout, stderr io.Writer) error {
 		printWarnings(stderr, warnings)
 		printItemResult(stdout, "inventory", "created", name+" template")
+		textField(stdout, 10, "SPEC", compactSpec(generated.Nodes[0].CPUs, int64(generated.Nodes[0].Memory)))
+		textField(stdout, 10, "root", planSize(int64(generated.Nodes[0].RootDisk)))
 		if selectedImage != "" {
 			textField(stdout, 10, "image", selectedImage)
 		}

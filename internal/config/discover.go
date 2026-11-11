@@ -52,7 +52,7 @@ func readBounded(path string) ([]byte, error) {
 
 // LoadPath parses one configuration file. The content decides the format: a
 // Pigsty-compatible inventory (all:) parses and anything else is rejected.
-func LoadPath(path string) (File, error) {
+func LoadPath(path string, options ...InventoryOptions) (File, error) {
 	if path == "" || !filepath.IsAbs(path) {
 		return File{}, errors.New("configuration path must be absolute")
 	}
@@ -70,7 +70,7 @@ func LoadPath(path string) (File, error) {
 	if _, err := DetectFormat(data); err != nil {
 		return File{}, failure.New(failure.Usage, fmt.Errorf("%s: %w", path, err))
 	}
-	file, err := parseInventory(data, filepath.Dir(resolvedPath))
+	file, err := parseInventory(data, filepath.Dir(resolvedPath), options...)
 	if err != nil {
 		return File{}, failure.New(failure.Usage, fmt.Errorf("%s: %w", path, err))
 	}
@@ -80,13 +80,13 @@ func LoadPath(path string) (File, error) {
 // Discover resolves the inventory configuration: the explicit -f path when
 // given, otherwise the first DiscoveryNames hit in the working directory.
 // A missing configuration returns ErrNoConfig.
-func Discover(cwd, explicit string) (File, string, error) {
+func Discover(cwd, explicit string, options ...InventoryOptions) (File, string, error) {
 	if explicit != "" {
 		absolute, err := fsutil.UserPath(explicit, cwd)
 		if err != nil {
 			return File{}, "", err
 		}
-		file, err := LoadPath(absolute)
+		file, err := LoadPath(absolute, options...)
 		return file, absolute, err
 	}
 	if cwd == "" {
@@ -99,7 +99,7 @@ func Discover(cwd, explicit string) (File, string, error) {
 	for _, name := range DiscoveryNames {
 		candidate := filepath.Join(cwd, name)
 		if _, err := os.Lstat(candidate); err == nil {
-			file, err := LoadPath(candidate)
+			file, err := LoadPath(candidate, options...)
 			return file, candidate, err
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return File{}, "", err

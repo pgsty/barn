@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,8 +39,8 @@ const maxInventoryBytes = 4 << 20
 const InventoryDeploymentName = "barn"
 
 const (
-	defaultCPU      = 2
-	defaultMemMiB   = 4096
+	defaultCPU      = 1
+	defaultMemMiB   = 2048
 	defaultDiskGiB  = 64
 	defaultDataGiB  = 128
 	defaultSSHUser  = "dba"
@@ -50,7 +51,7 @@ var defaultImage = image.EmbeddedCatalog().Defaults.Image
 
 var knownVMKeys = map[string]struct{}{
 	"vm_skip": {}, "vm_image": {}, "vm_version": {}, "vm_arch": {}, "vm_cpu": {}, "vm_mem": {},
-	"vm_disk": {}, "vm_disks": {}, "vm_alias": {}, "vm_shares": {},
+	"vm_scale": {}, "vm_disk": {}, "vm_disks": {}, "vm_alias": {}, "vm_shares": {},
 }
 
 var derivedDiskName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
@@ -744,11 +745,15 @@ func inventoryDocument(data []byte) (yaml.Node, error) {
 
 // ParseInventory reads a Pigsty-compatible inventory document and returns the
 // equivalent internal configuration.
-func ParseInventory(data []byte) (File, error) {
-	return parseInventory(data, "")
+func ParseInventory(data []byte, options ...InventoryOptions) (File, error) {
+	return parseInventory(data, "", options...)
 }
 
-func parseInventory(data []byte, directory string) (File, error) {
+func parseInventory(data []byte, directory string, options ...InventoryOptions) (File, error) {
+	var inputs InventoryOptions
+	if len(options) > 0 {
+		inputs = options[0]
+	}
 	if len(data) > maxInventoryBytes {
 		return File{}, errors.New("inventory exceeds the 4 MiB limit")
 	}
@@ -873,18 +878,25 @@ func parseInventory(data []byte, directory string) (File, error) {
 			}
 		}
 
-		node.CPUs = defaultCPU
+		scale := int64(1)
+		if value, found, err := host.lookupInt("vm_scale", 1, maxVirtualCPUs); err != nil {
+			return File{}, err
+		} else if found {
+			scale = value
+		}
+
+		baseCPU := int64(defaultCPU)
 		if value, found, err := host.lookupInt("vm_cpu", 1, maxVirtualCPUs); err != nil {
 			return File{}, err
 		} else if found {
-			node.CPUs = int(value)
+			baseCPU = value
 		}
 
-		node.Memory = Size(defaultMemMiB << 20)
+		baseMemory := int64(defaultMemMiB << 20)
 		if value, found, err := host.lookupSize("vm_mem", 1<<20, minMemory); err != nil {
 			return File{}, err
 		} else if found {
-			node.Memory = Size(value)
+			baseMemory = value
 		}
 
 		node.RootDisk = Size(defaultDiskGiB * spec.GiB)
@@ -893,6 +905,28 @@ func parseInventory(data []byte, directory string) (File, error) {
 		} else if found {
 			node.RootDisk = Size(value)
 		}
+
+		resources := ResourceResolution{Node: name, CPU: baseCPU, Memory: baseMemory, Scale: scale, Disk: int64(node.RootDisk), Sources: make(map[string]string)}
+		for _, field := range []string{"cpu", "mem", "scale", "disk", "image", "arch"} {
+			_, origin, found, lookupErr := host.lookup("vm_" + field)
+			if lookupErr != nil {
+				return File{}, lookupErr
+			}
+			if !found {
+				origin = "default"
+			}
+			resources.Sources[field] = origin
+		}
+		overrides := ResourceOverrides{}
+		if len(inputs.Nodes) == 0 || slices.Contains(inputs.Nodes, name) {
+			overrides = inputs.Resources
+		}
+		resources, err = ResolveResources(resources, overrides)
+		if err != nil {
+			return File{}, err
+		}
+		node.CPUs, node.Memory, node.RootDisk = int(resources.EffectiveCPU), Size(resources.EffectiveMemory), Size(resources.Disk)
+		file.Resources = append(file.Resources, resources)
 
 		if disks, found, err := host.lookupDisks(); err != nil {
 			return File{}, err

@@ -121,6 +121,7 @@ type NodeConfig struct {
 }
 
 type File struct {
+	Resources []ResourceResolution `yaml:"-"`
 	directory string
 	Version   int            `yaml:"version"`
 	Name      string         `yaml:"name"`

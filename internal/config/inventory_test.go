@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -123,7 +124,7 @@ func TestParseInventoryFullLab(t *testing.T) {
 	if nodeOne.Name != "pg-test-1" || nodeOne.Control {
 		t.Fatalf("pg-derived name: %+v", nodeOne)
 	}
-	if nodeOne.CPUs != 2 || int64(nodeOne.Memory) != 4096<<20 {
+	if nodeOne.CPUs != 1 || int64(nodeOne.Memory) != 2048<<20 {
 		t.Fatalf("node-1 defaults: %+v", nodeOne)
 	}
 	if len(nodeOne.Disks) != 1 || int64(nodeOne.Disks[0].Size) != 64*spec.GiB || nodeOne.Disks[0].Filesystem != "auto" {
@@ -147,7 +148,7 @@ all:
         10.10.10.13: {}
 `)
 	node := file.Nodes[0]
-	if node.Name != "node-13" || node.CPUs != 2 || int64(node.Memory) != 4096<<20 || int64(node.RootDisk) != 64*spec.GiB {
+	if node.Name != "node-13" || node.CPUs != 1 || int64(node.Memory) != 2048<<20 || int64(node.RootDisk) != 64*spec.GiB {
 		t.Fatalf("bare host defaults: %+v", node)
 	}
 	if len(node.Disks) != 1 || node.Disks[0].Mount != "/data" || node.Disks[0].Filesystem != "auto" {
@@ -155,6 +156,62 @@ all:
 	}
 	if node.Image != "u24" || !node.Control {
 		t.Fatalf("bare host image/control: %+v", node)
+	}
+}
+
+func TestParseInventoryScaleMultipliesCPUAndMemoryOnly(t *testing.T) {
+	file := mustParseInventory(t, `
+all:
+  vars:
+    vm_scale: 2
+    vm_mem: 3GiB
+    vm_disk: 80
+  children:
+    nodes:
+      hosts:
+        10.10.10.10: {vm_cpu: 3, vm_disks: [{path: /data, size: 16}]}
+        10.10.10.11: {}
+`)
+	if file.Nodes[0].CPUs != 6 || int64(file.Nodes[0].Memory) != 6*spec.GiB || int64(file.Nodes[0].RootDisk) != 80*spec.GiB {
+		t.Fatalf("scaled explicit resources = %+v", file.Nodes[0])
+	}
+	if len(file.Nodes[0].Disks) != 1 || int64(file.Nodes[0].Disks[0].Size) != 16*spec.GiB {
+		t.Fatalf("vm_scale changed data disk = %+v", file.Nodes[0].Disks)
+	}
+	if file.Nodes[1].CPUs != 2 || int64(file.Nodes[1].Memory) != 6*spec.GiB || int64(file.Nodes[1].RootDisk) != 80*spec.GiB {
+		t.Fatalf("scaled defaults = %+v", file.Nodes[1])
+	}
+}
+
+func TestParseInventoryScaleUsesNormalInheritanceAndBounds(t *testing.T) {
+	file := mustParseInventory(t, `
+all:
+  vars: {vm_scale: 2}
+  children:
+    parent:
+      vars: {vm_scale: 3}
+      children:
+        child:
+          hosts: {10.10.10.10: {vm_scale: 4}}
+`)
+	if file.Nodes[0].CPUs != 4 || int64(file.Nodes[0].Memory) != 8*spec.GiB {
+		t.Fatalf("host vm_scale did not win: %+v", file.Nodes[0])
+	}
+	for name, text := range map[string]string{
+		"negative":  `all: {vars: {vm_scale: -1}, hosts: {10.10.10.10: {}}}`,
+		"fraction":  `all: {vars: {vm_scale: 1.5}, hosts: {10.10.10.10: {}}}`,
+		"boolean":   `all: {vars: {vm_scale: true}, hosts: {10.10.10.10: {}}}`,
+		"null":      `all: {vars: {vm_scale: null}, hosts: {10.10.10.10: {}}}`,
+		"overflow":  `all: {vars: {vm_scale: 2, vm_mem: 8796093022207}, hosts: {10.10.10.10: {}}}`,
+		"zero":      `all: {vars: {vm_scale: 0}, hosts: {10.10.10.10: {}}}`,
+		"string":    `all: {vars: {vm_scale: "2"}, hosts: {10.10.10.10: {}}}`,
+		"cpu limit": `all: {vars: {vm_scale: 2, vm_cpu: 200}, hosts: {10.10.10.10: {}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseInventory([]byte(text)); err == nil || !strings.Contains(err.Error(), "vm_scale") {
+				t.Fatalf("invalid scale accepted: %v", err)
+			}
+		})
 	}
 }
 
@@ -642,5 +699,50 @@ func TestDiscoverMissingConfig(t *testing.T) {
 	_, _, err := Discover(t.TempDir(), "")
 	if !errors.Is(err, ErrNoConfig) {
 		t.Fatalf("expected ErrNoConfig, got %v", err)
+	}
+}
+
+func TestScaleIsAppliedOnceAndMatchesExplicitResources(t *testing.T) {
+	for _, values := range []struct{ vars, explicit string }{
+		{"vm_scale: 3", "vm_cpu: 3, vm_mem: 6144"},
+		{"vm_scale: 2, vm_cpu: 3", "vm_cpu: 6, vm_mem: 4096"},
+		{"vm_scale: 2, vm_mem: 1024", "vm_cpu: 2, vm_mem: 2048"},
+	} {
+		file := mustParseInventory(t, "all: {vars: {"+values.vars+"}, hosts: {10.10.10.10: {}}}")
+		explicit := mustParseInventory(t, "all: {vars: {"+values.explicit+"}, hosts: {10.10.10.10: {}}}")
+		first, err := file.Resolve()
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := file.Resolve()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := explicit.Resolve()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(first, second) || !reflect.DeepEqual(first, want) {
+			t.Fatalf("scale is not equivalent to explicit resources: %#v, %#v, %#v", first, second, want)
+		}
+	}
+}
+
+func TestScaleSiblingConflictCanBeOverriddenAtHost(t *testing.T) {
+	input := `all:
+  children:
+    left:
+      vars: {vm_scale: 2}
+      hosts: {10.10.10.10: {}}
+    right:
+      vars: {vm_scale: 3}
+      hosts: {10.10.10.10: {%s}}
+`
+	if _, err := ParseInventory([]byte(fmt.Sprintf(input, ""))); err == nil {
+		t.Fatal("conflicting sibling scales accepted")
+	}
+	file := mustParseInventory(t, fmt.Sprintf(input, "vm_scale: 1"))
+	if file.Nodes[0].CPUs != 1 || int64(file.Nodes[0].Memory) != 2*spec.GiB {
+		t.Fatalf("host scale did not replace sibling scales: %#v", file.Nodes[0])
 	}
 }

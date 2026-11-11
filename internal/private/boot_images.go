@@ -2,6 +2,8 @@ package private
 
 import (
 	"context"
+	"fmt"
+	"github.com/pgsty/barn/internal/failure"
 
 	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/platform"
@@ -55,7 +57,7 @@ func (m *Manager) resolveBootImages(ctx context.Context, profile platform.Profil
 				if node.NVRAM != "" {
 					bootMode = "uefi"
 				}
-				entry = image.Entry{Alias: node.Image.Alias, Release: node.Image.Release, Arch: arch, SHA256: node.Image.Digest, Boot: bootMode}
+				entry = image.Entry{Alias: node.Image.Alias, Release: node.Image.Release, Arch: arch, SHA256: node.Image.Digest, Boot: bootMode, VirtualSize: node.Image.VirtualSize}
 			}
 		}
 		if entry.Alias == "" {
@@ -71,6 +73,9 @@ func (m *Manager) resolveBootImages(ctx context.Context, profile platform.Profil
 				}
 				lookedUp[alias] = entry
 			}
+		}
+		if entry.VirtualSize > definition.RootDisk {
+			return nil, "", failure.New(failure.Usage, fmt.Errorf("node %s root disk (%d bytes) is smaller than image virtual size (%d bytes)", definition.Name, definition.RootDisk, entry.VirtualSize))
 		}
 		boot, err = mergeBootMode(profile, boot, alias, entry.Boot)
 		if err != nil {

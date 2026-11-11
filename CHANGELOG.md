@@ -4,6 +4,24 @@ Notable user-visible changes.
 
 ## Unreleased
 
+- Add `--cpu/-C`, `--mem/-M`, `--scale/-S`, and `--disk/-D` alongside
+  image and architecture inputs. Support corresponding `BARN_IMAGE`,
+  `BARN_ARCH`, `BARN_CPU`, `BARN_MEM`, `BARN_SCALE`, and `BARN_DISK`
+  overrides on configuration commands, with CLI values taking precedence.
+  Scale inventory bases once, preserve selected-node scope and retry inputs,
+  and save all six base settings when generating an inventory. Resize accepts
+  CPU, memory, scale, and grow-only root disk targets.
+- Grow existing root disks with `resize --disk/-D` or `BARN_DISK`. Stop QEMU
+  before enlarging qcow2, then verify the guest disk, last plain ext4/XFS
+  partition, and filesystem. Preserve VM identity and data, persist recovery
+  stages before irreversible changes, and make repeated targets idempotent.
+  Initially stopped VMs temporarily boot and return to stopped; shrinking
+  and unsupported root layouts are rejected.
+- Display effective VM resources as `SPEC` labels such as `2c4g` in plans,
+  validation, status, setup, and lifecycle progress/results. Plans show old
+  and desired specifications and root sizes separately; JSON retains numeric
+  resources and includes their bases, multiplier, and input sources.
+
 - Default Linux VM lifecycle concurrency to the logical CPU count minus two
   (minimum one). Add `--parallel/-p` to `up`, `start`, `stop`, `restart`,
   `reload`, `recreate`, `destroy`, and `purge`: zero runs all selected nodes

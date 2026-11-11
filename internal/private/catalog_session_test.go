@@ -39,6 +39,9 @@ func TestLifecycleCatalogSessionNeverTouchesTheRepository(t *testing.T) {
 		{Name: "u24", Image: "u24"},
 		{Name: "u26", Image: "u26"},
 	}}
+	for index := range resolved.Nodes {
+		resolved.Nodes[index].RootDisk = 64 * spec.GiB
+	}
 	profile := platform.Profile{Arch: "arm64", RequiresUEFI: true}
 	for attempt := 0; attempt < 2; attempt++ {
 		_, boot, err := manager.resolveBootImages(context.Background(), profile, resolved, nil)

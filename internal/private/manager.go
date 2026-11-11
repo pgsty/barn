@@ -55,7 +55,7 @@ type resolvedDiff struct {
 	EnvelopeChanged bool
 	Create          []string // desired nodes without committed state: new peers, or the per-node recreate window
 	Changed         []string // desired nodes whose non-resource definition differs while their state still exists
-	Resize          []string // desired nodes whose only changes are CPU and/or memory
+	Resize          []string // CPU/memory changes or root disk growth
 	Removed         []string // stateful nodes the desired configuration dropped
 	Unchanged       []string
 }
@@ -96,6 +96,10 @@ func diffResolved(persisted, desired spec.Resolved, hasState func(string) bool) 
 func resourceOnlyNodeChange(first spec.Resolved, firstNode spec.Node, second spec.Resolved, secondNode spec.Node) bool {
 	firstNode.Image = effectiveNodeImage(first, firstNode)
 	secondNode.Image = effectiveNodeImage(second, secondNode)
+	if secondNode.RootDisk < firstNode.RootDisk {
+		return false
+	}
+	firstNode.RootDisk, secondNode.RootDisk = 0, 0
 	firstNode.CPUs, firstNode.Memory = 0, 0
 	secondNode.CPUs, secondNode.Memory = 0, 0
 	return sameResolvedNode(firstNode, secondNode)
@@ -250,6 +254,7 @@ type NodeStatus struct {
 	Image        string               `json:"image,omitempty"`
 	CPUs         int                  `json:"cpus,omitempty"`
 	Memory       int64                `json:"memory_bytes,omitempty"`
+	RootDisk     int64                `json:"root_disk_bytes,omitempty"`
 	Name         string               `json:"name"`
 	Address      string               `json:"address"`
 	State        state.Phase          `json:"state"`
@@ -981,7 +986,7 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 		node, include := nodes[definition.Name]
 		if !include {
 			if _, selected := selectedSet[definition.Name]; selected {
-				row := NodeStatus{Name: definition.Name, Address: definition.Address, State: state.Absent, Runtime: "absent", Image: definition.Image, CPUs: definition.CPUs, Memory: definition.Memory}
+				row := NodeStatus{Name: definition.Name, Address: definition.Address, State: state.Absent, Runtime: "absent", Image: definition.Image, CPUs: definition.CPUs, Memory: definition.Memory, RootDisk: definition.RootDisk}
 				if readErr := readErrors[definition.Name]; readErr != nil {
 					row.State, row.Runtime, row.Error = "unknown", "unknown", readErr.Error()
 					failures = append(failures, NodeFailure{Node: definition.Name, Stage: "status", Error: row.Error})
@@ -1116,6 +1121,9 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 				stage, reason = "resize", "resize_incomplete"
 			}
 		}
+		if node.RootResize != nil {
+			node.GuestWarnings = append(node.GuestWarnings, state.GuestWarning{Stage: "root-resize", Detail: fmt.Sprintf("root growth to %d bytes is pending (%s); retry barn resize -D %dB %s", node.RootResize.Target, node.RootResize.Stage, node.RootResize.Target, node.Node)})
+		}
 		if message != "" {
 			failures = append(failures, NodeFailure{Node: node.Node, Stage: stage, Error: message, Reason: reason})
 		}
@@ -1123,7 +1131,7 @@ func (m Manager) observeStatus(ctx context.Context, deploymentValue Deployment, 
 			Warnings:     node.GuestWarnings,
 			hostKeyAlias: vm.HostKeyAlias(node.VMUUID),
 			Name:         node.Node, Address: definition.Address, State: node.Phase, Runtime: runtimeState, Error: message,
-			Image: node.Image.Alias + "@" + node.Image.Release, CPUs: definition.CPUs, Memory: definition.Memory,
+			Image: node.Image.Alias + "@" + node.Image.Release, CPUs: definition.CPUs, Memory: definition.Memory, RootDisk: definition.RootDisk,
 			GuestArch: invocationGuestArch(node.Invocation.Binary, node.Invocation.Args), Accel: invocationOption(node.Invocation.Args, "-accel"),
 			SSHHost: "127.0.0.1", SSHPort: node.SSHPort, ProcessID: node.Process.PID,
 		})
@@ -1372,7 +1380,7 @@ func refuseDrift(diff resolvedDiff) error {
 		return fmt.Errorf("%w: node(s) %s changed; run `barn plan` to review, then `barn recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))
 	}
 	if len(diff.Resize) != 0 {
-		return fmt.Errorf("%w: node(s) %s changed CPU or memory; run `barn resize %s`", ErrResizeRequired, strings.Join(diff.Resize, ", "), strings.Join(diff.Resize, " "))
+		return fmt.Errorf("%w: node(s) %s changed CPU, memory or root capacity; run `barn resize %s`", ErrResizeRequired, strings.Join(diff.Resize, ", "), strings.Join(diff.Resize, " "))
 	}
 	return nil
 }
@@ -1603,7 +1611,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 			if len(createNodes) != 0 {
 				reusableDeployment = &existing
 			} else if allRunning || allRunnable {
-				return m.startExisting(ctx, existing, persisted, hostProfile, backend)
+				return m.startExisting(ctx, existing, persisted, hostProfile)
 			}
 		}
 	} else if !missingPath(openErr) {
@@ -1759,7 +1767,7 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 				peers.Nodes = append(peers.Nodes, name)
 			}
 		}
-		peerStatus, peerErr := peers.startExisting(ctx, deploymentValue, deploymentState, hostProfile, backend)
+		peerStatus, peerErr := peers.startExisting(ctx, deploymentValue, deploymentState, hostProfile)
 		if partialCreate {
 			if peerPartial := IsolatedPartial(peerErr); peerPartial != nil {
 				combined := newPartialError(append(append([]NodeFailure(nil), partial.Failures...), peerPartial.Failures...), len(selected))
@@ -1800,18 +1808,17 @@ func (m Manager) Up(ctx context.Context, requested spec.Resolved) (_ Status, ret
 	return statusWithReadiness(status, createResult.Start), err
 }
 
-func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, deploymentState state.DeploymentState, profile platform.Profile, backend Backend) (_ Status, returnErr error) {
+func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, deploymentState state.DeploymentState, profile platform.Profile) (_ Status, returnErr error) {
 	m.report("preflight", "Checking the existing deployment before start")
 	preStartStore := state.Store{Root: deploymentValue.Root}
 	selected, selectionErr := committedNodeNames(preStartStore, deploymentState.Resolved, m.Nodes)
-	verifiedBackend, err := m.preflight(ctx, profile, resolvedNodeSelection(deploymentState.Resolved, selected))
+	backend, err := m.preflight(ctx, profile, resolvedNodeSelection(deploymentState.Resolved, selected))
 	if err != nil {
 		return Status{}, err
 	}
 	if selectionErr != nil {
 		return Status{}, selectionErr
 	}
-	backend = verifiedBackend
 	shareBinaries, err := selectedShareInvocationBinaries(preStartStore, deploymentState.Resolved, selected)
 	if err != nil {
 		return Status{}, err
@@ -1855,6 +1862,13 @@ func (m Manager) startExisting(ctx context.Context, deploymentValue Deployment, 
 	defer func() {
 		returnErr = lock.JoinRelease(returnErr, deploymentLock, "deployment start lock")
 	}()
+	return m.startExistingLocked(ctx, deploymentValue, deploymentState, backend, selected)
+}
+
+// The caller holds the deployment lock across disk changes and the subsequent boot.
+func (m Manager) startExistingLocked(ctx context.Context, deploymentValue Deployment, deploymentState state.DeploymentState, backend Backend, selected []string) (Status, error) {
+	preStartStore := state.Store{Root: deploymentValue.Root}
+	selectedSet := nodeNameSet(selected)
 	sshPath, err := m.lookPath("ssh")
 	if err != nil {
 		return Status{}, err
@@ -1938,7 +1952,7 @@ func (m Manager) Start(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return m.startExisting(ctx, deploymentValue, deploymentState, profile, Backend{})
+	return m.startExisting(ctx, deploymentValue, deploymentState, profile)
 }
 
 func (m Manager) Stop(ctx context.Context) (_ Status, returnErr error) {
@@ -2115,6 +2129,22 @@ func (m Manager) Plan(ctx context.Context, requested spec.Resolved) (LifecyclePl
 	}
 	diff := diffResolved(deploymentState.Resolved, requested, hasState)
 	result.Changes = describeChanges(deploymentState.Resolved, requested, selectedSet)
+	resizeSet := nodeNameSet(diff.Resize)
+	for _, name := range selected {
+		node, err := store.ReadNode(name)
+		if err != nil || node.RootResize == nil {
+			continue
+		}
+		target, exists := resizeTargetNode(requested, name)
+		if exists && target.RootDisk != node.RootResize.Target {
+			result.Blocked = fmt.Sprintf("node %s root growth is pending; retry resize -D %dB %s", name, node.RootResize.Target, name)
+		}
+		result.Changes = append(result.Changes, fmt.Sprintf("%s root growth pending (%s)", name, node.RootResize.Stage))
+		if _, exists := resizeSet[name]; !exists {
+			diff.Resize = append(diff.Resize, name)
+			resizeSet[name] = struct{}{}
+		}
+	}
 	if len(m.Nodes) == 0 {
 		result.Create = append([]string(nil), diff.Create...)
 		result.Recreate = append([]string(nil), diff.Changed...)

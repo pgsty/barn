@@ -47,6 +47,21 @@ func resizeTargets(current, desired spec.Resolved, selected []string, store stat
 		_, readErr := store.ReadNode(name)
 		return readErr == nil
 	}
+	for _, target := range merged.Nodes {
+		before, exists := resizeTargetNode(current, target.Name)
+		if exists && target.RootDisk > before.RootDisk && target.RootDisk%512 != 0 {
+			return spec.Resolved{}, nil, fmt.Errorf("node %s root target must align to 512 bytes", target.Name)
+		}
+		if exists && target.RootDisk < before.RootDisk {
+			return spec.Resolved{}, nil, fmt.Errorf("node %s root disk cannot shrink from %d to %d bytes", target.Name, before.RootDisk, target.RootDisk)
+		}
+		if _, included := nodeNameSet(selected)[target.Name]; len(selected) > 0 && !included {
+			continue
+		}
+		if node, err := store.ReadNode(target.Name); err == nil && node.RootResize != nil && node.RootResize.Target != target.RootDisk {
+			return spec.Resolved{}, nil, fmt.Errorf("node %s root growth is pending; retry barn resize -D %dB %s", target.Name, node.RootResize.Target, target.Name)
+		}
+	}
 	diff := diffResolved(current, merged, hasState)
 	if diff.EnvelopeChanged {
 		return spec.Resolved{}, nil, failure.WithNext(fmt.Errorf("%w: deployment-level settings changed", ErrRecreateRequired), "barn recreate")
@@ -55,7 +70,7 @@ func resizeTargets(current, desired spec.Resolved, selected []string, store stat
 		return spec.Resolved{}, nil, failure.WithNext(fmt.Errorf("%w: %s", ErrNodesRemoved, strings.Join(diff.Removed, ", ")), "barn destroy "+strings.Join(diff.Removed, " "))
 	}
 	if len(diff.Changed) != 0 {
-		return spec.Resolved{}, nil, fmt.Errorf("%w: node(s) %s changed outside CPU and memory; use `barn recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))
+		return spec.Resolved{}, nil, fmt.Errorf("%w: node(s) %s changed outside CPU, memory and root disk growth; use `barn recreate %s`", ErrRecreateRequired, strings.Join(diff.Changed, ", "), strings.Join(diff.Changed, " "))
 	}
 	if len(diff.Create) != 0 {
 		return spec.Resolved{}, nil, failure.WithNext(fmt.Errorf("resize cannot create node(s): %s", strings.Join(diff.Create, ", ")), "barn up "+strings.Join(diff.Create, " "))
@@ -68,7 +83,7 @@ func resizeTargets(current, desired spec.Resolved, selected []string, store stat
 	}
 	resizeSet := nodeNameSet(diff.Resize)
 	for _, name := range selected {
-		if node, err := store.ReadNode(name); err == nil && node.ResizeIncomplete {
+		if node, err := store.ReadNode(name); err == nil && (node.ResizeIncomplete || node.RootResize != nil) {
 			if _, exists := resizeSet[name]; !exists {
 				diff.Resize = append(diff.Resize, name)
 				resizeSet[name] = struct{}{}
@@ -114,6 +129,7 @@ func resizeDeploymentState(current state.DeploymentState, name string, target sp
 		}
 		updated.Resolved.Nodes[index].CPUs = target.CPUs
 		updated.Resolved.Nodes[index].Memory = target.Memory
+		updated.Resolved.Nodes[index].RootDisk = target.RootDisk
 		found = true
 		break
 	}
@@ -369,7 +385,7 @@ func (m Manager) resizeOnline(ctx context.Context, desired spec.Node) (applied, 
 	// values first also avoids requiring guest SSH just to discover that a
 	// previously hotplugged VM must be restarted.
 	currentDefinition, ok := resizeTargetNode(deploymentState.Resolved, node.Node)
-	if !ok || desired.CPUs < currentDefinition.CPUs || desired.Memory < currentDefinition.Memory {
+	if !ok || node.RootResize != nil || desired.RootDisk != currentDefinition.RootDisk || desired.CPUs < currentDefinition.CPUs || desired.Memory < currentDefinition.Memory {
 		return false, false, nil
 	}
 	if !resizeCanBeOnline(resources, desired) {
@@ -480,6 +496,10 @@ func (m Manager) resizeOffline(ctx context.Context, desired spec.Node) (string, 
 		if node.Phase != state.Running && node.Phase != state.Stopped && node.Phase != state.Prepared {
 			return interruptedPhaseError(node)
 		}
+		definition, exists := resizeTargetNode(deploymentState.Resolved, desired.Name)
+		if !exists || node.RootResize != nil || definition.RootDisk != desired.RootDisk {
+			return errors.New("root size changed before CPU/memory resize; retry the command")
+		}
 		wasRunning = node.Phase == state.Running
 		if wasRunning {
 			stopper := m
@@ -517,10 +537,10 @@ func (m Manager) resizeOffline(ctx context.Context, desired spec.Node) (string, 
 	return "offline restart", nil
 }
 
-// Resize applies CPU and memory changes from the desired inventory. A running
+// Resize applies CPU/memory changes and root disk growth from the desired inventory. A running
 // VM is hotplugged when its invocation has capacity and the guest confirms
 // the new resources; otherwise the same VM is stopped and started with a
-// patched invocation. Disks, UUIDs, and SSH keys are never recreated.
+// patched invocation. Root growth is offline; UUIDs, data and SSH keys are retained.
 func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, error) {
 	if err := validateResolved(requested); err != nil {
 		return Status{}, err
@@ -553,17 +573,17 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 	resourceChange := func(name string) string {
 		before, _ := resizeTargetNode(current.Resolved, name)
 		after, _ := resizeTargetNode(merged, name)
-		return fmt.Sprintf("CPU %d -> %d, RAM %.1f -> %.1f GiB", before.CPUs, after.CPUs, float64(before.Memory)/float64(spec.GiB), float64(after.Memory)/float64(spec.GiB))
+		return fmt.Sprintf("CPU %d -> %d, RAM %.1f -> %.1f GiB", before.CPUs, after.CPUs, float64(before.Memory)/float64(spec.GiB), float64(after.Memory)/float64(spec.GiB)) + fmt.Sprintf(", root %.1f -> %.1f GiB", float64(before.RootDisk)/float64(spec.GiB), float64(after.RootDisk)/float64(spec.GiB))
 	}
 	for _, name := range selectedNames {
 		if _, changing := resizeSet[name]; changing {
 			reportNode(name, "queued", resourceChange(name), false)
 		} else {
-			reportNode(name, "unchanged", "CPU and memory already match", true)
+			reportNode(name, "unchanged", "CPU, memory and root disk already match", true)
 		}
 	}
 	if len(resizeNames) == 0 {
-		return m.statusFor(ctx, deploymentValue, "CPU and memory already match the inventory")
+		return m.statusFor(ctx, deploymentValue, "CPU, memory and root disk already match the inventory")
 	}
 	if len(selected) != 0 {
 		selectedResize := 0
@@ -573,7 +593,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 			}
 		}
 		if selectedResize == 0 {
-			return m.statusFor(ctx, deploymentValue, "selected nodes already match the inventory CPU and memory")
+			return m.statusFor(ctx, deploymentValue, "selected nodes already match the inventory CPU, memory and root disk")
 		}
 	}
 	var online, offline, stopped []string
@@ -591,6 +611,28 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 			continue
 		}
 		reportNode(name, "resizing", resourceChange(name), false)
+		before, _ := resizeTargetNode(current.Resolved, name)
+		node, readErr := (state.Store{Root: deploymentValue.Root}).ReadNode(name)
+		if readErr != nil {
+			failures = append(failures, resizeNodeFailure(name, readErr))
+			reportNode(name, "failed", readErr.Error(), true)
+			continue
+		}
+		if target.RootDisk != before.RootDisk || node.RootResize != nil {
+			mode, err := m.resizeRoot(ctx, target)
+			if err != nil {
+				failures = append(failures, resizeNodeFailure(name, err))
+				reportNode(name, "failed", err.Error(), true)
+				continue
+			}
+			if mode == "offline restart" {
+				offline = append(offline, name)
+			} else {
+				stopped = append(stopped, name)
+			}
+			reportNode(name, "resized", resourceChange(name)+", "+mode, true)
+			continue
+		}
 		applied, guestChanged, err := m.resizeOnline(ctx, target)
 		if err != nil {
 			if guestChanged && ctx.Err() == nil {

@@ -35,9 +35,8 @@ before any mutation and requests privilege only at the first privileged step.`,
 		},
 	}
 	command.Flags().StringVarP(&options.FilePath, "file", "f", "", "inventory to prepare (cannot be combined with a template)")
+	addVMFlags(command, &options.vmInputs, true)
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "generated template network as a canonical RFC1918 IPv4 /24")
-	command.Flags().StringVarP(&options.Image, "image", "I", "", "image reference for a generated template, such as el9, u24:stable, or u24@version")
-	addArchitectureFlag(command, &options.Arch, "guest architecture written into a generated template")
 	command.Flags().StringVarP(&options.Repo, "repo", "r", "", "image repository URL or local directory, also used for socket_vmnet; overrides --mirror and $BARN_REPO")
 	command.Flags().BoolVar(&options.Mirror, "mirror", false, mirrorFlagHelp)
 	command.Flags().StringVarP(&options.Mode, "mode", "m", options.Mode, "macOS fixed-IP network backend: host or shared")
@@ -45,7 +44,6 @@ before any mutation and requests privilege only at the first privileged step.`,
 	command.Flags().BoolVarP(&options.Yes, "yes", "y", false, "accept the one-time setup plan (required without a terminal)")
 	command.MarkFlagsMutuallyExclusive("dry-run", "yes")
 	_ = command.RegisterFlagCompletionFunc("mode", enumFlagCompletion("host", "shared"))
-	_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
 	noFileCompletions(command, "cidr", "mirror", "dry-run", "yes")
 	command.RunE = func(command *cobra.Command, arguments []string) error {
 		profileName := ""
@@ -93,12 +91,10 @@ inventory to stdout for inspection or composition.`,
 			return collectCommandOutcome(command.Context(), outcome)
 		},
 	}
+	addVMFlags(command, &options.vmInputs, true)
 	command.Flags().StringVarP(&options.CIDR, "cidr", "c", "", "rebase the generated template to a canonical RFC1918 IPv4 /24")
-	command.Flags().StringVarP(&options.Image, "image", "I", "", "image reference for generated nodes, such as el9, u24:stable, or u24@version")
-	addArchitectureFlag(command, &options.Arch, "guest architecture written into vm_arch")
 	command.Flags().StringVarP(&options.Output, "output", "o", "", "write to this path instead of ./barn.yml; '-' writes to stdout")
 	command.Flags().BoolVar(&options.Force, "force", false, "overwrite an existing inventory file")
-	_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
 	noFileCompletions(command, "cidr", "force")
 	return command
 }
@@ -110,8 +106,8 @@ func newValidateCommand(stdout, stderr io.Writer) *cobra.Command {
 		Short: "Validate and resolve a Barn configuration",
 		Long: `Parse a Pigsty-compatible inventory, validate every consumed Barn field,
 and print its source and node count. Unlike lifecycle commands, validate
-never falls back to the already-applied deployment state. Use --image/-I and
---arch/-A to validate command overrides without editing the inventory.`,
+never falls back to the already-applied deployment state. Specification flags
+-I/-A/-C/-M/-S/-D override environment and inventory values for this validation.`,
 		Example: `  barn validate                # discover ` + configDiscoverySummary + `
   barn validate -f pigsty.yml  # validate one explicit inventory
   barn validate -I u24 -A arm64 # validate temporary image and architecture choices
@@ -126,10 +122,8 @@ never falls back to the already-applied deployment state. Use --image/-I and
 			return collectCommandOutcome(command.Context(), outcome)
 		},
 	}
+	addVMFlags(command, &options.vmInputs, true)
 	command.Flags().StringVarP(&options.ConfigPath, "file", "f", "", "inventory to validate; defaults to the discovered "+configDiscoverySummary)
 	command.Flags().StringVarP(&options.Repository, "repo", "r", "", "image repository whose catalog checks the images; overrides $BARN_REPO")
-	command.Flags().StringVarP(&options.Image, "image", "I", "", "override vm_image/vm_version for all nodes during validation")
-	addArchitectureFlag(command, &options.Arch, "override deployment vm_arch during validation")
-	_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
 	return command
 }

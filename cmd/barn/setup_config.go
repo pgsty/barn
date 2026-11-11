@@ -34,6 +34,13 @@ func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
 	if err != nil {
 		return selection
 	}
+	if len(selection.File.Nodes) == 0 {
+		file, resolved, loadErr := loadSetupFile(selection.ConfigPath)
+		if loadErr != nil {
+			return selection
+		}
+		selection.File, selection.Resolved = file, resolved
+	}
 	// Recognize only byte-for-byte generated templates, preserving both explicit
 	// choices if network setup needs to move a fresh lab to another subnet.
 	images := []string{""}
@@ -53,10 +60,11 @@ func recognizeDefaultSetupTemplate(selection setupSelection) setupSelection {
 	for _, profile := range config.TemplateNames() {
 		for _, selectedImage := range images {
 			for _, selectedArch := range []string{"", selection.File.Arch} {
-				template, err := config.TemplateWithOptions(profile, "", config.TemplateOptions{Image: selectedImage, Arch: selectedArch})
+				template, err := config.TemplateWithOptions(profile, "", config.TemplateOptions{Image: selectedImage, Arch: selectedArch, Resources: templateResourceOverrides(selection.File.Resources)})
 				if err == nil && bytes.Equal(template, data) {
 					selection.Profile, selection.Generated = profile, true
-					selection.Image, selection.Arch = selectedImage, selectedArch
+					selection.Image, selection.Arch = selection.File.Nodes[0].Image, selection.File.Arch
+					selection.Inputs = templateVMInputs(selection.File.Resources, selection.Image, selection.Arch)
 					selection.OriginalConfig = data
 					return selection
 				}

@@ -38,7 +38,7 @@ func printItemResult(out io.Writer, name, state, message string) {
 	}
 }
 
-func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.Resolved) {
+func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.Resolved, applied ...*spec.Resolved) {
 	actions := make(map[string]string)
 	for _, group := range []struct {
 		names  []string
@@ -51,8 +51,23 @@ func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.R
 		}
 	}
 	addresses := make(map[string]string)
+	specs := make(map[string]string)
+	roots := make(map[string]string)
+	if len(applied) > 0 && applied[0] != nil {
+		for _, node := range applied[0].Nodes {
+			addresses[node.Name], specs[node.Name], roots[node.Name] = node.Address, compactSpec(node.CPUs, node.Memory), planSize(node.RootDisk)
+		}
+	}
 	for _, node := range resolved.Nodes {
 		addresses[node.Name] = node.Address
+		value, root := compactSpec(node.CPUs, node.Memory), planSize(node.RootDisk)
+		if old := specs[node.Name]; old != "" && old != value {
+			value = old + " → " + value
+		}
+		if old := roots[node.Name]; old != "" && old != root {
+			root = old + " → " + root
+		}
+		specs[node.Name], roots[node.Name] = value, root
 	}
 	rows := make([][]string, 0, len(plan.Nodes)+len(plan.Missing))
 	seen := make(map[string]bool)
@@ -79,9 +94,16 @@ func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.R
 		if address == "" {
 			address = "-"
 		}
-		rows = append(rows, []string{name, address, state, message})
+		value, root := specs[name], roots[name]
+		if value == "" {
+			value = "-"
+		}
+		if root == "" {
+			root = "-"
+		}
+		rows = append(rows, []string{name, address, value, root, state, message})
 	}
-	printTable(out, []string{"NAME", "ADDRESS", "STATE", "MESSAGE"}, rows, 2)
+	printTable(out, []string{"NAME", "ADDRESS", "SPEC", "ROOT", "STATE", "MESSAGE"}, rows, 4)
 }
 
 func planSummary(plan privatevm.LifecyclePlan) (string, string) {

@@ -753,7 +753,7 @@ func lifecycleMessage(command string) string {
 	case "restart":
 		return "Restarting the deployment"
 	case "resize":
-		return "Applying CPU and memory changes"
+		return "Applying CPU/memory changes and root growth"
 	case "reload":
 		return "Stopping, re-reading the inventory, and converging the deployment"
 	case "recreate":

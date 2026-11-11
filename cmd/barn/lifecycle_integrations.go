@@ -25,6 +25,7 @@ type lifecycleIntegrator interface {
 func reportLifecycleNodes(report activity.Reporter, nodes []privatevm.NodeStatus, event activity.Event) {
 	for _, node := range nodes {
 		event.Node, event.Address = node.Name, node.Address
+		event.CPUs, event.Memory = node.CPUs, node.Memory
 		report.Report(event)
 	}
 }

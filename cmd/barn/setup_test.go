@@ -108,7 +108,7 @@ func TestResolveSetupSelectionRejectsImageForExistingInventory(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolveSetupSelectionWithOverrides("", path, "", "el9", "", directory); err == nil || !strings.Contains(err.Error(), "--image/--arch apply only") {
+	if _, err := resolveSetupSelectionWithOverrides("", path, "", "el9", "", directory); err == nil || !strings.Contains(err.Error(), "apply only to a generated lab template") {
 		t.Fatalf("existing inventory accepted image override: %v", err)
 	}
 }

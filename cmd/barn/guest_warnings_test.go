@@ -45,3 +45,11 @@ func TestDiskResetIsDisclosedWithoutClaimingUnchangedOrLimited(t *testing.T) {
 		t.Fatal(out.String())
 	}
 }
+
+func TestStoppedRootResizeWarningDoesNotRecommendUp(t *testing.T) {
+	var output bytes.Buffer
+	printGuestLimitations(&output, privatevm.Status{Nodes: []privatevm.NodeStatus{{Name: "meta", State: state.Stopped, Warnings: []state.GuestWarning{{Stage: "root-resize", Detail: "retry barn resize -D 16GiB meta"}}}}}, "", lifecycleRetryOptions{})
+	if !strings.Contains(output.String(), "barn resize -D 16GiB meta") || strings.Contains(output.String(), "barn up") {
+		t.Fatalf("root recovery hint: %s", &output)
+	}
+}

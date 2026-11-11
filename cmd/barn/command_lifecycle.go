@@ -31,7 +31,7 @@ barn.yml if no inventory or applied deployment exists. Use init to customize
 the inventory first. For unattended preparation, run setup --yes before up.
 
 Changed node definitions and nodes removed from the inventory are reported,
-never applied: use resize for CPU or memory changes, recreate for other node
+never applied: use resize for CPU/memory changes or root growth, recreate for other node
 changes, and destroy for removals. A missing host share fails only its node;
 restore the original directory or mount before retrying it.`,
 		example: `  barn up                           # start your first VM, or continue the current lab
@@ -61,7 +61,7 @@ inventory. Use reload when the inventory may contain new nodes.`,
 	},
 	"reload": {
 		long: `Stop the selected nodes, re-read the inventory, and run up. New nodes are
-created; CPU or memory changes need resize, other changed definitions need
+created; CPU/memory changes or root growth need resize, other changed definitions need
 recreate, and removed nodes still need destroy. These changes are refused
 before anything stops.`,
 		example: `  barn reload                       # re-read the discovered inventory
@@ -70,15 +70,19 @@ before anything stops.`,
   barn reload meta                  # reload one selected node`,
 	},
 	"resize": {
-		long: `Apply CPU and memory changes from the desired inventory to existing nodes.
-Edit vm_cpu or vm_mem first, then run resize. Barn hot-plugs increases when
-the running QEMU instance has capacity reserved; decreases and older VMs use
-an automatic stop and start while preserving the VM identity and disks.
-Resize never changes images, disks, networking, or shared directories; use
-recreate for those changes. The inventory is never modified by this command.`,
-		example: `  barn resize meta                # apply the edited resources to meta
-  barn resize -f pigsty.yml         # apply resource changes for all nodes
-  barn --json resize meta            # inspect structured result`,
+		long: `Apply CPU/memory changes and grow the existing root disk.
+CPU and memory increases use hot-plug when available, otherwise stop/start.
+--disk/-D is an absolute root size: growth only, never shrink. Root growth
+stops QEMU, expands the image, boots the guest, grows its last plain ext4/XFS
+root partition and filesystem, and verifies capacity. An initially stopped
+VM temporarily boots and returns to stopped. Repeat the same target after
+an interruption; VM identity, data and SSH keys are retained.
+Images, data disks, networking and shares require recreate. This command
+does not modify the inventory.`,
+		example: `  barn resize -C 2 -M 4GiB -S 1 meta
+  barn resize -D 128GiB meta        # grow root in place, preserving data
+  barn resize -f pigsty.yml         # apply inventory resource changes
+  barn --json resize meta`,
 	},
 	"recreate": {
 		long: `Destroy and recreate selected nodes from the desired inventory.
@@ -175,13 +179,13 @@ func newLifecycleCommand(name, short string, stdout, stderr io.Writer) *cobra.Co
 		noFileCompletions(command, "force", "yes", "delete-persistent", "purge")
 	}
 	if lifecycleReadsConfig(name) {
-		command.Flags().StringVarP(&options.Image, "image", "I", "", "override vm_image/vm_version for selected nodes without editing the inventory")
-		addArchitectureFlag(command, &options.Arch, "override deployment vm_arch")
-		_ = command.RegisterFlagCompletionFunc("image", imageAliasCompletion)
+		addVMFlags(command, &options.vmInputs, true)
 		command.PreRunE = validateOverrideFlags
 		command.Long += `
 
-Use --image/-I and --arch/-A to override the inventory for this command.
+Specification flags override BARN_* environment variables and the inventory.
+CPU and memory are base values multiplied once by --scale; use --scale 1
+for exact final resources. Disk size is absolute and never scales.
 Image overrides apply to selected nodes; architecture is deployment-wide.
 To keep these choices, set vm_image and vm_arch in the inventory. Cross-architecture
 guests use slower QEMU TCG emulation. Up never replaces existing VM disks;

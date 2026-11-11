@@ -9,6 +9,8 @@ import "time"
 // for transfers and verification passes; zero values keep ordinary stage
 // updates compact.
 type Event struct {
+	CPUs         int
+	Memory       int64
 	Phase        string
 	Message      string
 	Source       string

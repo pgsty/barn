@@ -42,18 +42,26 @@ func checkInventoryImages(ctx context.Context, resolved spec.Resolved, repositor
 
 func lookupInventoryImages(ctx context.Context, session *image.CatalogSession, resolved spec.Resolved) error {
 	arch := lifecycleImageArch(resolved)
-	checked := make(map[string]bool)
+	checked := make(map[string]image.Entry)
 	for _, node := range resolved.Nodes {
 		reference := node.Image
 		if reference == "" {
 			reference = resolved.Image
 		}
-		if checked[reference] || image.IsLocalAlias(reference) {
+		if image.IsLocalAlias(reference) {
 			continue
 		}
-		checked[reference] = true
-		if _, err := session.LookupArch(ctx, reference, arch); err != nil {
-			return fmt.Errorf("host %s (%s): %w", node.Address, node.Name, err)
+		entry, ok := checked[reference]
+		if !ok {
+			var err error
+			entry, err = session.LookupArch(ctx, reference, arch)
+			if err != nil {
+				return fmt.Errorf("host %s (%s): %w", node.Address, node.Name, err)
+			}
+			checked[reference] = entry
+		}
+		if node.RootDisk < entry.VirtualSize {
+			return fmt.Errorf("host %s (%s): root disk %s is smaller than image virtual size %s", node.Address, node.Name, planSize(node.RootDisk), planSize(entry.VirtualSize))
 		}
 	}
 	return nil

@@ -188,7 +188,13 @@ func (m Manager) Grow(ctx context.Context, path string, targetSize int64, allowB
 		return Info{}, false, fmt.Errorf("will not shrink a disk from %d to %d bytes", before.VirtualSize, targetSize)
 	}
 	if before.VirtualSize == targetSize {
-		return before, false, nil
+		// A previous resize may have succeeded but lost its response before
+		// fsync. A retry must make that outcome durable too.
+		handle, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			return Info{}, false, err
+		}
+		return before, false, errors.Join(handle.Sync(), handle.Close())
 	}
 	if _, err := m.Runner.Run(ctx, m.QEMUImg, "resize", "-f", "qcow2", path, strconv.FormatInt(targetSize, 10)); err != nil {
 		return Info{}, false, fmt.Errorf("grow runtime qcow2 disk: %w", err)
