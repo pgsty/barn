@@ -4,9 +4,20 @@ Notable user-visible changes.
 
 ## Unreleased
 
-## 1.2.0 — Unreleased
+## 1.2.0 — 2026-11-12
 
-Prepared on 2026-11-11; publication is pending.
+Barn 1.2.0 adds resource overrides, recoverable root-disk growth, configurable
+lifecycle concurrency, and inventory-based host names.
+
+- Change omitted Linux CPU/memory defaults from 2 vCPUs / 4 GiB to 1 vCPU /
+  2 GiB. This also affects existing inventories that omit these fields. Set
+  `vm_cpu: 2` and `vm_mem: 4GiB` explicitly to retain the earlier defaults,
+  then inspect `barn plan` before applying changes. Existing applied VMs keep
+  their resources until a resource-changing operation is requested.
+- Add `vm_hosts` in `all.vars` for host-side service names and
+  `barn hosts install -f INVENTORY` to preview or publish inventory names before
+  creating VMs. Merge identical mappings case-insensitively and reject conflicting
+  addresses. These mappings do not change VM identity or guest configuration.
 
 - Require Go 1.27.4 for source builds, CI, and release artifacts. Refresh all
   direct and indirect requirements to their latest stable versions as of

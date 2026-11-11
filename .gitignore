@@ -1,4 +1,7 @@
 .DS_Store
+/.idea/
+# Local development inventory; examples live outside the repository root.
+/barn.yml
 /barn
 /barn-hosts-helper
 /catalogsign

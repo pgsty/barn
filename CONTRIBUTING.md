@@ -142,8 +142,12 @@ The Debian 12/13 recipe installs digest-locked XFS packages and generates
 `en_US.UTF-8`, while retaining `C.UTF-8` as the default. Both locale properties
 are checked in the guest and in the returned normalization marker. This is part
 of the recipe, including future base-image refreshes; do not apply it only to a
-published binary. Ubuntu entries currently retain the dated Canonical cloud
-image bytes and receive deployment-specific configuration through cloud-init.
+published binary. The catalog's Ubuntu 22.04/24.04/26.04 entries also use
+offline-normalized images with the `dba` account, UID/GID 88, both locale
+checks, and the upstream XFS tools retained and verified. Their provenance is
+recorded in `internal/image/default-catalog.json`; they are built directly
+through `pipeline.py`, outside the eight-image `build-official.py` matrix.
+Deployment-specific configuration still runs through cloud-init.
 Refreshes use new versioned filenames, retain older catalog versions and cached
 images referenced by deployments, and calculate catalog hashes from the final
 artifact after customization. Promote only after native startup and SSH checks
