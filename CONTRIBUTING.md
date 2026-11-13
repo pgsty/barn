@@ -68,6 +68,10 @@ image-pipeline boundary tests, installer tests, maintenance ownership, and the
 dependency-license inventory. It must
 pass before a pull request is ready.
 
+The Intel Mac CI job builds the CLI and hosts helper on `macos-15-intel`
+and checks that both executables start. Intel Mac coverage is limited to
+build and startup checks; the platform remains Tier 2.
+
 The toolchain is pinned in `packaging/toolchain.env` and CI asserts the exact
 versions, so install those versions locally:
 
