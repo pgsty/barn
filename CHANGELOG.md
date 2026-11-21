@@ -4,6 +4,11 @@ Notable user-visible changes.
 
 ## Unreleased
 
+- Mark `el8` (Rocky Linux 8) and `u22` (Ubuntu 22.04 LTS) as `deprecated` as
+  support is phased out. Existing deployments and compatibility tests remain
+  runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,
+  `u24`, or `u26` for new labs.
+
 ## 1.2.0 — 2026-11-12
 
 Barn 1.2.0 adds resource overrides, recoverable root-disk growth, configurable

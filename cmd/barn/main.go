@@ -152,9 +152,12 @@ func printWarnings(out io.Writer, warnings []string) {
 }
 
 func printImageStatusWarning(out io.Writer, entry image.Entry) {
-	if entry.Status == "deprecated" {
+	switch {
+	case entry.Status == "deprecated" && entry.Alias == "el7":
 		warningf(out, "image %s/%s (%s) is deprecated and EOL; use only for isolated compatibility testing", entry.Alias, entry.Arch, entry.Release)
-	} else if entry.Status != "" && entry.Status != "supported" {
+	case entry.Status == "deprecated":
+		warningf(out, "image %s/%s (%s) is deprecated and being phased out; prefer a current supported image", entry.Alias, entry.Arch, entry.Release)
+	case entry.Status != "" && entry.Status != "supported":
 		warningf(out, "image %s/%s (%s) has status %s, not supported; use only with the corresponding test/risk acceptance", entry.Alias, entry.Arch, entry.Release, entry.Status)
 	}
 }

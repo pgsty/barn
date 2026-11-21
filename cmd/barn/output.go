@@ -491,7 +491,7 @@ func statusStyle(value string) string {
 		style = ansiGreen
 	case lower == "error", lower == "fail", lower == "failed", lower == "invalid", lower == "missing", lower == "unsafe", lower == "unhealthy", lower == "conflict", strings.Contains(lower, "error"):
 		style = ansiRed
-	case lower == "untracked", lower == "warn", lower == "warning", lower == "stopped", lower == "cancelled", lower == "degraded", lower == "unsupported", lower == "partial", lower == "blocked", lower == "limited", lower == "incomplete":
+	case lower == "untracked", lower == "warn", lower == "warning", lower == "stopped", lower == "cancelled", lower == "degraded", lower == "deprecated", lower == "testing", lower == "unsupported", lower == "partial", lower == "blocked", lower == "limited", lower == "incomplete":
 		style = ansiYellow
 	}
 	return style

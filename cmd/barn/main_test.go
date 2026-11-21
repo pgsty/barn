@@ -172,7 +172,18 @@ func TestTestingImageWarningIsProminent(t *testing.T) {
 	}
 	printImageStatusWarning(&output, image.Entry{Alias: "el7", Arch: "amd64", Release: "7.9", Status: "deprecated"})
 	if !strings.Contains(output.String(), "deprecated and EOL") {
-		t.Fatalf("deprecated image warning = %q", output.String())
+		t.Fatalf("deprecated EOL image warning = %q", output.String())
+	}
+	for _, alias := range []string{"el8", "u22"} {
+		output.Reset()
+		entry, err := image.EmbeddedCatalog().Entry(alias, "arm64")
+		if err != nil {
+			t.Fatalf("lookup %s: %v", alias, err)
+		}
+		printImageStatusWarning(&output, entry)
+		if !strings.Contains(output.String(), "deprecated and being phased out") {
+			t.Fatalf("%s warning = %q", alias, output.String())
+		}
 	}
 }
 

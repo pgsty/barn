@@ -54,11 +54,13 @@ func TestEmbeddedCatalogSupportPolicy(t *testing.T) {
 	}{
 		{"d12", "amd64", "supported"},
 		{"d13", "arm64", "supported"},
-		{"el8", "amd64", "supported"},
+		{"el8", "amd64", "deprecated"},
+		{"el8", "arm64", "deprecated"},
 		{"el9@9.8", "arm64", "supported"},
 		{"el10@10.2", "arm64", "supported"},
 		{"el7", "amd64", "deprecated"},
-		{"u22", "arm64", "supported"},
+		{"u22", "amd64", "deprecated"},
+		{"u22", "arm64", "deprecated"},
 		{"u24", "amd64", "supported"},
 		{"u26", "arm64", "supported"},
 	} {

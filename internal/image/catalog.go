@@ -131,9 +131,22 @@ func strictCatalog(data []byte) (Catalog, error) {
 
 // Status is advisory rather than an activation switch: supported suppresses
 // risk warnings; testing and unknown remain runnable but warn; deprecated gets
-// the stronger EOL warning.
+// the phase-out or EOL warning.
 func validStatus(value string) bool {
 	return value == "supported" || value == "testing" || value == "deprecated" || value == "unknown"
+}
+
+// Legacy built-in families remain runnable for compatibility testing while
+// reporting deprecated status, even when an older signed catalog revision
+// still records their artifact status as supported.
+func effectiveStatus(canonical, status string) string {
+	switch canonical {
+	case "el7", "el8", "u22":
+		if status == "" || status == "supported" {
+			return "deprecated"
+		}
+	}
+	return status
 }
 
 func validBoot(value string) bool { return value == "bios" || value == "uefi" }
@@ -450,6 +463,7 @@ func (c Catalog) Entry(reference, arch string) (Entry, error) {
 	if status == "" {
 		status = version.Status
 	}
+	status = effectiveStatus(canonical, status)
 	provenance := artifact.Provenance
 	if provenance == "" {
 		provenance = version.Provenance

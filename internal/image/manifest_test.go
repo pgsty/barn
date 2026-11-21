@@ -124,8 +124,11 @@ func TestEmbeddedFormalGuestMatrixExact(t *testing.T) {
 			t.Errorf("%s metadata mismatch:\n got %#v\nwant %#v", key, entry, want)
 		}
 		wantBoot, wantStatus := "uefi", "supported"
-		if entry.Alias == "el7" {
+		switch entry.Alias {
+		case "el7":
 			wantBoot, wantStatus = "bios", "deprecated"
+		case "el8", "u22":
+			wantStatus = "deprecated"
 		}
 		if entry.Format != "qcow2" || entry.Boot != wantBoot || entry.Status != wantStatus || strings.TrimSpace(entry.Provenance) == "" {
 			t.Errorf("%s incomplete policy fields: %#v", key, entry)
