@@ -126,3 +126,99 @@ func TestNamedImageImportRecordsTheGuestArchitecture(t *testing.T) {
 		t.Fatal("foreign image was also labelled as native")
 	}
 }
+
+func TestImageShorthandAndArchSpecificAliasesEndToEnd(t *testing.T) {
+	t.Setenv("BARN_HOME", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("BARN_REPO", "")
+	t.Setenv("BARN_IMAGE", "")
+	t.Setenv("BARN_ARCH", "")
+
+	for _, tc := range []struct {
+		query     string
+		wantAlias string
+		wantArch  string
+	}{
+		{"e", "el10", runtime.GOARCH},
+		{"el", "el10", runtime.GOARCH},
+		{"u", "u26", runtime.GOARCH},
+		{"d", "d13", runtime.GOARCH},
+		{"el10a", "el10", "arm64"},
+		{"el10x", "el10", "amd64"},
+		{"el10i", "el10", "amd64"},
+		{"u24a", "u24", "arm64"},
+		{"d12a", "d12", "arm64"},
+		{"ua", "u26", "arm64"},
+		{"ux", "u26", "amd64"},
+		{"da", "d13", "arm64"},
+		{"di", "d13", "amd64"},
+	} {
+		var out, errOut bytes.Buffer
+		if code := run([]string{"image", "info", tc.query, "--json"}, &out, &errOut); code != exitOK {
+			t.Fatalf("image info %s: %d %s %s", tc.query, code, &out, &errOut)
+		}
+		var info image.Info
+		if err := json.Unmarshal(out.Bytes(), &info); err != nil || info.Entry.Alias != tc.wantAlias || info.Entry.Arch != tc.wantArch {
+			t.Fatalf("image info %s = %s/%s (%v), want %s/%s", tc.query, info.Entry.Alias, info.Entry.Arch, err, tc.wantAlias, tc.wantArch)
+		}
+	}
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"image", "info", "el10a", "-A", "amd64"}, &out, &errOut); code != exitUsage || !strings.Contains(errOut.String(), "conflicts") {
+		t.Fatalf("expected conflict on image info el10a -A amd64: %d %s %s", code, &out, &errOut)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"init", "dual", "-I", "u24x", "-o", "-"}, &out, &errOut); code != exitOK {
+		t.Fatalf("init -I u24x: %d %s %s", code, &out, &errOut)
+	}
+	if !strings.Contains(out.String(), "vm_image: u24\n") || !strings.Contains(out.String(), "vm_arch: amd64\n") {
+		t.Fatalf("init -I u24x output = %s", &out)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"init", "-I", "el10a", "-A", "amd64", "-o", "-"}, &out, &errOut); code != exitUsage {
+		t.Fatalf("init accepted conflicting -I el10a -A amd64: %d %s %s", code, &out, &errOut)
+	}
+
+	invPath := filepath.Join(t.TempDir(), "barn.yml")
+	if err := os.WriteFile(invPath, []byte("all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10a }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-f", invPath, "--json"}, &out, &errOut); code != exitOK {
+		t.Fatalf("validate el10a inventory: %d %s %s", code, &out, &errOut)
+	}
+	var validated validateResult
+	if err := json.Unmarshal(out.Bytes(), &validated); err != nil || validated.Resolved.Arch != "arm64" {
+		t.Fatalf("validate resolved arch = %q (%v)", validated.Resolved.Arch, err)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-f", invPath, "-A", "amd64"}, &out, &errOut); code != exitUsage {
+		t.Fatalf("validate accepted conflicting -A amd64 against vm_image el10a: %d %s %s", code, &out, &errOut)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-f", invPath, "-I", "u26x", "--json"}, &out, &errOut); code != exitOK {
+		t.Fatalf("validate -I u26x override: %d %s %s", code, &out, &errOut)
+	}
+	if err := json.Unmarshal(out.Bytes(), &validated); err != nil || validated.Resolved.Arch != "amd64" {
+		t.Fatalf("validate -I u26x resolved arch = %q (%v)", validated.Resolved.Arch, err)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"__complete", "image", "info", "el10"}, &out, &errOut); code != exitOK {
+		t.Fatalf("completion failed: %d %s %s", code, &out, &errOut)
+	}
+	for _, want := range []string{"el10\n", "el10a\n", "el10i\n", "el10x\n"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("completion missing %q in %s", want, &out)
+		}
+	}
+}

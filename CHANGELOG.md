@@ -4,6 +4,12 @@ Notable user-visible changes.
 
 ## Unreleased
 
+- Add shorthand image family aliases (`e`/`el`/`rocky` → `el10`, `u`/`ubuntu` →
+  `u26`, `d`/`debian` → `d13`) and architecture-specific aliases (`a` suffix for
+  `arm64`, `x` and `i` suffixes for `amd64`, such as `el10a`, `el10x`, `el10i`,
+  `u24a`, `d12a`, `ea`, `ela`, `ua`, `da`) across `image info/pull`, `--image/-I`,
+  and `vm_image`. Conflicting explicit architectures fail closed; omitted image
+  defaults remain `u24`.
 - Mark `el8` (Rocky Linux 8) and `u22` (Ubuntu 22.04 LTS) as `deprecated` as
   support is phased out. Existing deployments and compatibility tests remain
   runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,

@@ -6,6 +6,7 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,8 @@ type NodeConfig struct {
 	Address     string        `yaml:"address,omitempty"`
 	HostAliases []string      `yaml:"host_aliases,omitempty"`
 	Image       string        `yaml:"image,omitempty"`
+	ImageArch   string        `yaml:"-" json:"-"`
+	ImageRaw    string        `yaml:"-" json:"-"`
 	CPUs        int           `yaml:"cpus,omitempty"`
 	Memory      Size          `yaml:"memory,omitempty"`
 	RootDisk    Size          `yaml:"root_disk,omitempty"`
@@ -122,16 +125,17 @@ type NodeConfig struct {
 }
 
 type File struct {
-	Resources []ResourceResolution `yaml:"-"`
-	directory string
-	Version   int                `yaml:"version"`
-	Name      string             `yaml:"name"`
-	Arch      string             `yaml:"arch,omitempty"`
-	Network   NetworkConfig      `yaml:"network"`
-	Defaults  DefaultsConfig     `yaml:"defaults,omitempty"`
-	SSH       SSHConfig          `yaml:"ssh,omitempty"`
-	Nodes     []NodeConfig       `yaml:"nodes"`
-	Hosts     []hostconfig.Entry `yaml:"-"`
+	Resources     []ResourceResolution `yaml:"-"`
+	directory     string
+	archFromImage bool
+	Version       int                `yaml:"version"`
+	Name          string             `yaml:"name"`
+	Arch          string             `yaml:"arch,omitempty"`
+	Network       NetworkConfig      `yaml:"network"`
+	Defaults      DefaultsConfig     `yaml:"defaults,omitempty"`
+	SSH           SSHConfig          `yaml:"ssh,omitempty"`
+	Nodes         []NodeConfig       `yaml:"nodes"`
+	Hosts         []hostconfig.Entry `yaml:"-"`
 }
 
 var (
@@ -214,14 +218,18 @@ func (f *File) defaults() {
 	if f.Arch == "" {
 		f.Arch = "native"
 	}
+	defaultArch := f.Arch == "native" || f.archFromImage
 	if f.Network.Mode == "" {
 		f.Network.Mode = "private"
 	}
 	if f.Defaults.Image == "" {
 		f.Defaults.Image = defaultImage
 	}
-	if normalized, err := image.CanonicalReference(f.Defaults.Image); err == nil {
-		f.Defaults.Image = normalized
+	var defaultImageArch, defaultImageRaw string
+	if resolved, err := image.ResolveReference(f.Defaults.Image); err == nil {
+		defaultImageRaw = f.Defaults.Image
+		defaultImageArch = resolved.Arch
+		f.Defaults.Image = resolved.Reference
 	}
 	if f.Defaults.CPUs == 0 {
 		f.Defaults.CPUs = 1
@@ -251,12 +259,24 @@ func (f *File) defaults() {
 			}
 		}
 	}
+	var firstImpliedArch string
 	for index := range f.Nodes {
 		node := &f.Nodes[index]
 		if node.Image == "" {
 			node.Image = f.Defaults.Image
-		} else if normalized, err := image.CanonicalReference(node.Image); err == nil {
-			node.Image = normalized
+			if node.ImageArch == "" && defaultImageArch != "" {
+				node.ImageArch = defaultImageArch
+				node.ImageRaw = defaultImageRaw
+			}
+		} else if resolved, err := image.ResolveReference(node.Image); err == nil {
+			if node.ImageArch == "" && resolved.Arch != "" {
+				node.ImageArch = resolved.Arch
+				node.ImageRaw = node.Image
+			}
+			node.Image = resolved.Reference
+		}
+		if firstImpliedArch == "" && node.ImageArch != "" {
+			firstImpliedArch = node.ImageArch
 		}
 		if node.CPUs == 0 {
 			node.CPUs = f.Defaults.CPUs
@@ -273,6 +293,36 @@ func (f *File) defaults() {
 			}
 		}
 	}
+	if defaultArch && firstImpliedArch != "" {
+		f.Arch = firstImpliedArch
+		f.archFromImage = true
+	}
+}
+
+// CheckArchOverride ensures an explicit CLI/environment architecture override
+// does not contradict any node's architecture-specific vm_image that remains
+// in effect.
+func (f File) CheckArchOverride(nodes []string, imageOverride, archOverride, archSource string) error {
+	if archOverride == "" {
+		return nil
+	}
+	source := strings.TrimSpace(strings.TrimPrefix(archSource, "CLI "))
+	if source == "" {
+		source = "--arch"
+	}
+	for index := range f.Nodes {
+		node := &f.Nodes[index]
+		replaced := imageOverride != "" && (len(nodes) == 0 || slices.Contains(nodes, node.Name))
+		if replaced || node.ImageArch == "" || node.ImageArch == archOverride {
+			continue
+		}
+		raw := node.ImageRaw
+		if raw == "" {
+			raw = node.Image
+		}
+		return failure.New(failure.Usage, fmt.Errorf("%s vm_image %q targets %s, which conflicts with %s %s", node.label(), raw, node.ImageArch, source, archOverride))
+	}
+	return nil
 }
 
 func (f *File) Validate() error {
@@ -320,11 +370,23 @@ func (f *File) Validate() error {
 		names[node.Name] = node.label()
 		allAliases[node.Name] = struct{}{}
 	}
+	var impliedArch, impliedOwner, impliedRaw string
 	for nodeIndex := range f.Nodes {
 		node := &f.Nodes[nodeIndex]
 		where := node.label()
 		if _, err := image.ParseReference(node.Image); err != nil {
 			return fmt.Errorf("%s image: %w", where, err)
+		}
+		if node.ImageArch != "" {
+			raw := node.ImageRaw
+			if raw == "" {
+				raw = node.Image
+			}
+			if impliedArch == "" {
+				impliedArch, impliedOwner, impliedRaw = node.ImageArch, where, raw
+			} else if impliedArch != node.ImageArch {
+				return fmt.Errorf("%s and %s declare different vm_arch values (%s vs %s); barn uses one guest architecture per deployment", impliedOwner, where, impliedArch, node.ImageArch)
+			}
 		}
 		if node.Control {
 			controls++
@@ -421,6 +483,9 @@ func (f *File) Validate() error {
 		if len(node.Shares) == 0 {
 			node.Shares = nil
 		}
+	}
+	if impliedArch != "" && !f.archFromImage && f.Arch != "native" && f.Arch != impliedArch {
+		return fmt.Errorf("%s vm_image %q targets %s, which conflicts with vm_arch %s", impliedOwner, impliedRaw, impliedArch, f.Arch)
 	}
 	if controls > 1 {
 		return errors.New("at most one control node is allowed")

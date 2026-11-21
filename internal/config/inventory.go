@@ -911,13 +911,19 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 		if err != nil {
 			return File{}, err
 		}
+		var resolvedImage image.ResolvedReference
 		if versionFound {
-			node.Image, err = image.CanonicalVersionReference(imageAlias, versionSelector)
+			resolvedImage, err = image.ResolveVersionReference(imageAlias, versionSelector)
 		} else {
-			node.Image, err = image.CanonicalReference(imageAlias)
+			resolvedImage, err = image.ResolveReference(imageAlias)
 		}
 		if err != nil {
 			return File{}, fmt.Errorf("host %s vm_image/vm_version: %w", host.address, err)
+		}
+		node.Image = resolvedImage.Reference
+		if resolvedImage.Arch != "" {
+			node.ImageArch = resolvedImage.Arch
+			node.ImageRaw = strings.TrimSpace(imageAlias)
 		}
 
 		if value, found, err := host.lookupString("vm_arch"); err != nil {
@@ -973,6 +979,9 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 				origin = "default"
 			}
 			resources.Sources[field] = origin
+		}
+		if node.ImageArch != "" && resources.Sources["arch"] == "default" {
+			resources.Sources["arch"] = resources.Sources["image"]
 		}
 		overrides := ResourceOverrides{}
 		if len(inputs.Nodes) == 0 || slices.Contains(inputs.Nodes, name) {

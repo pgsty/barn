@@ -291,22 +291,45 @@ func hasMovingReleasePath(pathname string) bool {
 	return false
 }
 
-func (c Catalog) canonicalImage(value string) (string, CatalogImage, error) {
+func (c Catalog) resolveBaseImage(value string) (string, CatalogImage, bool) {
+	if record, ok := c.Images[value]; ok {
+		return value, record, true
+	}
+	for _, name := range sortedKeys(c.Images) {
+		record := c.Images[name]
+		for _, alias := range record.Aliases {
+			if value == alias && !c.isSupersededCatalogAlias(name, alias) {
+				return name, record, true
+			}
+		}
+	}
+	if target, ok := builtinAliases[value]; ok && target.Arch == "" {
+		if record, exists := c.Images[target.Image]; exists {
+			return target.Image, record, true
+		}
+	}
+	return "", CatalogImage{}, false
+}
+
+func (c Catalog) resolveImage(value string) (string, string, CatalogImage, error) {
 	if value == "" {
 		value = c.Defaults.Image
 	}
 	value = strings.ToLower(strings.TrimSpace(value))
-	if record, ok := c.Images[value]; ok {
-		return value, record, nil
+	if name, record, ok := c.resolveBaseImage(value); ok {
+		return name, "", record, nil
 	}
-	for name, record := range c.Images {
-		for _, alias := range record.Aliases {
-			if value == alias {
-				return name, record, nil
-			}
+	if floating, ok := floatingShortArchAliases[value]; ok {
+		if name, record, exists := c.resolveBaseImage(floating.Image); exists {
+			return name, floating.Arch, record, nil
 		}
 	}
-	return "", CatalogImage{}, unknownSelection(fmt.Errorf("unknown image %q; available: %s", value, strings.Join(sortedKeys(c.Images), ", ")))
+	if target, ok := builtinAliases[value]; ok {
+		if record, exists := c.Images[target.Image]; exists {
+			return target.Image, target.Arch, record, nil
+		}
+	}
+	return "", "", CatalogImage{}, unknownSelection(fmt.Errorf("unknown image %q; available: %s", value, strings.Join(sortedKeys(c.Images), ", ")))
 }
 
 // unknownSelection marks a name the user chose that the catalog does not
@@ -420,12 +443,15 @@ func (c Catalog) Entry(reference, arch string) (Entry, error) {
 	if err != nil {
 		return Entry{}, failure.New(failure.Usage, err)
 	}
-	canonical, imageRecord, err := c.canonicalImage(ref.Image)
+	canonical, impliedArch, imageRecord, err := c.resolveImage(ref.Image)
 	if err != nil {
 		return Entry{}, err
 	}
 	if arch == "" || arch == "native" {
 		return Entry{}, errors.New("catalog entry resolution requires a concrete architecture")
+	}
+	if impliedArch != "" && impliedArch != arch {
+		return Entry{}, failure.New(failure.Usage, fmt.Errorf("image alias %q targets %s, which conflicts with requested architecture %s", ref.Image, impliedArch, arch)).Because("arch_conflict")
 	}
 	release := ref.Version
 	channel := ref.Channel

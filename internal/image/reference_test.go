@@ -37,8 +37,14 @@ func TestCatalogResolvesDefaultChannelExactVersionAndAlias(t *testing.T) {
 	if err != nil || exact.Alias != "u24" || exact.Channel != "" || exact.SHA256 != defaultEntry.SHA256 {
 		t.Fatalf("exact entry = %#v, %v", exact, err)
 	}
-	if got, err := CanonicalReference("Ubuntu:stable"); err != nil || got != "u24:stable" {
+	if got, err := CanonicalReference("Ubuntu:stable"); err != nil || got != "u26:stable" {
 		t.Fatalf("canonical reference = %q, %v", got, err)
+	}
+	if resolved, err := ResolveReference("el10a:stable"); err != nil || resolved.Reference != "el10:stable" || resolved.Arch != "arm64" {
+		t.Fatalf("ResolveReference(el10a:stable) = %#v, %v", resolved, err)
+	}
+	if resolved, err := ResolveVersionReference("d12i", "20261026"); err != nil || resolved.Reference != "d12@20261026" || resolved.Arch != "amd64" {
+		t.Fatalf("ResolveVersionReference(d12i, 20261026) = %#v, %v", resolved, err)
 	}
 	for _, test := range []struct {
 		reference string
@@ -46,7 +52,8 @@ func TestCatalogResolvesDefaultChannelExactVersionAndAlias(t *testing.T) {
 		release   string
 	}{
 		{"el10@10.2.20260525.0", "amd64", "10.2.20260525.0"},
-		{"rocky@9.8.20260525.2", "arm64", "9.8.20260525.2"},
+		{"rocky@10.2.20260525.0", "arm64", "10.2.20260525.0"},
+		{"rocky9@9.8.20260525.2", "arm64", "9.8.20260525.2"},
 		{"d12@20261026.2643.1", "amd64", "20261026.2643.1"},
 		{"ubuntu22@20261020.0.1", "arm64", "20261020.0.1"},
 		{"ubuntu26@20261016.0.1", "amd64", "20261016.0.1"},

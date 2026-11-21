@@ -979,6 +979,9 @@ func loadLifecycleConfig(command, configPath string, nodes []string, input vmInp
 	if err != nil {
 		return spec.Resolved{}, "", nil, err
 	}
+	if err := file.CheckArchOverride(nodes, input.Image, input.Arch, input.Sources["arch"]); err != nil {
+		return spec.Resolved{}, "", nil, err
+	}
 	return resolved, path, resourceInputSources(file.Resources, input, nodes), nil
 }
 
@@ -2219,6 +2222,9 @@ func runValidate(options lifecycleOptions) (commandOutcome, error) {
 	rows = append(rows, []string{"configuration", "valid", source})
 	resolved, err := file.Resolve()
 	if err != nil {
+		return failed("nodes", exitUsage, err)
+	}
+	if err := file.CheckArchOverride(nil, options.Image, options.Arch, options.Sources["arch"]); err != nil {
 		return failed("nodes", exitUsage, err)
 	}
 	resolved = applyLifecycleOverrides(resolved, nil, options)

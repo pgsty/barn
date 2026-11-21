@@ -62,12 +62,14 @@ func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, er
 		return nil, failure.New(failure.Usage, fmt.Errorf("unknown lab template %q; available: %s", name, strings.Join(TemplateNames(), ", ")))
 	}
 	selectedImage := defaultImage
+	var impliedArch string
 	if options.Image != "" {
-		canonical, err := image.CanonicalReference(options.Image)
+		resolved, err := image.ResolveReference(options.Image)
 		if err != nil {
 			return nil, failure.New(failure.Usage, fmt.Errorf("invalid image reference %q: %w", options.Image, err))
 		}
-		selectedImage = canonical
+		selectedImage = resolved.Reference
+		impliedArch = resolved.Arch
 	}
 	selectedArch := "native"
 	if options.Arch != "" {
@@ -76,6 +78,11 @@ func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, er
 		if err != nil {
 			return nil, failure.New(failure.Usage, err)
 		}
+		if impliedArch != "" && selectedArch != impliedArch {
+			return nil, failure.New(failure.Usage, fmt.Errorf("image alias %q targets %s, which conflicts with arch %s", strings.TrimSpace(options.Image), impliedArch, selectedArch))
+		}
+	} else if impliedArch != "" {
+		selectedArch = impliedArch
 	}
 	if cidr == "" {
 		cidr = subnet.DefaultCIDR

@@ -96,13 +96,14 @@ func (s Service) List(ctx context.Context) ([]Entry, ManifestState, error) {
 	return entries, session.Manifest(), nil
 }
 
-// Info reports one alias without downloading anything.
+// Info reports one alias without downloading anything. An architecture-specific
+// alias selects its pinned guest architecture; bare aliases use the host's.
 func (s Service) Info(ctx context.Context, alias string) (Info, error) {
-	profile, err := platform.Native()
+	arch, err := defaultServiceArch(alias)
 	if err != nil {
 		return Info{}, err
 	}
-	return s.InfoArch(ctx, alias, profile.Arch)
+	return s.InfoArch(ctx, alias, arch)
 }
 
 // InfoArch reports one alias for an explicit guest architecture without
@@ -115,13 +116,26 @@ func (s Service) InfoArch(ctx context.Context, alias, arch string) (Info, error)
 	return session.InfoArch(ctx, alias, arch)
 }
 
-// PullAlias downloads and verifies one alias into the store.
+// PullAlias downloads and verifies one alias into the store. An
+// architecture-specific alias selects its pinned guest architecture; bare
+// aliases use the host's.
 func (s Service) PullAlias(ctx context.Context, alias string) (Info, error) {
-	profile, err := platform.Native()
+	arch, err := defaultServiceArch(alias)
 	if err != nil {
 		return Info{}, err
 	}
-	return s.PullArch(ctx, alias, profile.Arch)
+	return s.PullArch(ctx, alias, arch)
+}
+
+func defaultServiceArch(alias string) (string, error) {
+	if resolved, err := ResolveReference(alias); err == nil && resolved.Arch != "" {
+		return resolved.Arch, nil
+	}
+	profile, err := platform.Native()
+	if err != nil {
+		return "", err
+	}
+	return profile.Arch, nil
 }
 
 // PullArch downloads and verifies one reference for an explicit architecture.

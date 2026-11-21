@@ -77,15 +77,17 @@ Run 'barn update' first to see a newer catalog.`,
 		if action == "pull" {
 			short = "Download and verify an image"
 		}
-		long := `Show signed metadata, native-architecture selection, and verified local
-cache state for one image alias.`
-		example := "  barn image info u24\n  barn image info u24:stable\n  barn --json image info u24"
+		long := `Show signed metadata, architecture selection, and verified local
+cache state for one image alias. Architecture-specific aliases such as el10a
+(arm64) or u24x/u24i (amd64) select their target architecture directly.`
+		example := "  barn image info u24\n  barn image info el10a\n  barn image info u24:stable\n  barn --json image info u24"
 		if action == "pull" {
-			long = `Download one native-architecture image from the selected repository, then
-verify its catalog digest, byte size, qcow2 structure, and virtual size before
-activation. The catalog upstream URL records build provenance; it is not a
-repository-failure fallback.`
-			example = "  barn image pull\n  barn image pull u24 --mirror\n  barn image pull u24 --repo /srv/barn"
+			long = `Download one image from the selected repository, then verify its catalog
+digest, byte size, qcow2 structure, and virtual size before activation. Bare
+aliases default to the native architecture; architecture-specific aliases such
+as el10a or u24x/u24i select their pinned architecture. The catalog upstream
+URL records build provenance; it is not a repository-failure fallback.`
+			example = "  barn image pull\n  barn image pull el10a\n  barn image pull u24 --mirror\n  barn image pull u24 --repo /srv/barn"
 		}
 		command := &cobra.Command{
 			Use:               action + " [image[:channel]|image@version-prefix]",

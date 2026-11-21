@@ -174,11 +174,13 @@ func TestEmbeddedFriendlyAliases(t *testing.T) {
 	cases := map[string]string{
 		"c7": "el7", "centos7": "el7", "centos79": "el7",
 		"rocky8": "el8",
-		"rocky9": "el9", "rocky": "el9", "rocky10": "el10",
-		"debian12": "d12", "bookworm": "d12", "debian13": "d13", "debian": "d13", "trixie": "d13",
+		"rocky9": "el9",
+		"e":      "el10", "el": "el10", "rocky": "el10", "rocky10": "el10",
+		"debian12": "d12", "bookworm": "d12",
+		"d": "d13", "debian13": "d13", "debian": "d13", "trixie": "d13",
 		"ubuntu22": "u22", "ubuntu2204": "u22", "jammy": "u22",
-		"ubuntu": "u24", "ubuntu24": "u24", "ubuntu2404": "u24", "noble": "u24",
-		"ubuntu26": "u26", "ubuntu2604": "u26", "resolute": "u26",
+		"ubuntu24": "u24", "ubuntu2404": "u24", "noble": "u24",
+		"u": "u26", "ubuntu": "u26", "ubuntu26": "u26", "ubuntu2604": "u26", "resolute": "u26",
 	}
 	for alias, canonical := range cases {
 		if got := CanonicalAlias("  " + strings.ToUpper(alias) + "  "); got != canonical {
@@ -189,13 +191,88 @@ func TestEmbeddedFriendlyAliases(t *testing.T) {
 			t.Errorf("Embedded(%q, amd64) = %#v, %v", alias, entry, err)
 		}
 	}
+	archCases := []struct {
+		alias string
+		image string
+		arch  string
+	}{
+		{"el7x", "el7", "amd64"}, {"el7i", "el7", "amd64"}, {"c7x", "el7", "amd64"}, {"c7i", "el7", "amd64"},
+		{"el8a", "el8", "arm64"}, {"el8x", "el8", "amd64"}, {"el8i", "el8", "amd64"},
+		{"el9a", "el9", "arm64"}, {"el9x", "el9", "amd64"}, {"el9i", "el9", "amd64"},
+		{"el10a", "el10", "arm64"}, {"el10x", "el10", "amd64"}, {"el10i", "el10", "amd64"},
+		{"ea", "el10", "arm64"}, {"ex", "el10", "amd64"}, {"ei", "el10", "amd64"},
+		{"ela", "el10", "arm64"}, {"elx", "el10", "amd64"}, {"eli", "el10", "amd64"},
+		{"d12a", "d12", "arm64"}, {"d12x", "d12", "amd64"}, {"d12i", "d12", "amd64"},
+		{"d13a", "d13", "arm64"}, {"d13x", "d13", "amd64"}, {"d13i", "d13", "amd64"},
+		{"da", "d13", "arm64"}, {"dx", "d13", "amd64"}, {"di", "d13", "amd64"},
+		{"u22a", "u22", "arm64"}, {"u22x", "u22", "amd64"}, {"u22i", "u22", "amd64"},
+		{"u24a", "u24", "arm64"}, {"u24x", "u24", "amd64"}, {"u24i", "u24", "amd64"},
+		{"u26a", "u26", "arm64"}, {"u26x", "u26", "amd64"}, {"u26i", "u26", "amd64"},
+		{"ua", "u26", "arm64"}, {"ux", "u26", "amd64"}, {"ui", "u26", "amd64"},
+	}
+	for _, tc := range archCases {
+		gotImage, gotArch := ResolveAlias(" " + strings.ToUpper(tc.alias) + " ")
+		if gotImage != tc.image || gotArch != tc.arch {
+			t.Errorf("ResolveAlias(%q) = (%q, %q), want (%q, %q)", tc.alias, gotImage, gotArch, tc.image, tc.arch)
+		}
+		entry, err := embeddedEntry(tc.alias, tc.arch)
+		if err != nil || entry.Alias != tc.image || entry.Arch != tc.arch {
+			t.Errorf("Embedded(%q, %s) = %#v, %v", tc.alias, tc.arch, entry, err)
+		}
+		otherArch := "amd64"
+		if tc.arch == "amd64" {
+			otherArch = "arm64"
+		}
+		if _, err := embeddedEntry(tc.alias, otherArch); err == nil || !strings.Contains(err.Error(), "conflicts with requested architecture") {
+			t.Errorf("Embedded(%q, %s) expected arch conflict, got %v", tc.alias, otherArch, err)
+		}
+	}
 	if _, err := embeddedEntry("unknown", "amd64"); err == nil {
 		t.Fatal("unknown alias unexpectedly resolved")
+	}
+	if _, err := embeddedEntry("el7a", "arm64"); err == nil {
+		t.Fatal("el7a unexpectedly resolved")
 	}
 	if _, err := embeddedEntry("el7", "arm64"); err == nil {
 		t.Fatal("EL7 unexpectedly has an arm64 artifact")
 	}
 	if _, err := embeddedEntry("u24", "s390x"); err == nil {
 		t.Fatal("unsupported architecture unexpectedly resolved")
+	}
+}
+
+func TestFutureCatalogCanAdvanceFloatingFamilyAliases(t *testing.T) {
+	t.Parallel()
+	catalog := EmbeddedCatalog()
+	u26 := catalog.Images["u26"]
+	u28 := CatalogImage{
+		Aliases:  []string{"ubuntu", "u"},
+		Boot:     u26.Boot,
+		Channels: map[string]string{"stable": "20280420.0.1"},
+		Versions: map[string]CatalogVersion{
+			"20280420.0.1": u26.Versions[u26.Channels["stable"]],
+		},
+	}
+	u24 := catalog.Images["u24"]
+	u24.Aliases = []string{"ubuntu24", "ubuntu2404", "noble"}
+	catalog.Images["u24"] = u24
+	catalog.Images["u28"] = u28
+	if err := catalog.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query string
+		arch  string
+	}{
+		{"u", "arm64"},
+		{"ubuntu", "amd64"},
+		{"ua", "arm64"},
+		{"ux", "amd64"},
+		{"ui", "amd64"},
+	} {
+		entry, err := catalog.Entry(tc.query, tc.arch)
+		if err != nil || entry.Alias != "u28" || entry.Arch != tc.arch {
+			t.Fatalf("future catalog %s/%s = %#v, %v; want u28/%s", tc.query, tc.arch, entry, err, tc.arch)
+		}
 	}
 }

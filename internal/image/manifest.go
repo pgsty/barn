@@ -5,7 +5,6 @@ package image
 import (
 	_ "embed"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -60,25 +59,34 @@ func EmbeddedCatalogBytes() ([]byte, error) {
 }
 
 func CanonicalAlias(alias string) string {
-	alias = strings.ToLower(strings.TrimSpace(alias))
-	canonical, _, err := EmbeddedCatalog().canonicalImage(alias)
-	if err == nil {
-		return canonical
+	canonical, _ := ResolveAlias(alias)
+	return canonical
+}
+
+// ResolveReference normalizes a built-in alias while preserving its stable
+// channel or explicit version selector and returning any guest architecture
+// implied by an architecture-specific alias (such as el10a or u24x). Unknown
+// custom-repository names remain intact for runtime catalog resolution.
+func ResolveReference(value string) (ResolvedReference, error) {
+	ref, err := ParseReference(value)
+	if err != nil {
+		return ResolvedReference{}, err
 	}
-	return alias
+	if ref.Image == "" {
+		ref.Image = EmbeddedCatalog().Defaults.Image
+	}
+	canonical, arch := ResolveAlias(ref.Image)
+	ref.Image = canonical
+	return ResolvedReference{Reference: ref.String(), Arch: arch}, nil
 }
 
 // CanonicalReference normalizes a built-in alias while preserving its stable
 // channel or explicit version selector. Unknown custom-repository names remain
 // intact for runtime catalog resolution.
 func CanonicalReference(value string) (string, error) {
-	ref, err := ParseReference(value)
+	resolved, err := ResolveReference(value)
 	if err != nil {
 		return "", err
 	}
-	if ref.Image == "" {
-		ref.Image = EmbeddedCatalog().Defaults.Image
-	}
-	ref.Image = CanonicalAlias(ref.Image)
-	return ref.String(), nil
+	return resolved.Reference, nil
 }

@@ -37,10 +37,10 @@ MAX_SOURCE_BYTES = 16 << 30
 MAX_PACKAGE_BYTES = 512 << 20
 ALIASES = {
     "d12": ["debian12", "bookworm"],
-    "d13": ["debian13", "debian", "trixie"],
+    "d13": ["debian13", "debian", "trixie", "d"],
     "el8": ["rocky8"],
-    "el9": ["rocky9", "rocky"],
-    "el10": ["rocky10"],
+    "el9": ["rocky9"],
+    "el10": ["rocky10", "rocky", "el", "e"],
 }
 
 

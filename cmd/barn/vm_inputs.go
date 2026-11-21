@@ -66,6 +66,7 @@ func (input vmInputs) resolve(environment, disk bool) (vmInputs, error) {
 	}
 	input.Sources = sources
 	input.Resources = config.ResourceOverrides{Sources: sources}
+	var rawImage, impliedArch string
 	for _, field := range input.fields() {
 		if field.name == "disk" && !disk {
 			continue
@@ -86,7 +87,13 @@ func (input vmInputs) resolve(environment, disk bool) (vmInputs, error) {
 		var err error
 		switch field.name {
 		case "image":
-			*field.value, err = image.CanonicalReference(value)
+			rawImage = value
+			var resolved image.ResolvedReference
+			resolved, err = image.ResolveReference(value)
+			if err == nil {
+				*field.value = resolved.Reference
+				impliedArch = resolved.Arch
+			}
 		case "arch":
 			*field.value, err = platform.NormalizeArch(value)
 		case "cpu", "scale":
@@ -121,6 +128,14 @@ func (input vmInputs) resolve(environment, disk bool) (vmInputs, error) {
 				return input, fmt.Errorf("invalid image reference for %s: %w", strings.TrimPrefix(sources[field.name], "CLI "), err)
 			}
 			return input, fmt.Errorf("%s: %w", strings.TrimPrefix(sources[field.name], "CLI "), err)
+		}
+	}
+	if impliedArch != "" {
+		if input.Arch == "" {
+			input.Arch = impliedArch
+			sources["arch"] = sources["image"]
+		} else if input.Arch != impliedArch {
+			return input, fmt.Errorf("image alias %q targets %s, which conflicts with %s %s", rawImage, impliedArch, strings.TrimPrefix(sources["arch"], "CLI "), input.Arch)
 		}
 	}
 	return input, nil

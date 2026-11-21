@@ -798,3 +798,94 @@ func TestScaleSiblingConflictCanBeOverriddenAtHost(t *testing.T) {
 		t.Fatalf("host scale did not replace sibling scales: %#v", file.Nodes[0])
 	}
 }
+
+func TestParseInventoryImageShorthandAndArchAliases(t *testing.T) {
+	for alias, want := range map[string]string{
+		"e": "el10", "el": "el10", "rocky": "el10",
+		"u": "u26", "ubuntu": "u26",
+		"d": "d13", "debian": "d13",
+	} {
+		file := mustParseInventory(t, "all:\n  hosts:\n    10.10.10.10: { vm_image: "+alias+" }\n")
+		if file.Nodes[0].Image != want || file.Arch != "native" {
+			t.Fatalf("alias %q = image %q arch %q, want %q/native", alias, file.Nodes[0].Image, file.Arch, want)
+		}
+	}
+
+	for _, tc := range []struct {
+		name      string
+		inventory string
+		wantImage string
+		wantArch  string
+	}{
+		{
+			name:      "el10a",
+			inventory: "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10a }\n",
+			wantImage: "el10",
+			wantArch:  "arm64",
+		},
+		{
+			name:      "u24x",
+			inventory: "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: u24x }\n",
+			wantImage: "u24",
+			wantArch:  "amd64",
+		},
+		{
+			name:      "d12i-with-native-vm-arch",
+			inventory: "all:\n  vars: { vm_arch: native }\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: d12i }\n",
+			wantImage: "d12",
+			wantArch:  "amd64",
+		},
+		{
+			name:      "el10a-with-version",
+			inventory: "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10a, vm_version: \"10.2\" }\n",
+			wantImage: "el10@10.2",
+			wantArch:  "arm64",
+		},
+		{
+			name:      "multi-host-implied-arch",
+			inventory: "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10a }\n    10.10.10.11: { nodename: node1, vm_image: u24 }\n",
+			wantImage: "el10",
+			wantArch:  "arm64",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			file := mustParseInventory(t, tc.inventory)
+			resolved, err := file.Resolve()
+			if err != nil || file.Nodes[0].Image != tc.wantImage || file.Arch != tc.wantArch || resolved.Arch != tc.wantArch {
+				t.Fatalf("got image=%q file.Arch=%q resolved.Arch=%q err=%v", file.Nodes[0].Image, file.Arch, resolved.Arch, err)
+			}
+		})
+	}
+
+	shorthand := mustParseInventory(t, "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10a }\n")
+	explicit := mustParseInventory(t, "all:\n  vars: { vm_arch: arm64 }\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10 }\n")
+	resShort, err1 := shorthand.Resolve()
+	resExplicit, err2 := explicit.Resolve()
+	hashShort, err3 := spec.Hash(resShort)
+	hashExplicit, err4 := spec.Hash(resExplicit)
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || hashShort != hashExplicit {
+		t.Fatalf("spec hash mismatch between el10a and el10+arm64: %q vs %q (%v %v %v %v)", hashShort, hashExplicit, err1, err2, err3, err4)
+	}
+
+	for name, invalid := range map[string]string{
+		"conflicts-with-vm-arch": "all:\n  vars: { vm_arch: amd64 }\n  hosts:\n    10.10.10.10: { vm_image: el10a }\n",
+		"mixed-host-image-arch":  "all:\n  hosts:\n    10.10.10.10: { vm_image: el10a }\n    10.10.10.11: { vm_image: u24x }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseInventory([]byte(invalid)); err == nil {
+				t.Fatalf("expected conflict error for %s", name)
+			}
+		})
+	}
+
+	twoNodes := mustParseInventory(t, "all:\n  hosts:\n    10.10.10.10: { nodename: meta, vm_image: el10a }\n    10.10.10.11: { nodename: node1, vm_image: u24a }\n")
+	if err := twoNodes.CheckArchOverride(nil, "", "amd64", "CLI --arch"); err == nil {
+		t.Fatal("expected CheckArchOverride error when --arch conflicts with vm_image")
+	}
+	if err := twoNodes.CheckArchOverride([]string{"meta"}, "el10", "amd64", "CLI --image"); err == nil {
+		t.Fatal("expected CheckArchOverride error when unselected node retains conflicting vm_image")
+	}
+	if err := twoNodes.CheckArchOverride(nil, "el10", "amd64", "CLI --image"); err != nil {
+		t.Fatalf("unexpected CheckArchOverride error when all nodes overridden: %v", err)
+	}
+}

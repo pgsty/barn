@@ -477,13 +477,13 @@ func TestExplicitUnsignedLocalRepositoriesKeepIndependentHighWaterState(t *testi
 	if err1 != nil || err2 != nil {
 		t.Fatalf("current repositories: %v, %v", err1, err2)
 	}
-	if _, _, err := catalog1.canonicalImage("custom-one"); err != nil {
+	if _, _, _, err := catalog1.resolveImage("custom-one"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := catalog2.canonicalImage("custom-two"); err != nil {
+	if _, _, _, err := catalog2.resolveImage("custom-two"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := catalog1.canonicalImage("custom-two"); err == nil {
+	if _, _, _, err := catalog1.resolveImage("custom-two"); err == nil {
 		t.Fatal("repo1 observed repo2 alias")
 	}
 	if _, _, err := (ManifestManager{DataRoot: dataRoot, Repository: root1}).Current(); err == nil || !strings.Contains(err.Error(), "unsigned") {

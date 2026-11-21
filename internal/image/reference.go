@@ -59,24 +59,32 @@ func ParseReference(value string) (Reference, error) {
 	return ref, nil
 }
 
-// CanonicalVersionReference combines a bare image name with a numeric version
-// selector such as 9 or 9.7. Catalog resolution later chooses the numerically
-// newest release on that dot-component prefix.
-func CanonicalVersionReference(value, selector string) (string, error) {
+// ResolvedReference pairs a canonical image reference with any guest
+// architecture implied by an architecture-specific alias ("" when orthogonal).
+type ResolvedReference struct {
+	Reference string
+	Arch      string
+}
+
+// ResolveVersionReference combines a bare image name or alias with a numeric
+// version selector such as 9 or 9.7, returning both the canonical reference and
+// any implied guest architecture.
+func ResolveVersionReference(value, selector string) (ResolvedReference, error) {
 	ref, err := ParseReference(value)
 	if err != nil {
-		return "", err
+		return ResolvedReference{}, err
 	}
 	if ref.Channel != "" || ref.Version != "" {
-		return "", errors.New("a separate version selector requires a bare image without :channel or @version")
+		return ResolvedReference{}, errors.New("a separate version selector requires a bare image without :channel or @version")
 	}
 	selector = strings.TrimSpace(selector)
 	if _, err := numericVersionParts(selector); err != nil {
-		return "", err
+		return ResolvedReference{}, err
 	}
-	ref.Image = CanonicalAlias(ref.Image)
+	canonical, arch := ResolveAlias(ref.Image)
+	ref.Image = canonical
 	ref.Version = selector
-	return ref.String(), nil
+	return ResolvedReference{Reference: ref.String(), Arch: arch}, nil
 }
 
 func (r Reference) String() string {

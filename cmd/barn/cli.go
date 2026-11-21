@@ -184,16 +184,7 @@ func imageAliasCompletion(command *cobra.Command, _ []string, prefix string) ([]
 			aliases = append(aliases, localAliases...)
 		}
 	}
-	for name, record := range catalog.Images {
-		aliases = append(aliases, name)
-		aliases = append(aliases, record.Aliases...)
-		for channel := range record.Channels {
-			aliases = append(aliases, name+":"+channel)
-		}
-		for version := range record.Versions {
-			aliases = append(aliases, name+"@"+version)
-		}
-	}
+	aliases = append(aliases, catalog.CompletionNames()...)
 	sort.Strings(aliases)
 	matches := make([]string, 0, len(aliases))
 	for _, alias := range aliases {
