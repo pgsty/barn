@@ -130,7 +130,7 @@ builds and verifies the older unsigned development-archive path. The packaging
 workflow runs it alongside the GoReleaser snapshot; neither path publishes
 anything.
 
-`packaging/image-pipeline/build-official.py --list` shows the fixed eight-image
+`packaging/image-pipeline/build-official.py --list` shows the fixed ten-image
 candidate matrix. A build requires explicit source, package-cache, and output
 directories; it refuses to replace an existing bundle. After all architecture
 builds are copied to one host, repeat `--assemble-from` for each bundle root to
@@ -146,7 +146,13 @@ published binary. The catalog's Ubuntu 22.04/24.04/26.04 entries also use
 offline-normalized images with the `dba` account, UID/GID 88, both locale
 checks, and the upstream XFS tools retained and verified. Their provenance is
 recorded in `internal/image/default-catalog.json`; they are built directly
-through `pipeline.py`, outside the eight-image `build-official.py` matrix.
+through `pipeline.py`, outside the ten-image `build-official.py` matrix.
+The Rocky 10 recipe installs signed, digest-locked `kernel-modules` and
+`kernel-modules-extra` for the image's installed kernel. It checks the RPM
+release and architecture before installation and verifies Docker's bridge,
+iptables and overlay modules afterward. Offline customization must inspect
+`kernel-core`, since `uname` would identify the appliance kernel. Native
+acceptance must also exercise Docker's default firewall backend and networking.
 Deployment-specific configuration still runs through cloud-init.
 Refreshes use new versioned filenames, retain older catalog versions and cached
 images referenced by deployments, and calculate catalog hashes from the final

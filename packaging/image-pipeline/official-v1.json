@@ -1,8 +1,8 @@
 {
   "artifact_base_url": "https://repo.pigsty.cc/barn",
-  "manifest_version": 2026110502,
+  "manifest_version": 2026111901,
   "schema": 1,
-  "source_date_epoch": 1793836800,
+  "source_date_epoch": 1795046400,
   "targets": [
     {
       "arch": "amd64",
@@ -291,6 +291,84 @@
       "source_sha256": "24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe",
       "source_sha512": null,
       "source_uri": "https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2"
+    },
+    {
+      "arch": "amd64",
+      "boot": "uefi",
+      "license": "NOASSERTION",
+      "name": "el10",
+      "package_lock": {
+        "arch": "amd64",
+        "install": [
+          "kernel-modules",
+          "kernel-modules-extra"
+        ],
+        "packages": [
+          {
+            "arch": "amd64",
+            "filename": "kernel-modules-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
+            "name": "kernel-modules",
+            "sha256": "c03c3ac5ae9597eb581d25c54319f09abf8a175153b4768783192b7a0ad85139",
+            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/x86_64/os/Packages/k/kernel-modules-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
+            "version": "6.12.0-211.16.1.el10_2.0.1"
+          },
+          {
+            "arch": "amd64",
+            "filename": "kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
+            "name": "kernel-modules-extra",
+            "sha256": "8db10e7d810b5e7b4715a02be3ecc3695f658a4fcb53717a2acf7f9f1c363ce0",
+            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/x86_64/os/Packages/k/kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
+            "version": "6.12.0-211.16.1.el10_2.0.1"
+          }
+        ],
+        "profile": "el10",
+        "schema": 1
+      },
+      "profile": "el10",
+      "release": "10.2.20260525.1",
+      "source_filename": "el10-10.2.20260525.0-amd64.qcow2",
+      "source_sha256": "9fc9e9ff16888bb68ac39b0392e25c9c92684d50c85f1cce6ab549363bbc4b48",
+      "source_sha512": null,
+      "source_uri": "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2"
+    },
+    {
+      "arch": "arm64",
+      "boot": "uefi",
+      "license": "NOASSERTION",
+      "name": "el10",
+      "package_lock": {
+        "arch": "arm64",
+        "install": [
+          "kernel-modules",
+          "kernel-modules-extra"
+        ],
+        "packages": [
+          {
+            "arch": "arm64",
+            "filename": "kernel-modules-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
+            "name": "kernel-modules",
+            "sha256": "daa666a8a19006358140bd996623b5c72e37d91db342f5fd32539323e6dc67d2",
+            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/aarch64/os/Packages/k/kernel-modules-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
+            "version": "6.12.0-211.16.1.el10_2.0.1"
+          },
+          {
+            "arch": "arm64",
+            "filename": "kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
+            "name": "kernel-modules-extra",
+            "sha256": "72d545cf31a7b794ba4df14ff71cf540c269d50aaf5b6a1a7764b8def4c0d1f4",
+            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/aarch64/os/Packages/k/kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
+            "version": "6.12.0-211.16.1.el10_2.0.1"
+          }
+        ],
+        "profile": "el10",
+        "schema": 1
+      },
+      "profile": "el10",
+      "release": "10.2.20260525.1",
+      "source_filename": "el10-10.2.20260525.0-arm64.qcow2",
+      "source_sha256": "457c8375e19496f43a25c4a6169fa11237536c53cef6f85a20ea3c5a751aa0f5",
+      "source_sha512": null,
+      "source_uri": "https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.2-20260525.0.aarch64.qcow2"
     }
   ]
 }

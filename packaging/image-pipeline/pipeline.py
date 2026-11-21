@@ -148,7 +148,7 @@ def load_config() -> Tuple[Dict[str, Any], bytes, Path, bytes]:
     }:
         raise PipelineError("pipeline recipe has an invalid locale policy")
     profiles = normalization.get("profiles")
-    if not isinstance(profiles, dict) or set(profiles) != {"base", "el8", "el9", "d12", "d13"}:
+    if not isinstance(profiles, dict) or set(profiles) != {"base", "el8", "el9", "el10", "d12", "d13"}:
         raise PipelineError("pipeline recipe has invalid customization profiles")
     for profile, policy in profiles.items():
         if not isinstance(policy, dict) or policy.get("package_format") not in (None, "deb", "rpm"):
@@ -585,6 +585,8 @@ def normalize_offline(
         "source_user": source_user,
         "xfsprogs": "verified" if profile in ("d12", "d13") else "not-requested",
     }
+    if profile == "el10":
+        expected["kernel_modules"] = "verified"
     if marker != expected:
         raise PipelineError(f"guest normalization marker mismatch: {marker!r}")
     passwd = run_tool(
@@ -903,7 +905,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--manifest-version", required=True, type=int)
     result.add_argument(
         "--profile",
-        choices=("base", "el8", "el9", "d12", "d13"),
+        choices=("base", "el8", "el9", "el10", "d12", "d13"),
         default="base",
         help="bounded guest customization profile (default: base normalization only)",
     )

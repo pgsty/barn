@@ -15,7 +15,7 @@ package_dir=$4
 [[ ${source_user} =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { printf 'invalid source user\n' >&2; exit 2; }
 [[ ${source_date_epoch} =~ ^[0-9]{1,10}$ ]] || { printf 'invalid source epoch\n' >&2; exit 2; }
 case ${profile} in
-  base|el8|el9|d12|d13) ;;
+  base|el8|el9|el10|d12|d13) ;;
   *) printf 'invalid customization profile: %s\n' "${profile}" >&2; exit 2 ;;
 esac
 export LC_ALL=C
@@ -35,6 +35,7 @@ case ${profile} in
   base) ;;
   el8) [[ ${ID:-} == rocky && ${VERSION_ID:-} == 8.* ]] || { printf 'el8 profile requires Rocky Linux 8\n' >&2; exit 3; } ;;
   el9) [[ ${ID:-} == rocky && ${VERSION_ID:-} == 9.* ]] || { printf 'el9 profile requires Rocky Linux 9\n' >&2; exit 3; } ;;
+  el10) [[ ${ID:-} == rocky && ${VERSION_ID:-} == 10.* ]] || { printf 'el10 profile requires Rocky Linux 10\n' >&2; exit 3; } ;;
   d12) [[ ${ID:-} == debian && ${VERSION_ID:-} == 12 ]] || { printf 'd12 profile requires Debian 12\n' >&2; exit 3; } ;;
   d13) [[ ${ID:-} == debian && ${VERSION_ID:-} == 13 ]] || { printf 'd13 profile requires Debian 13\n' >&2; exit 3; } ;;
 esac
@@ -42,6 +43,52 @@ esac
 install_locked_packages() {
   local packages=()
   case ${profile} in
+    el10)
+      [[ ${package_dir} == /var/tmp/barn-image-packages && -d ${package_dir} ]] || {
+        printf 'el10 profile requires the locked kernel RPM bundle\n' >&2; exit 3;
+      }
+      for command in rpm depmod modinfo; do
+        command -v "${command}" >/dev/null || { printf 'required guest command missing: %s\n' "${command}" >&2; exit 3; }
+      done
+      # uname reports the appliance kernel here. Select the image's installed
+      # kernel instead, and reject mixed or upgraded kernel inputs before RPM
+      # can change the guest. The pinned GenericCloud input has one kernel.
+      local kernels=() package kernel_release package_name rocky_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-10
+      [[ -f ${rocky_key} ]] || { printf 'Rocky 10 package signing key is missing\n' >&2; exit 3; }
+      rpm -q kernel-core >/dev/null || { printf 'image kernel-core package is missing\n' >&2; exit 3; }
+      mapfile -t kernels < <(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n')
+      [[ ${#kernels[@]} == 1 ]] || { printf 'expected one image kernel\n' >&2; exit 3; }
+      kernel_release=${kernels[0]}
+      [[ -f /boot/vmlinuz-${kernel_release} ]] || { printf 'image kernel is missing\n' >&2; exit 3; }
+      shopt -s nullglob
+      packages=("${package_dir}"/*.rpm)
+      shopt -u nullglob
+      [[ ${#packages[@]} == 2 ]] || { printf 'expected both kernel module RPMs\n' >&2; exit 3; }
+      for package in "${packages[@]}"; do
+        package_name=$(rpm -qp --qf '%{NAME}' "${package}")
+        [[ ${package_name} == kernel-modules || ${package_name} == kernel-modules-extra ]] || exit 3
+        [[ $(rpm -qp --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "${package}") == "${kernel_release}" ]] || {
+          printf 'kernel RPM does not match image kernel %s\n' "${kernel_release}" >&2; exit 3;
+        }
+      done
+      local key_database=/var/tmp/barn-rpm-signature-db
+      [[ ! -e ${key_database} ]] || exit 3
+      install -d -m 0700 "${key_database}"
+      rpm --dbpath "${key_database}" --initdb
+      rpm --dbpath "${key_database}" --import "${rocky_key}"
+      rpm --dbpath "${key_database}" --checksig "${packages[@]}"
+      rm -rf -- "${key_database}"
+      rpm -ivh --nosignature "${packages[@]}"
+      depmod -a "${kernel_release}"
+      for package_name in kernel-modules kernel-modules-extra; do
+        rpm -q "${package_name}-${kernel_release}"
+      done
+      for module in xt_addrtype nft_compat iptable_nat iptable_filter br_netfilter overlay; do
+        [[ $(modinfo -k "${kernel_release}" -F vermagic "${module}") == "${kernel_release} "* ]] || {
+          printf 'missing or mismatched module: %s\n' "${module}" >&2; exit 5;
+        }
+      done
+      ;;
     el8)
       [[ ${package_dir} == /var/tmp/barn-image-packages && -d ${package_dir} ]] || {
         printf 'el8 profile requires the locked RPM bundle\n' >&2
@@ -363,9 +410,11 @@ if [[ ${profile} == d12 || ${profile} == d13 ]]; then
 fi
 [[ ${profile} == el8 || ${profile} == el9 ]] && legacy_network_status=removed
 [[ ${profile} == el8 ]] && sshd_include_status=verified
-printf '{"schema":1,"recipe":"barn-official-image-normalization-v1","profile":"%s","source_user":"%s","source_date_epoch":%s,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","locale_default":"%s","locale_en_us":"%s","legacy_network":"%s","sshd_include":"%s"}\n' \
+kernel_modules_extra=""
+[[ ${profile} == el10 ]] && kernel_modules_extra=',"kernel_modules":"verified"'
+printf '{"schema":1,"recipe":"barn-official-image-normalization-v1","profile":"%s","source_user":"%s","source_date_epoch":%s,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","locale_default":"%s","locale_en_us":"%s","legacy_network":"%s","sshd_include":"%s"%s}\n' \
   "${profile}" "${source_user}" "${source_date_epoch}" "${python3_status}" "${xfsprogs_status}" \
-  "${locale_default_status}" "${locale_en_us_status}" "${legacy_network_status}" "${sshd_include_status}" \
+  "${locale_default_status}" "${locale_en_us_status}" "${legacy_network_status}" "${sshd_include_status}" "${kernel_modules_extra}" \
   >/var/lib/barn-image/normalization.json
 chmod 0644 /var/lib/barn-image/normalization.json
 

@@ -80,6 +80,11 @@
         "package_format": null,
         "required_packages": []
       },
+      "el10": {
+        "locked_packages": ["kernel-modules", "kernel-modules-extra"],
+        "package_format": "rpm",
+        "required_packages": ["kernel-modules", "kernel-modules-extra"]
+      },
       "d12": {
         "locked_packages": ["libinih1", "liburcu8", "xfsprogs"],
         "package_format": "deb",

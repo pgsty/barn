@@ -89,7 +89,7 @@ for argument in "$@"; do
 done
 [[ ${no_network} == true && -n ${image} && -f ${image} ]] || exit 43
 profile=$(printf '%s\n' "${run_command}" | awk '{ print $4 }')
-[[ ${profile} =~ ^(base|el8|el9|d12|d13)$ ]] || exit 45
+[[ ${profile} =~ ^(base|el8|el9|el10|d12|d13)$ ]] || exit 45
 if [[ ${profile} == el8 ]]; then
   [[ ${no_selinux_relabel} == true ]] || { printf 'EL8 must not defer labels to first boot\n' >&2; exit 46; }
 else
@@ -129,10 +129,12 @@ if [[ ${profile} == d12 || ${profile} == d13 ]]; then
 fi
 [[ ${profile} == el8 || ${profile} == el9 ]] && legacy_network_status=removed
 [[ ${profile} == el8 ]] && sshd_include_status=verified
+kernel_modules_extra=""
+[[ ${profile} == el10 ]] && kernel_modules_extra=',"kernel_modules":"verified"'
 case ${guest_path} in
   /var/lib/barn-image/normalization.json)
-    printf '{"schema":1,"recipe":"barn-official-image-normalization-v1","profile":"%s","source_user":"ubuntu","source_date_epoch":1787486400,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","legacy_network":"%s","sshd_include":"%s","locale_default":"%s","locale_en_us":"%s"}\n' \
-      "${profile}" "${python3_status}" "${xfsprogs_status}" "${legacy_network_status}" "${sshd_include_status}" "${locale_default_status}" "${locale_en_us_status}"
+    printf '{"schema":1,"recipe":"barn-official-image-normalization-v1","profile":"%s","source_user":"ubuntu","source_date_epoch":1787486400,"dba_uid":88,"admin_gid":88,"credential_hygiene":"applied","python3":"%s","xfsprogs":"%s","legacy_network":"%s","sshd_include":"%s","locale_default":"%s","locale_en_us":"%s"%s}\n' \
+      "${profile}" "${python3_status}" "${xfsprogs_status}" "${legacy_network_status}" "${sshd_include_status}" "${locale_default_status}" "${locale_en_us_status}" "${kernel_modules_extra}"
     ;;
   /etc/passwd) printf 'root:x:0:0:root:/root:/bin/bash\ndba:x:88:88::/home/dba:/bin/bash\n' ;;
   /etc/group) printf 'root:x:0:\nadmin:x:88:dba\n' ;;
@@ -314,6 +316,38 @@ for profile in ("d12", "d13"):
             assert not accepted and "normalization marker mismatch" in str(error)
         else:
             assert accepted, f"{profile}: accepted absent or incorrect locale evidence"
+
+el10_valid = {
+    "schema": 1, "recipe": "barn-official-image-normalization-v1",
+    "profile": "el10", "source_user": "rocky", "source_date_epoch": 1787486400,
+    "dba_uid": 88, "admin_gid": 88, "credential_hygiene": "applied",
+    "python3": "not-requested", "xfsprogs": "not-requested",
+    "legacy_network": "not-requested", "sshd_include": "upstream",
+    "locale_default": "not-requested", "locale_en_us": "not-requested",
+    "kernel_modules": "verified",
+}
+el10_missing = copy.deepcopy(el10_valid)
+del el10_missing["kernel_modules"]
+for marker, accepted in ((el10_valid, True), (el10_missing, False), ({**el10_valid, "kernel_modules": "missing"}, False)):
+    def fake_el10_tool(arguments, *unused):
+        if arguments[-1] == "/var/lib/barn-image/normalization.json":
+            return json.dumps(marker).encode()
+        if arguments[-1] == "/etc/passwd":
+            return b"dba:x:88:88::/home/dba:/bin/bash\n"
+        if arguments[-1] == "/etc/group":
+            return b"admin:x:88:dba\n"
+        return b""
+    pipeline_module.run_tool = fake_el10_tool
+    try:
+        pipeline_module.normalize_offline(
+            Path("customize"), Path("cat"), Path("image"), Path("script"),
+            "rocky", "el10", [], 1787486400,
+            {"virt_customize": 1, "virt_cat": 1}, {},
+        )
+    except pipeline_module.PipelineError as error:
+        assert not accepted and "normalization marker mismatch" in str(error)
+    else:
+        assert accepted, "el10: accepted absent or incorrect kernel_modules evidence"
 PY
 
 package_cache=${temporary}/package-cache
@@ -458,23 +492,30 @@ if grep -Eq '\b(curl|wget|ssh-keygen)\b' "${repo}/packaging/image-pipeline/norma
 fi
 
 "${repo}/packaging/image-pipeline/build-official.py" --list >"${temporary}/official-matrix.txt"
-[[ $(wc -l <"${temporary}/official-matrix.txt" | tr -d ' ') == 8 ]]
+[[ $(wc -l <"${temporary}/official-matrix.txt" | tr -d ' ') == 10 ]]
 grep -Fxq $'el8/amd64\t8.10.20240528.3\tel8\tpackages=2' "${temporary}/official-matrix.txt"
 grep -Fxq $'el9/arm64\t9.8.20260525.2\tel9\tpackages=0' "${temporary}/official-matrix.txt"
+grep -Fxq $'el10/arm64\t10.2.20260525.1\tel10\tpackages=2' "${temporary}/official-matrix.txt"
 grep -Fxq $'d12/arm64\t20260923.2610.1\td12\tpackages=3' "${temporary}/official-matrix.txt"
 grep -Fxq $'d13/amd64\t20261103.2651.1\td13\tpackages=3' "${temporary}/official-matrix.txt"
-python3 - "${repo}/packaging/image-pipeline/official-v1.json" <<'PY'
+python3 - "${repo}/packaging/image-pipeline/official-v1.json" "${repo}/packaging/image-pipeline/build-official.py" <<'PY'
+import importlib.util
 import json
 import pathlib
 import sys
 
 matrix = json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert len(matrix["targets"]) == 8
+spec = importlib.util.spec_from_file_location("barn_official", sys.argv[2])
+official_module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = official_module
+spec.loader.exec_module(official_module)
+
+assert len(matrix["targets"]) == 10
 assert {f'{item["name"]}/{item["arch"]}' for item in matrix["targets"]} == {
     "d12/amd64", "d12/arm64", "d13/amd64", "d13/arm64",
-    "el8/amd64", "el8/arm64", "el9/amd64", "el9/arm64",
+    "el8/amd64", "el8/arm64", "el9/amd64", "el9/arm64", "el10/amd64", "el10/arm64",
 }
-allowed = {"python36", "python3-pip", "xfsprogs", "libinih1", "liburcu8", "libicu76"}
+allowed = {"python36", "python3-pip", "xfsprogs", "libinih1", "liburcu8", "libicu76", "kernel-modules", "kernel-modules-extra"}
 seen = {
     package["name"]
     for item in matrix["targets"]
@@ -482,8 +523,23 @@ seen = {
     for package in item["package_lock"]["packages"]
 }
 assert seen == allowed
-for forbidden in ("locale", "chrony", "unattended-upgrades", "kernel", "gzip", "zstd"):
-    assert all(forbidden not in name for name in seen)
+for forbidden in ("locale", "chrony", "unattended-upgrades", "kernel-core", "gzip", "zstd"):
+    assert all(forbidden not in name and name != "kernel" for name in seen)
+
+candidates = {
+    f'{target["name"]}/{target["arch"]}': {
+        "target": target,
+        "validation": {
+            "artifact": {"sha256": f"{index:064x}"},
+            "package_inputs": {"lock_sha256": "a" * 64 if target["package_lock"] else None},
+        },
+    }
+    for index, target in enumerate(matrix["targets"], start=1)
+}
+rendered = official_module.render_candidate_repo(matrix, candidates).decode("utf-8")
+for family in ("d12", "d13", "el8", "el9", "el10"):
+    assert f"\n  {family}:\n" in rendered, f"candidate repo missing {family}"
+assert rendered.count("file: ") == 10
 PY
 mkdir "${temporary}/empty-bundles"
 if "${repo}/packaging/image-pipeline/build-official.py" \

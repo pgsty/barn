@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the eight digest-pinned Barn official-image candidates."""
+"""Build the ten digest-pinned Barn official-image candidates."""
 
 from __future__ import annotations
 
@@ -30,6 +30,8 @@ TARGETS = {
     "el8/arm64",
     "el9/amd64",
     "el9/arm64",
+    "el10/amd64",
+    "el10/arm64",
 }
 MAX_SOURCE_BYTES = 16 << 30
 MAX_PACKAGE_BYTES = 512 << 20
@@ -38,6 +40,7 @@ ALIASES = {
     "d13": ["debian13", "debian", "trixie"],
     "el8": ["rocky8"],
     "el9": ["rocky9", "rocky"],
+    "el10": ["rocky10"],
 }
 
 
@@ -334,6 +337,8 @@ def verify_bundle(
         "sshd_include": "verified" if target["profile"] == "el8" else "upstream",
         "xfsprogs": "verified" if target["profile"] in ("d12", "d13") else "not-requested",
     }
+    if target["profile"] == "el10":
+        expected_marker["kernel_modules"] = "verified"
     if (
         validation.get("native_mutation", {}).get("status") != "completed"
         or validation.get("inspection_after", {}).get("check", {}).get("corruptions") != 0
@@ -388,7 +393,7 @@ def render_candidate_repo(
         '  boot: "uefi"',
         "images:",
     ]
-    for name in ("d12", "d13", "el8", "el9"):
+    for name in ("d12", "d13", "el8", "el9", "el10"):
         records = [record for _, record in sorted(candidates.items()) if record["target"]["name"] == name]
         release = records[0]["target"]["release"]
         lines.extend(
@@ -481,13 +486,13 @@ def assemble_repository(
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--source-cache", help="canonical directory containing the eight upstream qcow2 files")
+    result.add_argument("--source-cache", help="canonical directory containing the ten upstream qcow2 files")
     result.add_argument("--package-cache", help="canonical root for locked RPM/DEB inputs")
     result.add_argument("--output", help="canonical existing directory for new candidate bundles")
-    result.add_argument("--target", action="append", default=[], help="target name/arch; repeat as needed (default: all eight)")
+    result.add_argument("--target", action="append", default=[], help="target name/arch; repeat as needed (default: all ten)")
     result.add_argument("--fetch", action="store_true", help="fetch missing inputs from their digest-pinned HTTPS URLs")
     result.add_argument("--list", action="store_true", help="list the fixed matrix without building")
-    result.add_argument("--assemble-from", action="append", default=[], help="bundle root; repeat to assemble all eight into one candidate repository")
+    result.add_argument("--assemble-from", action="append", default=[], help="bundle root; repeat to assemble all ten into one candidate repository")
     result.add_argument("--barn", default="barn", help="Barn executable used for candidate repo build/verify")
     return result
 
