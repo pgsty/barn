@@ -47,6 +47,11 @@ type StdinRunner interface {
 	RunWithStdin(ctx context.Context, binary string, stdin []byte, args ...string) (Result, error)
 }
 
+// DuplexRunner keeps a request/response channel open after authentication.
+type DuplexRunner interface {
+	RunWithIO(ctx context.Context, binary string, stdin io.Reader, stdout io.Writer, args ...string) (Result, error)
+}
+
 // OSRunner executes argv directly. Timeout zero means use only the caller's
 // context. OutputLimit zero selects a conservative default.
 //
@@ -187,6 +192,14 @@ func (r OSRunner) RunWithExtraFiles(ctx context.Context, binary string, files []
 }
 
 func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, stdin io.Reader, args ...string) (Result, error) {
+	return r.runIO(ctx, binary, files, stdin, nil, args...)
+}
+
+func (r OSRunner) RunWithIO(ctx context.Context, binary string, stdin io.Reader, stdout io.Writer, args ...string) (Result, error) {
+	return r.runIO(ctx, binary, nil, stdin, stdout, args...)
+}
+
+func (r OSRunner) runIO(ctx context.Context, binary string, files []*os.File, stdin io.Reader, output io.Writer, args ...string) (Result, error) {
 	if binary == "" {
 		return Result{}, errors.New("external command binary is empty")
 	}
@@ -207,6 +220,9 @@ func (r OSRunner) run(ctx context.Context, binary string, files []*os.File, stdi
 	cmd.ExtraFiles = files
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
+	if output != nil {
+		cmd.Stdout = io.MultiWriter(stdout, output)
+	}
 	cmd.Stderr = stderr
 	var terminated atomic.Bool
 	cmd.Cancel = func() error {

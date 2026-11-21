@@ -372,6 +372,7 @@ func (m Manager) destroy(ctx context.Context, check func(Deployment, state.Deplo
 			return Status{}, err
 		}
 	}
+	_ = pruneClockRecords(deploymentValue.Root, selected, !partial)
 	elected := ""
 	if partial && m.dropFromSpec {
 		remaining := cloneResolved(deploymentState.Resolved)

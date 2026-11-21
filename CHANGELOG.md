@@ -8,6 +8,17 @@ Notable user-visible changes.
   support is phased out. Existing deployments and compatibility tests remain
   runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,
   `u24`, or `u26` for new labs.
+- Add `barn time status` and `barn time sync` to measure Linux guest clocks
+  against the host and force a verified correction over management SSH,
+  including offline guests. Report uncertainty and guest NTP state separately.
+- Check selected ready guests' clocks after startup commands, correcting offsets
+  above two seconds. Surface failures as optional lifecycle warnings;
+  `--no-wait` skips the check.
+- Add opt-in `barn time auto enable/disable/status`. Reuse launchd calendar
+  jobs or systemd user timers for bounded one-shot checks every minute and after
+  resume. Skip busy deployments, retain the latest report, and detect recurring
+  drift while guest NTP is synchronized. No Barn daemon or image rebuild is
+  required; host and guest NTP configuration remain administrator-owned.
 
 ## 1.2.0 — 2026-11-12
 

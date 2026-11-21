@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
@@ -14,11 +15,13 @@ const (
 	lifecycleSSHTimeout   = 2 * time.Second
 	lifecycleGuestTimeout = 5 * time.Second
 	lifecycleEventTimeout = time.Second
+	lifecycleTimeTimeout  = 20 * time.Second
 )
 
 type lifecycleIntegrator interface {
 	sshConfigReconciler
 	RefreshGuestMetadata(context.Context) error
+	SyncGuestTime(context.Context, []string) error
 	RecordEvent(context.Context, string, string, string) error
 }
 
@@ -52,6 +55,23 @@ func finishLifecycleIntegrations(ctx context.Context, command string, deployment
 		}
 	}
 	refreshGuests := startupCommand(command) || command == "destroy" && deploymentHasNodes
+	if reconcileSSH && startupCommand(command) && !noWait && ctx.Err() == nil {
+		nodes := make([]string, 0)
+		for _, node := range status.Nodes {
+			if node.Ready && node.Runtime == "running" {
+				nodes = append(nodes, node.Name)
+			}
+		}
+		if len(nodes) > 0 {
+			report.Report(activity.Event{Phase: "time-sync", Message: "Checking guest clocks against the host"})
+			err := runOptionalIntegration(ctx, lifecycleTimeBudget(len(nodes)), func(step context.Context) error { return integrator.SyncGuestTime(step, nodes) })
+			if err != nil {
+				warnings = append(warnings, lifecycleWarning{Code: "time_sync", Message: "Guest clock synchronization incomplete", Detail: err.Error(), Next: clockWarningNext(nodes, err)})
+			} else {
+				report.Report(activity.Event{Phase: "time-sync", Message: "Guest clock check completed", Done: true})
+			}
+		}
+	}
 	if operationErr == nil && !noWait && refreshGuests && ctx.Err() == nil {
 		report.Report(activity.Event{Phase: "guest-metadata", Message: "Updating guest hostnames and control-node SSH configuration"})
 		err := runOptionalIntegration(ctx, lifecycleGuestTimeout, integrator.RefreshGuestMetadata)
@@ -84,6 +104,28 @@ func finishLifecycleIntegrations(ctx context.Context, command string, deployment
 		}
 	}
 	return sshResult, warnings
+}
+
+func lifecycleTimeBudget(nodes int) time.Duration {
+	waves := (max(1, nodes) + 3) / 4
+	budget := max(lifecycleTimeTimeout, time.Duration(waves)*15*time.Second)
+	return min(budget, 2*time.Minute)
+}
+
+func clockWarningNext(nodes []string, err error) string {
+	var partial *privatevm.PartialError
+	if errors.As(err, &partial) && len(partial.Failures) > 0 {
+		failed := make([]string, 0, len(partial.Failures))
+		for _, failure := range partial.Failures {
+			if failure.Node != "" {
+				failed = append(failed, failure.Node)
+			}
+		}
+		if len(failed) > 0 {
+			return "barn time sync " + strings.Join(failed, " ")
+		}
+	}
+	return "barn time sync " + strings.Join(nodes, " ")
 }
 
 func runOptionalIntegration(parent context.Context, timeout time.Duration, run func(context.Context) error) error {

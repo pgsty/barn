@@ -487,11 +487,11 @@ func statusStyle(value string) string {
 	switch {
 	case lower == "restored", lower == "copied":
 		style = ansiGreen
-	case lower == "ok", lower == "ready", lower == "running", lower == "removed", lower == "purged", lower == "resized", lower == "unchanged", lower == "installed", lower == "created", lower == "applied", lower == "cached", lower == "imported", lower == "verified", lower == "tracked", lower == "supported", lower == "exact", lower == "healthy", lower == "valid", lower == "active", strings.HasPrefix(lower, "success"):
+	case lower == "ok", lower == "ready", lower == "running", lower == "removed", lower == "purged", lower == "resized", lower == "unchanged", lower == "installed", lower == "created", lower == "applied", lower == "cached", lower == "imported", lower == "verified", lower == "tracked", lower == "supported", lower == "exact", lower == "healthy", lower == "valid", lower == "active", lower == "checked", lower == "adjusted", lower == "within-threshold", strings.HasPrefix(lower, "success"):
 		style = ansiGreen
-	case lower == "error", lower == "fail", lower == "failed", lower == "invalid", lower == "missing", lower == "unsafe", lower == "unhealthy", lower == "conflict", strings.Contains(lower, "error"):
+	case lower == "error", lower == "fail", lower == "failed", lower == "invalid", lower == "missing", lower == "unsafe", lower == "unhealthy", lower == "conflict", lower == "source-conflict", strings.Contains(lower, "error"):
 		style = ansiRed
-	case lower == "untracked", lower == "warn", lower == "warning", lower == "stopped", lower == "cancelled", lower == "degraded", lower == "deprecated", lower == "testing", lower == "unsupported", lower == "partial", lower == "blocked", lower == "limited", lower == "incomplete":
+	case lower == "untracked", lower == "warn", lower == "warning", lower == "stopped", lower == "skipped-stopped", lower == "cancelled", lower == "degraded", lower == "deprecated", lower == "testing", lower == "unsupported", lower == "partial", lower == "blocked", lower == "limited", lower == "incomplete":
 		style = ansiYellow
 	}
 	return style

@@ -431,7 +431,7 @@ func selectedNodeNames(resolved spec.Resolved, requested []string) ([]string, er
 			return nil, UnknownNodeError(name, "deployment", resolved.Nodes)
 		}
 		if _, duplicate := seen[name]; duplicate {
-			return nil, fmt.Errorf("node selection repeats %q", name)
+			return nil, failure.New(failure.Usage, fmt.Errorf("node selection repeats %q", name))
 		}
 		seen[name] = struct{}{}
 		result = append(result, name)

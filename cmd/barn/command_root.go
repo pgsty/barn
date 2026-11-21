@@ -361,7 +361,9 @@ arguments are preserved. Flags before -- belong to Barn.`,
 	hosts.GroupID = "access"
 	logs := newLogsCommand(stdout, stderr)
 	logs.GroupID = "access"
-	root.AddCommand(ssh, execCommand, logs, provision, sshConfig, hosts)
+	guestTime := newTimeCommand(stdout, stderr)
+	guestTime.GroupID = "access"
+	root.AddCommand(ssh, execCommand, logs, provision, sshConfig, hosts, guestTime)
 
 	update := newUpdateCommand(stdout, stderr)
 	update.GroupID = "images"

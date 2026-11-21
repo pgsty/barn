@@ -745,7 +745,7 @@ func purgeDeployment(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"state.json", "events.jsonl"} {
+	for _, name := range []string{"state.json", "events.jsonl", "time-sync.json", "time-last.json"} {
 		if err := os.Remove(filepath.Join(root, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

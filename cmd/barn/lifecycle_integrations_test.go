@@ -18,6 +18,7 @@ type integrationFixture struct {
 	guest func(context.Context) error
 	level string
 	event string
+	clock func(context.Context, []string) error
 }
 
 func (f *integrationFixture) checkDeadline(ctx context.Context, action string, budget time.Duration) {
@@ -53,6 +54,51 @@ func (f *integrationFixture) RecordEvent(ctx context.Context, _, level, message 
 	return nil
 }
 
+func (f *integrationFixture) SyncGuestTime(ctx context.Context, nodes []string) error {
+	f.checkDeadline(ctx, "time", lifecycleTimeBudget(len(nodes)))
+	if f.clock != nil {
+		return f.clock(ctx, nodes)
+	}
+	return nil
+}
+
+func TestClockIntegrationUsesOnlyReadySelectedNodesAndPreservesReadiness(t *testing.T) {
+	fixture := &integrationFixture{t: t, clock: func(_ context.Context, nodes []string) error {
+		if strings.Join(nodes, ",") != "meta" {
+			t.Fatalf("time check escaped ready-node selection: %v", nodes)
+		}
+		return errors.New("clock response unavailable")
+	}}
+	status := privatevm.Status{Nodes: []privatevm.NodeStatus{
+		{Name: "meta", State: state.Running, Runtime: "running", Ready: true},
+		{Name: "pending", State: state.Running, Runtime: "running"},
+	}}
+	partial := &privatevm.PartialError{Failures: []privatevm.NodeFailure{{Node: "pending", Stage: "ready", Error: "SSH unavailable"}}}
+	_, warnings := finishLifecycleIntegrations(context.Background(), "start", true, false, "barn start", status, partial, fixture, nil)
+	if len(warnings) != 1 || warnings[0].Code != "time_sync" || warnings[0].Next != "barn time sync meta" || !status.Nodes[0].Ready {
+		t.Fatalf("clock failure changed readiness or retry selection: %+v %+v", status, warnings)
+	}
+	if strings.Join(fixture.calls, ",") != "ssh,time,event" {
+		t.Fatalf("integrations did not continue: %v", fixture.calls)
+	}
+
+	// Large deployments get a scaled clock budget and narrow Next to failed nodes.
+	many := privatevm.Status{}
+	for _, name := range []string{"meta", "n1", "n2", "n3", "n4", "n5"} {
+		many.Nodes = append(many.Nodes, privatevm.NodeStatus{Name: name, State: state.Running, Runtime: "running", Ready: true})
+	}
+	if got := lifecycleTimeBudget(len(many.Nodes)); got != 30*time.Second {
+		t.Fatalf("scaled time budget = %s, want 30s", got)
+	}
+	scaledFixture := &integrationFixture{t: t, clock: func(_ context.Context, _ []string) error {
+		return &privatevm.PartialError{Total: 6, Failures: []privatevm.NodeFailure{{Node: "n4", Stage: "time-sync", Error: "timeout"}}}
+	}}
+	_, warnings = finishLifecycleIntegrations(context.Background(), "up", true, false, "barn up", many, nil, scaledFixture, nil)
+	if len(warnings) != 1 || warnings[0].Next != "barn time sync n4" {
+		t.Fatalf("partial clock failure next = %+v", warnings)
+	}
+}
+
 func TestOptionalIntegrationTimeoutRetainsCauseAndParent(t *testing.T) {
 	parent := context.Background()
 	processErr := errors.New("SSH process killed")
@@ -77,7 +123,7 @@ func TestLifecycleIntegrationTimeoutKeepsReadyResultAndRecordsWarning(t *testing
 	if !allNodesReady(result.Status) || sshResult == nil || len(warnings) != 1 || warnings[0].Code != "guest_metadata" || !strings.Contains(warnings[0].Message, "timed out") || warnings[0].Next != "barn up -f 'my lab.yml'" {
 		t.Fatalf("lost ready result or actionable warning: %#v", result)
 	}
-	if strings.Join(fixture.calls, ",") != "ssh,guests,event" || fixture.level != "warn" || !strings.Contains(fixture.event, "timed out") {
+	if strings.Join(fixture.calls, ",") != "ssh,time,guests,event" || fixture.level != "warn" || !strings.Contains(fixture.event, "timed out") {
 		t.Fatalf("later event did not record degraded success: %#v", fixture)
 	}
 }
