@@ -37,6 +37,33 @@ type Executor struct {
 
 var ErrVMNetSharingBusy error = failure.New(failure.Resource, errors.New("macOS vmnet is busy: another sharing service holds the requested subnet (Internet Sharing, Docker Desktop, UTM, or another VM app)")).Because("vmnet_busy").Then("quit that app, or choose another /24 with barn setup -c <cidr>")
 
+// ErrNoHostChanges marks a failure that stopped before modifying host network
+// files or after rolling back every host change cleanly.
+var ErrNoHostChanges = errors.New("host network unchanged")
+
+type unchangedError struct{ err error }
+
+func (e unchangedError) Error() string        { return e.err.Error() }
+func (e unchangedError) Unwrap() error        { return e.err }
+func (e unchangedError) Is(target error) bool { return target == ErrNoHostChanges }
+
+func (e Executor) verifySharingSubnet(ctx context.Context, layout subnet.Layout) error {
+	if err := CheckSharingSubnet(ctx, e.User, e.Root, layout); err != nil {
+		if errors.Is(err, ErrVMNetSharingBusy) {
+			return noHostChanges(err)
+		}
+		return noHostChanges(failure.New(failure.Capability, err))
+	}
+	return nil
+}
+
+func noHostChanges(err error) error {
+	if err == nil {
+		return nil
+	}
+	return unchangedError{err: err}
+}
+
 type InstallReport struct {
 	Action   string            `json:"action"`
 	Plan     InstallPlan       `json:"plan"`
@@ -521,7 +548,7 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 	defer func() { steps.Fail(retErr) }()
 	report, retErr = e.planInstall(ctx, origin, interfaceID, arch, mode, cidr)
 	if retErr != nil {
-		return report, retErr
+		return report, noHostChanges(retErr)
 	}
 	if report.Action == "none" {
 		steps.Done("ready", "matching Barn network already installed")
@@ -533,13 +560,10 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 	}
 	layout, err := subnet.Parse(report.Plan.State.CIDR)
 	if err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
-	if err := CheckSharingSubnet(ctx, e.User, e.Root, layout); err != nil {
-		if errors.Is(err, ErrVMNetSharingBusy) {
-			return report, err
-		}
-		return report, failure.New(failure.Capability, err)
+	if err := e.verifySharingSubnet(ctx, layout); err != nil {
+		return report, err
 	}
 	steps.Done("ok", "installation plan checked")
 	steps.Start("files", "installing", "verifying and installing socket_vmnet and network configuration")
@@ -549,7 +573,7 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 	}
 	staging, err := os.MkdirTemp(parent, "barn-darwin-network-")
 	if err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	defer func() {
 		if err := os.RemoveAll(staging); err != nil {
@@ -557,30 +581,30 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 		}
 	}()
 	if err := os.Chmod(staging, 0o700); err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	if origin.binaries != nil {
 		if err := StageVerifiedLocalBinaries(*origin.binaries, staging, report.Plan.State.SocketSHA256, report.Plan.State.ClientSHA256); err != nil {
-			return report, err
+			return report, noHostChanges(err)
 		}
 	} else if err := ExtractVerifiedBinaries(origin.archive, arch, staging); err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	plist, err := report.Plan.Plist()
 	if err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	state, err := report.Plan.StateJSON()
 	if err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	plistSource := filepath.Join(staging, "launchd.plist")
 	stateSource := filepath.Join(staging, "network.json")
 	if err := os.WriteFile(plistSource, plist, 0o600); err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	if err := os.WriteFile(stateSource, state, 0o600); err != nil {
-		return report, err
+		return report, noHostChanges(err)
 	}
 	createdDirs := make([]string, 0, 6)
 	bootstrapped := false
@@ -599,7 +623,7 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 			return
 		}
 		recovery.Done("restored", "partial installation rolled back")
-		retErr = fmt.Errorf("%w; scoped partial install was rolled back", retErr)
+		retErr = noHostChanges(fmt.Errorf("%w; scoped partial install was rolled back", retErr))
 	}()
 	for _, directory := range []struct{ path, mode string }{
 		{InstallRoot, "0755"}, {filepath.Join(InstallRoot, "libexec"), "0755"},

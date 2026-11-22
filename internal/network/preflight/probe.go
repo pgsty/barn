@@ -488,9 +488,15 @@ func (p Probe) collectDarwin(ctx context.Context, request Request) Snapshot {
 	if sharingErr != nil {
 		finding := Finding{Code: "vmnet.sharing_probe", Severity: Error, Class: Capability, Evidence: sharingErr.Error(),
 			Fix: "inspect the vmnet configuration with: sudo plutil -p /Library/Preferences/SystemConfiguration/com.apple.vmnet.plist"}
-		if snapshot.Installation.Status == "absent" && errors.Is(sharingErr, darwinnet.ErrSharingPreferencesUnreadable) {
-			finding.Severity = Warning
-			finding.Fix = "network installation will check the sharing preferences with your approval before changing the host"
+		if errors.Is(sharingErr, darwinnet.ErrSharingPreferencesUnreadable) {
+			switch {
+			case snapshot.Installation.Status == "absent":
+				finding.Severity = Warning
+				finding.Fix = "network installation will check the sharing preferences with your approval before changing the host"
+			case (snapshot.Installation.Status == "exact" || snapshot.Installation.Status == "protected") && snapshot.Installation.CIDR == request.Layout.CIDR():
+				finding.Severity = Warning
+				finding.Fix = "network repair will check the sharing preferences with your approval before restarting the host network"
+			}
 		}
 		snapshot.Findings = append(snapshot.Findings, finding)
 	}

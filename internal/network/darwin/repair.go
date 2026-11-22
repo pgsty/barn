@@ -16,36 +16,45 @@ import (
 // never downloads or replaces the host-global installation to restart it.
 func (e Executor) Repair(ctx context.Context, mode, cidr string, restart bool) error {
 	if err := e.validate(); err != nil {
-		return err
+		return noHostChanges(err)
 	}
 	plan, installed, err := e.readInstalled(ctx)
 	if err != nil {
-		return err
+		return noHostChanges(err)
 	}
 	if !installed || plan.State.Mode != mode || plan.State.CIDR != cidr {
-		return errors.New("network repair requires the matching installed mode and subnet")
+		return noHostChanges(errors.New("network repair requires the matching installed mode and subnet"))
+	}
+	layout, err := subnet.Parse(cidr)
+	if err != nil {
+		return noHostChanges(err)
+	}
+	before, err := e.snapshotExactHostInterfaces(ctx, layout)
+	if err != nil {
+		return noHostChanges(err)
+	}
+	needsRestart := restart
+	if !needsRestart {
+		// Permission repair alone must not disconnect running VMs. Only reuse
+		// a socket with the expected ownership that actually accepts clients.
+		if _, observed := before[plan.Interface.BSDName]; !observed || e.rootStat(ctx, SocketPath, "root", "staff", "770", "Socket") != nil {
+			needsRestart = true
+		} else if connection, dialErr := net.DialTimeout("unix", SocketPath, time.Second); dialErr != nil {
+			needsRestart = true
+		} else {
+			_ = connection.Close()
+		}
+	}
+	if needsRestart {
+		if err := e.verifySharingSubnet(ctx, layout); err != nil {
+			return err
+		}
 	}
 	if _, err := e.repairLogDirectory(ctx); err != nil {
 		return err
 	}
-	layout, err := subnet.Parse(cidr)
-	if err != nil {
-		return err
-	}
-	before, err := e.snapshotExactHostInterfaces(ctx, layout)
-	if err != nil {
-		return err
-	}
-	if _, observed := before[plan.Interface.BSDName]; !restart && observed {
-		// Permission repair alone must not disconnect running VMs. Only reuse
-		// a socket with the expected ownership that actually accepts clients.
-		if e.rootStat(ctx, SocketPath, "root", "staff", "770", "Socket") == nil {
-			connection, dialErr := net.DialTimeout("unix", SocketPath, time.Second)
-			if dialErr == nil {
-				_ = connection.Close()
-				return nil
-			}
-		}
+	if !needsRestart {
+		return nil
 	}
 	delete(before, plan.Interface.BSDName)
 	if err := e.restartService(ctx); err != nil {

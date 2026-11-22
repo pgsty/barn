@@ -214,3 +214,38 @@ func TestDarwinOrphanLogDirectoryStillBlocksFreshInstall(t *testing.T) {
 		t.Fatalf("orphan log directory was treated as an absent installation: %+v", report)
 	}
 }
+
+func TestUnhealthyDarwinInstallDefersProtectedPreferencesForRepair(t *testing.T) {
+	probe, runner := installedDarwinProbe(t, darwinFileInfo{mode: os.ModeDir | 0o755})
+	probe.Dial = func(string, string, time.Duration) (net.Conn, error) {
+		return nil, os.ErrNotExist
+	}
+	report := Run(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Use, Layout: subnet.Default()}, probe)
+	if report.Installation.Status != "protected" || report.Installation.Healthy || report.Ready || !report.CanRepair() || runner.usedSudo {
+		t.Fatalf("unhealthy install should be repairable with deferred preference check (sudo=%v): %+v", runner.usedSudo, report)
+	}
+	deferred := false
+	for _, finding := range report.Findings {
+		if finding.Code == "vmnet.sharing_probe" && finding.Severity == Warning && strings.Contains(finding.Fix, "network repair will check") {
+			deferred = true
+		}
+	}
+	if !deferred {
+		t.Fatalf("missing deferred repair preference warning: %+v", report)
+	}
+
+	// A mismatched subnet cannot repair, so an unreadable preference stays an error.
+	other, err := subnet.Parse("172.31.251.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatch := Run(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: other}, probe)
+	if mismatch.Ready || mismatch.CanRepair() {
+		t.Fatalf("mismatched installed network must not be ready or repairable: %+v", mismatch)
+	}
+	for _, finding := range mismatch.Findings {
+		if finding.Code == "vmnet.sharing_probe" && finding.Severity != Error {
+			t.Fatalf("mismatched network downgraded vmnet.sharing_probe: %+v", finding)
+		}
+	}
+}

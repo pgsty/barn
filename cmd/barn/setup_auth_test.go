@@ -64,8 +64,9 @@ func (runner *setupAuthRunner) Run(ctx context.Context, binary string, args ...s
 }
 
 type setupAuthInstaller struct {
-	runner *setupAuthRunner
-	calls  int
+	runner     *setupAuthRunner
+	calls      int
+	installErr error
 }
 
 func (installer *setupAuthInstaller) InstallFromHomebrew(ctx context.Context, binaries darwinnet.LocalBinaries, interfaceID, arch, mode, cidr string, apply bool) (darwinnet.InstallReport, error) {
@@ -75,6 +76,9 @@ func (installer *setupAuthInstaller) InstallFromHomebrew(ctx context.Context, bi
 	}
 	if _, err := (sudoRunner{base: installer.runner}).Run(ctx, "/usr/bin/true"); err != nil {
 		return darwinnet.InstallReport{}, err
+	}
+	if installer.installErr != nil {
+		return darwinnet.InstallReport{}, installer.installErr
 	}
 	return darwinnet.InstallReport{Applied: true, Plan: darwinnet.InstallPlan{State: darwinnet.NetworkState{CIDR: cidr}}}, nil
 }
@@ -229,5 +233,22 @@ func TestSetupNetworkRepairStillAuthenticatesWithoutSourcePreparation(t *testing
 	step, uncertain, err := applySetupNetwork(context.Background(), "host", "", report, runner, session, io.Discard)
 	if err != nil || uncertain || step.Status != "ready" {
 		t.Fatalf("healthy network unnecessarily requested authentication: %#v uncertain=%t err=%v", step, uncertain, err)
+	}
+}
+
+func TestSetupDarwinPreMutationFailureIsNotMutationUncertain(t *testing.T) {
+	runner := newSetupAuthRunner(t)
+	runner.installed = true
+	installer := &setupAuthInstaller{
+		runner:     runner,
+		installErr: errors.Join(darwinnet.ErrVMNetSharingBusy, darwinnet.ErrNoHostChanges),
+	}
+	authorize := func() error {
+		runner.credential = true
+		return nil
+	}
+	_, uncertain, err := installSetupDarwinNetwork(context.Background(), "host", "", "10.10.10.0/24", runner, authorize, io.Discard, installer)
+	if !errors.Is(err, darwinnet.ErrVMNetSharingBusy) || uncertain {
+		t.Fatalf("pre-mutation sharing block: uncertain=%t err=%v", uncertain, err)
 	}
 }

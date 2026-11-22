@@ -600,7 +600,7 @@ func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflig
 			defer progressItem.Stop(nil)
 			executor := darwinnet.Executor{User: base, Root: setupRootRunner(base)}
 			if err := executor.Repair(ctx, mode, report.CIDR, networkRepairNeedsRestart(report)); err != nil {
-				return setupStep{}, true, err
+				return setupStep{}, !errors.Is(err, darwinnet.ErrNoHostChanges), err
 			}
 			return setupStep{Name: "network", Status: "repaired", Detail: report.CIDR, Changed: true}, false, nil
 		}
@@ -647,7 +647,7 @@ func installSetupDarwinNetwork(ctx context.Context, mode, repo, cidr string, bas
 			installReport, err := executor.InstallFromHomebrew(ctx, binaries, interfaceID, runtime.GOARCH, mode, cidr, true)
 			progressItem.Stop(err)
 			if err != nil {
-				return setupStep{}, true, err
+				return setupStep{}, !errors.Is(err, darwinnet.ErrNoHostChanges), err
 			}
 			return setupStep{Name: "network", Status: "installed", Detail: installReport.Plan.State.CIDR, Changed: installReport.Applied}, false, nil
 		}
@@ -668,7 +668,7 @@ func installSetupDarwinNetwork(ctx context.Context, mode, repo, cidr string, bas
 	installReport, err := executor.InstallModeNetwork(ctx, download.Path, interfaceID, runtime.GOARCH, mode, cidr, true)
 	progressItem.Stop(err)
 	if err != nil {
-		return setupStep{}, true, err
+		return setupStep{}, !errors.Is(err, darwinnet.ErrNoHostChanges), err
 	}
 	return setupStep{Name: "network", Status: "installed", Detail: installReport.Plan.State.CIDR, Changed: installReport.Applied}, false, nil
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/network/subnet"
 )
 
@@ -91,5 +92,36 @@ func TestSharingPreferenceWithMacOSPlutil(t *testing.T) {
 	mask, err := sharingPreference(context.Background(), reader, "Host_Net_Mask")
 	if err != nil || mask == nil || *mask != "255.255.255.0" {
 		t.Fatalf("configured mask: %v, %v", mask, err)
+	}
+}
+
+func TestVerifySharingSubnetMarksHostUnchangedAndPreservesFailureClass(t *testing.T) {
+	user := sharingCommand(func(_ context.Context, _ string, _ ...string) (execx.Result, error) {
+		return execx.Result{Stdout: []byte("active count = 2\n")}, nil
+	})
+	busyReader := sharingCommand(func(_ context.Context, _ string, args ...string) (execx.Result, error) {
+		if args[1] == "Host_Net_Address" {
+			return execx.Result{Stdout: []byte("10.10.10.1\n")}, nil
+		}
+		return execx.Result{Stdout: []byte("255.255.255.0\n")}, nil
+	})
+	busyErr := (Executor{User: user, Root: busyReader}).verifySharingSubnet(context.Background(), subnet.Default())
+	if !errors.Is(busyErr, ErrVMNetSharingBusy) || !errors.Is(busyErr, ErrNoHostChanges) {
+		t.Fatalf("busy error lost identity: %v", busyErr)
+	}
+	class, reason, next := failure.Classify(busyErr)
+	if class != failure.Resource || reason != "vmnet_busy" || !strings.Contains(next, "barn setup -c") {
+		t.Fatalf("busy classification = %q %q %q", class, reason, next)
+	}
+
+	unreadableReader := sharingCommand(func(_ context.Context, _ string, _ ...string) (execx.Result, error) {
+		return execx.Result{}, os.ErrPermission
+	})
+	capErr := (Executor{User: user, Root: unreadableReader}).verifySharingSubnet(context.Background(), subnet.Default())
+	if !errors.Is(capErr, ErrSharingPreferencesUnreadable) || !errors.Is(capErr, ErrNoHostChanges) {
+		t.Fatalf("capability error lost identity: %v", capErr)
+	}
+	if class, _, _ := failure.Classify(capErr); class != failure.Capability {
+		t.Fatalf("unreadable classification = %q, want capability", class)
 	}
 }
