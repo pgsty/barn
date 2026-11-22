@@ -221,6 +221,7 @@ installation, shared folders, desktop controls, and cleanup.
 | Discard the entire Linux lab immediately | `barn purge` |
 | Review the lab before discarding it | `barn purge --ask` |
 | Inspect available images | `barn image list` |
+| Check or sync guest clocks | `barn time status` / `barn time sync` |
 | Diagnose the host | `barn doctor` |
 
 Barn keeps one Linux deployment per user under `~/.barn`. Changing directories

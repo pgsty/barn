@@ -51,7 +51,7 @@ Continue independent work and state exactly which features remain unavailable.
 ## Development loop
 
 Use Go 1.27.4. To stamp a local candidate, run
-`BARN_VERSION=1.2.0-dev.1 make build`. Unstamped development builds report
+`BARN_VERSION=1.3.0-dev.1 make build`. Unstamped development builds report
 `dev`; formal release versions come from the Git tag.
 
 ```bash

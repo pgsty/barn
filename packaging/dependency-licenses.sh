@@ -13,8 +13,8 @@ license_source_mappings() {
     'go.yaml.in-yaml-v4-LICENSE|module|go.yaml.in/yaml/v4@v4.0.0/LICENSE' \
     'go.yaml.in-yaml-v4-NOTICE|module|go.yaml.in/yaml/v4@v4.0.0/NOTICE' \
     'golang.org-go-stdlib-LICENSE|go|LICENSE' \
-    'golang.org-x-crypto-LICENSE|module|golang.org/x/crypto@v0.58.0/LICENSE' \
-    'golang.org-x-net-LICENSE|module|golang.org/x/net@v0.62.0/LICENSE' \
+    'golang.org-x-crypto-LICENSE|module|golang.org/x/crypto@v0.59.0/LICENSE' \
+    'golang.org-x-net-LICENSE|module|golang.org/x/net@v0.63.0/LICENSE' \
     'golang.org-x-sys-LICENSE|module|golang.org/x/sys@v0.50.0/LICENSE' \
     'golang.org-x-term-LICENSE|module|golang.org/x/term@v0.48.0/LICENSE' \
     'golang.org-x-text-LICENSE|module|golang.org/x/text@v0.44.0/LICENSE'

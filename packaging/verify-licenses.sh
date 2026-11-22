@@ -15,8 +15,8 @@ expected=$(printf '%s\n' \
   $'github.com/spf13/cobra\tv1.10.2' \
   $'github.com/spf13/pflag\tv1.1.0' \
   $'go.yaml.in/yaml/v4\tv4.0.0' \
-  $'golang.org/x/crypto\tv0.58.0' \
-  $'golang.org/x/net\tv0.62.0' \
+  $'golang.org/x/crypto\tv0.59.0' \
+  $'golang.org/x/net\tv0.63.0' \
   $'golang.org/x/sys\tv0.50.0' \
   $'golang.org/x/term\tv0.48.0' \
   $'golang.org/x/text\tv0.44.0' | LC_ALL=C sort)
