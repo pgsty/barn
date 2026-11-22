@@ -4,7 +4,7 @@ Notable user-visible changes.
 
 ## Unreleased
 
-## 1.3.0 — 2026-11-22
+## 1.3.0 — 2026-11-23
 
 Barn 1.3.0 adds Linux guest clock synchronization, shorthand image family and
 architecture selectors, signed image catalog `2026112101`, macOS 27.2.1 base
