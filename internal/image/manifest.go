@@ -30,7 +30,7 @@ type Entry struct {
 //go:embed default-catalog.json
 var embeddedCatalogBytes []byte
 
-var embeddedManifestGeneratedAt = time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+var embeddedManifestGeneratedAt = time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
 
 var formalAliases = []string{"el7", "el8", "el9", "el10", "d12", "d13", "u22", "u24", "u26"}
 

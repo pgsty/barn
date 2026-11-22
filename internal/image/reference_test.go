@@ -68,8 +68,8 @@ func TestCatalogResolvesDefaultChannelExactVersionAndAlias(t *testing.T) {
 		arch      string
 		release   string
 	}{
-		{"el9@9", "arm64", "9.8.20260525.2"},
-		{"el10@10", "amd64", "10.2.20260525.0"},
+		{"el9@9", "arm64", "9.9.20261112.1"},
+		{"el10@10", "amd64", "10.3.20261112.1"},
 		{"u24@20261017", "arm64", "20261017.0.1"},
 	} {
 		entry, err := catalog.Entry(test.reference, test.arch)

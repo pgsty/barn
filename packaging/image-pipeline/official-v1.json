@@ -1,8 +1,8 @@
 {
   "artifact_base_url": "https://repo.pigsty.cc/barn",
-  "manifest_version": 2026111901,
+  "manifest_version": 2026112101,
   "schema": 1,
-  "source_date_epoch": 1795046400,
+  "source_date_epoch": 1795219200,
   "targets": [
     {
       "arch": "amd64",
@@ -44,11 +44,11 @@
         "schema": 1
       },
       "profile": "d12",
-      "release": "20260923.2610.1",
-      "source_filename": "d12-20260923.2610.1-amd64.source.qcow2",
-      "source_sha256": "30da13ad03a8713f3cf2b9b2830b4db892e2e7dca2572f9eb690f86ad4e8fe97",
-      "source_sha512": "b789a983661b93ae280dcebbcecc425e7a05f15ab4a60d08e0bf130759a4f84dd26de39bd0e77e33b3f513910e5c5e84bdb335324b5138b4c43a0899a1733455",
-      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-amd64-20260923-2610.qcow2"
+      "release": "20261117.2665.1",
+      "source_filename": "debian-12-generic-amd64-20261117-2665.qcow2",
+      "source_sha256": "335105aff6e335a561940ce25227449fce5a80c2b0c52004f617ce2f68db19dc",
+      "source_sha512": "d597a8b422a0fa7f7cf1a0477d23be7f7514f32e57ccb8d0c69156e1be4a7e1712fb64aee6298520d70aa573b801d0cfe3392ab5de39829728760c0cf99ef4ec",
+      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20261117-2665/debian-12-generic-amd64-20261117-2665.qcow2"
     },
     {
       "arch": "arm64",
@@ -90,11 +90,11 @@
         "schema": 1
       },
       "profile": "d12",
-      "release": "20260923.2610.1",
-      "source_filename": "d12-20260923.2610.1-arm64.source.qcow2",
-      "source_sha256": "36af134bafc3e426e551f250deec7581e4352d473ba40be7d9fd905fb832d0ed",
-      "source_sha512": "2c94f9e36787ec5bc8703e261a03f7b046ff71407cfbff18a2c0849a9dcc0973dcd6ef4cf02b9dd66a795ae204061516f4c967d69b41158a4ed1f066474d9638",
-      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-generic-arm64-20260923-2610.qcow2"
+      "release": "20261117.2665.1",
+      "source_filename": "debian-12-generic-arm64-20261117-2665.qcow2",
+      "source_sha256": "97a181ea6e74f7621cea6fa8db4fc5062e21ae4ea163e3ca978f3ea378a3cc0d",
+      "source_sha512": "1e8651e41b5cd07cd0f9ee63aa72dffe28afe8f2f197f0b340576f43df8f10c4bf8352d3f8630e9a99b225802f2c2fdb25ac17e7182310a4a181fa4a7880c889",
+      "source_uri": "https://cloud.debian.org/images/cloud/bookworm/20261117-2665/debian-12-generic-arm64-20261117-2665.qcow2"
     },
     {
       "arch": "amd64",
@@ -136,11 +136,11 @@
         "schema": 1
       },
       "profile": "d13",
-      "release": "20261103.2651.1",
-      "source_filename": "debian-13-generic-amd64-20261103-2651.qcow2",
-      "source_sha256": "ee845b8abcc5107441c452a5454a5711b1dabec34b64bc5f370688003d7bf2ff",
-      "source_sha512": "1207e6e3efaff8ee77ab7a32c156a3eea6a9e53f94cfc48efbd1f49ba554ca36ac62ab27395aa813a1775a8c0a393b1a1ce5377d9e5670f6113e3110c57fee4b",
-      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-amd64-20261103-2651.qcow2"
+      "release": "20261116.2664.1",
+      "source_filename": "debian-13-generic-amd64-20261116-2664.qcow2",
+      "source_sha256": "8909a284450ae3167a63d5b3671ebd4fa1e178a8c6521770c1d5e0f6450288cc",
+      "source_sha512": "e53a93ef33f828ceed0e7278c2cc2753bdc7d5098fbfae15bd64b6d878db350ea3744247763a1c8ecb6b4019a0f623c38caf6038ad6f9c357fb4e01493ddf1a3",
+      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-amd64-20261116-2664.qcow2"
     },
     {
       "arch": "arm64",
@@ -182,11 +182,11 @@
         "schema": 1
       },
       "profile": "d13",
-      "release": "20261103.2651.1",
-      "source_filename": "debian-13-generic-arm64-20261103-2651.qcow2",
-      "source_sha256": "4592af9065146cae1ddfd4f1518ba184d3ecf11c9115be9c1d7a1d28912f41a1",
-      "source_sha512": "878f563f6c95af7fe1e8e51cd39470a1cdb570dddbee22377c85a347bce9d521d95f2cf0f825a38bc0a757889034fac6d83e932f04a3a122ab08cea68cc9ff8a",
-      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-arm64-20261103-2651.qcow2"
+      "release": "20261116.2664.1",
+      "source_filename": "debian-13-generic-arm64-20261116-2664.qcow2",
+      "source_sha256": "ff1fb3915fa184d480e64ede40752319fff894f810c8b89b7aca2bdd7bd97810",
+      "source_sha512": "3d4655799e64ca93f51832da31101188f28e01cb14fec2164ac9a7a5f70f303b80f72e9632498dd9cb0099ad04b12c186bffe4f0cd50c5e739faa3ee85007eb0",
+      "source_uri": "https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-arm64-20261116-2664.qcow2"
     },
     {
       "arch": "amd64",
@@ -273,11 +273,11 @@
       "name": "el9",
       "package_lock": null,
       "profile": "el9",
-      "release": "9.8.20260525.2",
-      "source_filename": "el9-9.8.20260525.0-amd64.qcow2",
-      "source_sha256": "92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8",
+      "release": "9.9.20261112.1",
+      "source_filename": "Rocky-9-GenericCloud-Base-9.9-20261112.0.x86_64.qcow2",
+      "source_sha256": "4f88f4209de50813d8054ab97309e7169a580206a0c4ea04f375d36c4846d50e",
       "source_sha512": null,
-      "source_uri": "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2"
+      "source_uri": "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.9-20261112.0.x86_64.qcow2"
     },
     {
       "arch": "arm64",
@@ -286,11 +286,11 @@
       "name": "el9",
       "package_lock": null,
       "profile": "el9",
-      "release": "9.8.20260525.2",
-      "source_filename": "el9-9.8.20260525.0-arm64.qcow2",
-      "source_sha256": "24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe",
+      "release": "9.9.20261112.1",
+      "source_filename": "Rocky-9-GenericCloud-Base-9.9-20261112.0.aarch64.qcow2",
+      "source_sha256": "5fe11a8bb45c1e7e8b51f4dd9bb21c7b79aef29dffcfa61b52b9a82ac1cd1c38",
       "source_sha512": null,
-      "source_uri": "https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2"
+      "source_uri": "https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.9-20261112.0.aarch64.qcow2"
     },
     {
       "arch": "amd64",
@@ -306,30 +306,30 @@
         "packages": [
           {
             "arch": "amd64",
-            "filename": "kernel-modules-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
+            "filename": "kernel-modules-6.12.0-264.16.1.el10_3.x86_64.rpm",
             "name": "kernel-modules",
-            "sha256": "c03c3ac5ae9597eb581d25c54319f09abf8a175153b4768783192b7a0ad85139",
-            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/x86_64/os/Packages/k/kernel-modules-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
-            "version": "6.12.0-211.16.1.el10_2.0.1"
+            "sha256": "4848b29bef20c99c8687301f3eba2d0fde010aa3f9b80d82ec8833f51f835e4a",
+            "url": "https://dl.rockylinux.org/pub/rocky/10.3/BaseOS/x86_64/os/Packages/k/kernel-modules-6.12.0-264.16.1.el10_3.x86_64.rpm",
+            "version": "6.12.0-264.16.1.el10_3"
           },
           {
             "arch": "amd64",
-            "filename": "kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
+            "filename": "kernel-modules-extra-6.12.0-264.16.1.el10_3.x86_64.rpm",
             "name": "kernel-modules-extra",
-            "sha256": "8db10e7d810b5e7b4715a02be3ecc3695f658a4fcb53717a2acf7f9f1c363ce0",
-            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/x86_64/os/Packages/k/kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.x86_64.rpm",
-            "version": "6.12.0-211.16.1.el10_2.0.1"
+            "sha256": "cc36d20cd4768cab7dcf69a6f387fb5d64e1bcb2c160965f0d8151a37bb41c74",
+            "url": "https://dl.rockylinux.org/pub/rocky/10.3/BaseOS/x86_64/os/Packages/k/kernel-modules-extra-6.12.0-264.16.1.el10_3.x86_64.rpm",
+            "version": "6.12.0-264.16.1.el10_3"
           }
         ],
         "profile": "el10",
         "schema": 1
       },
       "profile": "el10",
-      "release": "10.2.20260525.1",
-      "source_filename": "el10-10.2.20260525.0-amd64.qcow2",
-      "source_sha256": "9fc9e9ff16888bb68ac39b0392e25c9c92684d50c85f1cce6ab549363bbc4b48",
+      "release": "10.3.20261112.1",
+      "source_filename": "Rocky-10-GenericCloud-Base-10.3-20261112.0.x86_64.qcow2",
+      "source_sha256": "68eae06d402c8b19e7dca06e85bdc43a3476089afa3ee20d93d0d43cf9871e9e",
       "source_sha512": null,
-      "source_uri": "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2"
+      "source_uri": "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.3-20261112.0.x86_64.qcow2"
     },
     {
       "arch": "arm64",
@@ -345,30 +345,30 @@
         "packages": [
           {
             "arch": "arm64",
-            "filename": "kernel-modules-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
+            "filename": "kernel-modules-6.12.0-264.16.1.el10_3.aarch64.rpm",
             "name": "kernel-modules",
-            "sha256": "daa666a8a19006358140bd996623b5c72e37d91db342f5fd32539323e6dc67d2",
-            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/aarch64/os/Packages/k/kernel-modules-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
-            "version": "6.12.0-211.16.1.el10_2.0.1"
+            "sha256": "11478256d20b4e8249d81241765e3505c19de0d09bcf252e201394438ce33022",
+            "url": "https://dl.rockylinux.org/pub/rocky/10.3/BaseOS/aarch64/os/Packages/k/kernel-modules-6.12.0-264.16.1.el10_3.aarch64.rpm",
+            "version": "6.12.0-264.16.1.el10_3"
           },
           {
             "arch": "arm64",
-            "filename": "kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
+            "filename": "kernel-modules-extra-6.12.0-264.16.1.el10_3.aarch64.rpm",
             "name": "kernel-modules-extra",
-            "sha256": "72d545cf31a7b794ba4df14ff71cf540c269d50aaf5b6a1a7764b8def4c0d1f4",
-            "url": "https://dl.rockylinux.org/vault/rocky/10.2/BaseOS/aarch64/os/Packages/k/kernel-modules-extra-6.12.0-211.16.1.el10_2.0.1.aarch64.rpm",
-            "version": "6.12.0-211.16.1.el10_2.0.1"
+            "sha256": "e232146c4b13da76d787df6fb04c054ddb636a54bbe5631d8a7b0c0217123e26",
+            "url": "https://dl.rockylinux.org/pub/rocky/10.3/BaseOS/aarch64/os/Packages/k/kernel-modules-extra-6.12.0-264.16.1.el10_3.aarch64.rpm",
+            "version": "6.12.0-264.16.1.el10_3"
           }
         ],
         "profile": "el10",
         "schema": 1
       },
       "profile": "el10",
-      "release": "10.2.20260525.1",
-      "source_filename": "el10-10.2.20260525.0-arm64.qcow2",
-      "source_sha256": "457c8375e19496f43a25c4a6169fa11237536c53cef6f85a20ea3c5a751aa0f5",
+      "release": "10.3.20261112.1",
+      "source_filename": "Rocky-10-GenericCloud-Base-10.3-20261112.0.aarch64.qcow2",
+      "source_sha256": "a690512d4f0a9bb8dc0d17f2727ec561aa28d16055bf0cd33bd7ac80529d545c",
       "source_sha512": null,
-      "source_uri": "https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.2-20260525.0.aarch64.qcow2"
+      "source_uri": "https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.3-20261112.0.aarch64.qcow2"
     }
   ]
 }

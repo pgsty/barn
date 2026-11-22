@@ -1,5 +1,5 @@
 schema: 1
-revision: 2026110502
+revision: 2026112101
 defaults:
   image: u24
   channel: stable
@@ -12,7 +12,7 @@ images:
     - bookworm
     boot: uefi
     channels:
-      stable: 20261026.2643.1
+      stable: 20261117.2665.1
     versions:
       20261026.2643.1:
         status: supported
@@ -23,6 +23,15 @@ images:
           arm64:
             source_user: dba
             provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261026-2643/debian-12-generic-arm64-20261026-2643.qcow2 sha256:a4e929bc5fa0cd4b26b8fd87576f7aef35e9d6ca5039d45460e4291ddcfdbe36; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; recipe sha256:2b490ec151e3891eaf15e56105b6da78ca9bbe7c4c722b84363ee260c40db598; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; xfsprogs 6.1.0-1 installed offline with locked dependencies; initramfs rebuilt; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
+      20261117.2665.1:
+        status: supported
+        variants:
+          amd64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261117-2665/debian-12-generic-amd64-20261117-2665.qcow2 sha256:335105aff6e335a561940ce25227449fce5a80c2b0c52004f617ce2f68db19dc; package-lock sha256:89414b5485ddb76c65fae879b98989b5bfdcbbdd9d1c02ff4e0af0ab55f5b347; recipe sha256:f4548d9219cb6e2728e1db2367f48a8e952267be76b3b0b4355151bb07fa650e; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 6.1.0-1 verified; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
+          arm64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/bookworm/20261117-2665/debian-12-generic-arm64-20261117-2665.qcow2 sha256:97a181ea6e74f7621cea6fa8db4fc5062e21ae4ea163e3ca978f3ea378a3cc0d; package-lock sha256:f604b11aec09c227f774a998f9bb3e0068b97cf4ff069da19f5679c3b4021240; recipe sha256:6ef2bc17959c70591f34e508c47947eeef6205d3b89cab6a6c59c4fcf74051c0; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 6.1.0-1 verified; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
   d13:
     aliases:
     - debian13
@@ -30,7 +39,7 @@ images:
     - trixie
     boot: uefi
     channels:
-      stable: 20261103.2651.1
+      stable: 20261116.2664.1
     versions:
       20261103.2651.1:
         status: supported
@@ -41,12 +50,21 @@ images:
           arm64:
             source_user: dba
             provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261103-2651/debian-13-generic-arm64-20261103-2651.qcow2 sha256:4592af9065146cae1ddfd4f1518ba184d3ecf11c9115be9c1d7a1d28912f41a1; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:9e9d747022cb6fad31b75b99e4e5abc8e3f3adeb2058cc58ae9740ca8e5465db; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:d0dee0b525dbbbd2a5902c71a77a94753e8965ffb747b10f5cae5d8add7165a2; xfsprogs 6.13.0-2+deb13u1 installed offline with locked dependencies; initramfs rebuilt by package post-install; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-11-05; independent rebuild compared: normalization markers match; no bit-reproducibility claim; upstream is build provenance only'
+      20261116.2664.1:
+        status: supported
+        variants:
+          amd64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-amd64-20261116-2664.qcow2 sha256:8909a284450ae3167a63d5b3671ebd4fa1e178a8c6521770c1d5e0f6450288cc; package-lock sha256:a8c2c57ec24d33b44e933bd8d8a3ddab427fcbbfb3c56a6788c4bc35b10a973c; recipe sha256:35455bf252498e192cef65bd2ddafd063a2f21418968f950cc117d116a303c0d; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 6.13.0-2+deb13u1 verified; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
+          arm64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud.debian.org/images/cloud/trixie/20261116-2664/debian-13-generic-arm64-20261116-2664.qcow2 sha256:ff1fb3915fa184d480e64ede40752319fff894f810c8b89b7aca2bdd7bd97810; package-lock sha256:227b4ac5c8f04fd4b53f661be63ef6cea711c9dfa117976c2ff888ad65ddbaee; recipe sha256:8715c5887865411ecc94985c711230405b312041c86d7f2ce1b3c3c8149db3cf; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 6.13.0-2+deb13u1 verified; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
   el10:
     aliases:
     - rocky10
     boot: uefi
     channels:
-      stable: 10.2.20260525.0
+      stable: 10.3.20261112.1
     versions:
       10.2.20260525.0:
         status: supported
@@ -59,6 +77,15 @@ images:
             upstream: https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.2-20260525.0.aarch64.qcow2
             source_user: rocky
             provenance: Rocky Linux 10.2 GenericCloud Base 20260525.0; distribution-owned dated artifact; local bytes, SHA-256, qcow2 metadata, and EFI system partition verified 2026-08-24
+      10.3.20261112.1:
+        status: supported
+        variants:
+          amd64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.3-20261112.0.x86_64.qcow2 sha256:68eae06d402c8b19e7dca06e85bdc43a3476089afa3ee20d93d0d43cf9871e9e; package-lock sha256:c4e54bf15888588f4a238ec4cc491173966c0b58d50909b818b68d97874e1485; recipe sha256:99f35a63d40cc455e2af34b978b2493e272c815acc10b47640584586da8f335d; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; signed, digest-locked kernel-modules and kernel-modules-extra 6.12.0-264.16.1.el10_3.x86_64 installed offline; Docker default firewall, bridge, DNS, egress and port publishing passed; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
+          arm64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.3-20261112.0.aarch64.qcow2 sha256:a690512d4f0a9bb8dc0d17f2727ec561aa28d16055bf0cd33bd7ac80529d545c; package-lock sha256:aef27d7610307dd0d49e4b7614f01f1f8f80bd9beb716f92c171f8fa1d9743ae; recipe sha256:71db337b5b251b396762ed0641cff9d3d5cfa63637383093b28f4ed4a773f839; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; signed, digest-locked kernel-modules and kernel-modules-extra 6.12.0-264.16.1.el10_3.aarch64 installed offline; Docker default firewall, bridge, DNS, egress and port publishing passed; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
   el7:
     aliases:
     - c7
@@ -83,7 +110,7 @@ images:
       stable: 8.10.20240528.3
     versions:
       8.10.20240528.3:
-        status: supported
+        status: deprecated
         variants:
           amd64:
             source_user: dba
@@ -97,7 +124,7 @@ images:
     - rocky
     boot: uefi
     channels:
-      stable: 9.8.20260525.2
+      stable: 9.9.20261112.1
     versions:
       9.8.20260525.2:
         status: supported
@@ -108,6 +135,15 @@ images:
           arm64:
             source_user: dba
             provenance: Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2 sha256:24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe; recipe sha256:7d6ecf953f5bc5bca4803d0da197c3c31823048d9852804061d61e7b6ecc0f96; recipe-config sha256:69e7e929f269aa38c4b9b6e8ee613a29271c284ace469f81cc16b23010d872f6; normalize-script sha256:919b9a82bf60bd22ed99b2e4659d2fcf96769f789970a5c3f40b66e64d27cc97; rebuilt from unmodified upstream with offline normalization; Barn guest paths and marker verified; legacy guest paths absent; native HVF UEFI dual-NIC SSH, dba UID/GID 88, Python, cloud-init without warnings, and XFS data-disk read/write smoke passed 2026-09-29; upstream is build provenance only
+      9.9.20261112.1:
+        status: supported
+        variants:
+          amd64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.9-20261112.0.x86_64.qcow2 sha256:4f88f4209de50813d8054ab97309e7169a580206a0c4ea04f375d36c4846d50e; recipe sha256:c9865a39fd225de659383c914faf70c1a340f49d84df361c031e592502c68598; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
+          arm64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://dl.rockylinux.org/pub/rocky/9/images/aarch64/Rocky-9-GenericCloud-Base-9.9-20261112.0.aarch64.qcow2 sha256:5fe11a8bb45c1e7e8b51f4dd9bb21c7b79aef29dffcfa61b52b9a82ac1cd1c38; recipe sha256:c9865a39fd225de659383c914faf70c1a340f49d84df361c031e592502c68598; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
   u22:
     aliases:
     - ubuntu22
@@ -115,10 +151,10 @@ images:
     - jammy
     boot: uefi
     channels:
-      stable: 20261020.0.1
+      stable: 20261109.0.1
     versions:
       20261020.0.1:
-        status: supported
+        status: deprecated
         variants:
           amd64:
             source_user: dba
@@ -126,6 +162,15 @@ images:
           arm64:
             source_user: dba
             provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261020/ubuntu-22.04-server-cloudimg-arm64.img sha256:e720ae083f93baae47ac9b76a096243fe1027f60998cf1127a47a74c880f64ed; recipe sha256:c6e2986c6678ba7a2e490e0f2de936837f6d06f651edec7dc411cc9edc09d3db; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 5.13.0-1ubuntu2.1 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
+      20261109.0.1:
+        status: deprecated
+        variants:
+          amd64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261109/ubuntu-22.04-server-cloudimg-amd64.img sha256:77d19e53656f87c95f1f6c6be59c789083b3f77fa08f9d88011ee04085c61f87; recipe sha256:c9865a39fd225de659383c914faf70c1a340f49d84df361c031e592502c68598; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 5.13.0-1ubuntu2.2 verified; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
+          arm64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/jammy/release-20261109/ubuntu-22.04-server-cloudimg-arm64.img sha256:e429865ad84a083a84fdbd51bf6fd6e4174bbb1610ba0d72ca01014c656d45bc; recipe sha256:c9865a39fd225de659383c914faf70c1a340f49d84df361c031e592502c68598; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 5.13.0-1ubuntu2.2 verified; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
   u24:
     aliases:
     - ubuntu
@@ -152,7 +197,7 @@ images:
     - resolute
     boot: uefi
     channels:
-      stable: 20261016.0.1
+      stable: 20261108.0.1
     versions:
       20261016.0.1:
         status: supported
@@ -163,3 +208,12 @@ images:
           arm64:
             source_user: dba
             provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-arm64.img sha256:8eb876c2ccc4b6ff89e4a65d511815923b285e04503ba465809bf587f763da24; recipe sha256:5abaa4329a7660c1648e7fd72a9696eeeb33538772a4416515fd5d81a88c4d65; recipe-config sha256:d558da2dcb3915c012c31a2a700374882258f5d9a6063cf06fe03f0bd43d1bbf; normalize-script sha256:680ba4c06f3b71816ae4864dd53153c0171798b677a7b9a4ffd42a1bcfdbcc88; upstream xfsprogs 6.18.0-3 retained and verified; offline credential hygiene and dba:admin UID/GID 88 normalization; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, locales, clean cloud-init, and XFS read/write smoke passed 2026-10-28; independent rebuild compared: normalization markers match, artifact bytes and virtual disk contents differ; no bit-reproducibility claim; upstream is build provenance only'
+      20261108.0.1:
+        status: supported
+        variants:
+          amd64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261108/ubuntu-26.04-server-cloudimg-amd64.img sha256:7b90593f5532b49b7e3fe3d2743f0d1f0d822e5b07cebcd8e00c0df8069ecab9; recipe sha256:c9865a39fd225de659383c914faf70c1a340f49d84df361c031e592502c68598; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 6.18.0-3 verified; en_US.UTF-8 available with C.UTF-8 default; native KVM UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'
+          arm64:
+            source_user: dba
+            provenance: 'Barn official-image recipe v1 from https://cloud-images.ubuntu.com/releases/resolute/release-20261108/ubuntu-26.04-server-cloudimg-arm64.img sha256:cf3b8472b84e7de37cdc2d2e9a9bf82b3edf0ab97113a1422eff048f26688e2f; recipe sha256:c9865a39fd225de659383c914faf70c1a340f49d84df361c031e592502c68598; recipe-config sha256:f61667a85379efba97bf373cdcaefc6db4a88158b907c51f7051f24920ec70b0; normalize-script sha256:c47e3b4a73562f08d6480ff0f47ed2500fcb53c5b6b7b7a915bb5e1624919b95; offline credential hygiene and dba:admin UID/GID 88 normalization; xfsprogs 6.18.0-3 verified; en_US.UTF-8 available with C.UTF-8 default; native HVF UEFI first boot and disk-preserving restart, dual-NIC SSH, root expansion, clean cloud-init, and XFS read/write smoke passed 2026-11-21; independent rebuild compared: normalization markers and inputs match; no bit-reproducibility claim; upstream is build provenance only'

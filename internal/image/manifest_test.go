@@ -47,44 +47,44 @@ func TestEmbeddedFormalGuestMatrixExact(t *testing.T) {
 			sha256: "9dc4c04a521c0aa7072a12ff523403d167d79302c1b5e1b28ceab8b3e9b55de6", artifactSize: 1958019072, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el9/amd64": {
-			release: "9.8.20260525.2", url: "",
-			sha256: "97fcb5f117e364a6c26a3536adc2a8f517acabeaf2a0ece30330f16753e7b6dd", artifactSize: 655622144, virtualSize: 10737418240, sourceUser: "dba",
+			release: "9.9.20261112.1", url: "",
+			sha256: "0c0b039e543cadca889407aa87abd75910d5ef7d77bd7563eb7efeb622757995", artifactSize: 659292160, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el9/arm64": {
-			release: "9.8.20260525.2", url: "",
-			sha256: "28628f3ee93d35b0c21b2e53d568817380f9764ae4b89f0eeb0bde9d503c313b", artifactSize: 529727488, virtualSize: 10737418240, sourceUser: "dba",
+			release: "9.9.20261112.1", url: "",
+			sha256: "0b8ef97d585f61d1348fefd4f4eaff3f70fb743024d9d5e083d6a4ab8e1b6bee", artifactSize: 538378240, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el10/amd64": {
-			release: "10.2.20260525.0", url: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2",
-			sha256: "9fc9e9ff16888bb68ac39b0392e25c9c92684d50c85f1cce6ab549363bbc4b48", artifactSize: 544997376, virtualSize: 10737418240, sourceUser: "rocky",
+			release: "10.3.20261112.1", url: "",
+			sha256: "bf47bd169e19ae086d466f00e50178850f62b24293dfc9ec7428cf5f080b74e7", artifactSize: 857079808, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"el10/arm64": {
-			release: "10.2.20260525.0", url: "https://dl.rockylinux.org/pub/rocky/10/images/aarch64/Rocky-10-GenericCloud-Base-10.2-20260525.0.aarch64.qcow2",
-			sha256: "457c8375e19496f43a25c4a6169fa11237536c53cef6f85a20ea3c5a751aa0f5", artifactSize: 469368832, virtualSize: 10737418240, sourceUser: "rocky",
+			release: "10.3.20261112.1", url: "",
+			sha256: "995e2e8cc0991dc35e7584f86d39cf9b15e083133aa59a468c3eb144f8e9e7f8", artifactSize: 690552832, virtualSize: 10737418240, sourceUser: "dba",
 		},
 		"d12/amd64": {
-			release: "20261026.2643.1", url: "",
-			sha256: "57b86ed2748fe41126ce9bdb48af5f289d9a10fb69e1bee4fb363c1649164dad", artifactSize: 758841344, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20261117.2665.1", url: "",
+			sha256: "30d8067534fcefc45091824c8fb3da97ac3d7803f88fe12e79319ffaa96241e7", artifactSize: 759627776, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d12/arm64": {
-			release: "20261026.2643.1", url: "",
-			sha256: "73bf46a766747d7647263c917065ae218f0334e60a78b92c64bc950cbf5cab76", artifactSize: 749142016, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20261117.2665.1", url: "",
+			sha256: "dceb3d3da442ccaf941fd5f4425fa31dcb6181919da70f9f0b15003f11f3a751", artifactSize: 711000064, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d13/amd64": {
-			release: "20261103.2651.1", url: "",
-			sha256: "3d23da279db3b16c4057d35ba7bce5a4c4a56c94467c50f62e39257e58b45584", artifactSize: 539885568, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20261116.2664.1", url: "",
+			sha256: "123642b11aec0577e82c59f045520dfa748290ef2b0f69deb503367caf98cf85", artifactSize: 563675136, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d13/arm64": {
-			release: "20261103.2651.1", url: "",
-			sha256: "24e2fb8bf997e3e0b4e4c429081a161eed3611f7bc5c2a75ddbbca43f98fb474", artifactSize: 595853312, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20261116.2664.1", url: "",
+			sha256: "872931d1b1b82aed395b237f8674c85c76f4ec577e5cfcc2535f03c0a3fc062a", artifactSize: 598999040, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"u22/amd64": {
-			release: "20261020.0.1", url: "",
-			sha256: "c321f1fee530ceabf505d4b7b06398527d7ace4acc5e8a0ce73f35d4e56511f1", artifactSize: 734920704, virtualSize: 2361393152, sourceUser: "dba",
+			release: "20261109.0.1", url: "",
+			sha256: "aaf993c0e192891e7e74a38394baaf4ec188e74f6d0393def5951640c4e8b192", artifactSize: 721682432, virtualSize: 2361393152, sourceUser: "dba",
 		},
 		"u22/arm64": {
-			release: "20261020.0.1", url: "",
-			sha256: "501de7321ba8b9e63dd930e6d2137b67d52ac722257c56c361979d9ba2946393", artifactSize: 705560576, virtualSize: 2361393152, sourceUser: "dba",
+			release: "20261109.0.1", url: "",
+			sha256: "1d343b80f9a5a0dc6a0bceae9ab8f7b768f7e6faaa10a33bdb83c22b34d08019", artifactSize: 693829632, virtualSize: 2361393152, sourceUser: "dba",
 		},
 		"u24/amd64": {
 			release: "20261017.0.1", url: "",
@@ -95,12 +95,12 @@ func TestEmbeddedFormalGuestMatrixExact(t *testing.T) {
 			sha256: "128cb37a18174c14f1976d752ce27cf9d284802efcb1fc0e730f0abb456cb06f", artifactSize: 621608960, virtualSize: 3758096384, sourceUser: "dba",
 		},
 		"u26/amd64": {
-			release: "20261016.0.1", url: "",
-			sha256: "87982ec7e107dcd00367aaa5d15a1a08f8d2babb7e58cc3142fd168725b73c10", artifactSize: 864288768, virtualSize: 3758096384, sourceUser: "dba",
+			release: "20261108.0.1", url: "",
+			sha256: "cd35b7f4ff9cd15a5adcd181cd7078b0c84d71d7cb8e249373ff99ae8c503c8e", artifactSize: 865927168, virtualSize: 3758096384, sourceUser: "dba",
 		},
 		"u26/arm64": {
-			release: "20261016.0.1", url: "",
-			sha256: "ac9634f0ff07d16531868200cef46cda087f3088d4433a5c6510d3e238b3f00f", artifactSize: 945618944, virtualSize: 3758096384, sourceUser: "dba",
+			release: "20261108.0.1", url: "",
+			sha256: "5049ade4e59f2139b489ecd76afd4aedaaa3d539caaec6300b427927416c616b", artifactSize: 947978240, virtualSize: 3758096384, sourceUser: "dba",
 		},
 	}
 
