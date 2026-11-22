@@ -68,7 +68,7 @@ jobs:
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: v2.20.1
+          version: v2.20.3
           install-only: true
 
       - name: Install pinned standalone nFPM and Syft
@@ -77,16 +77,16 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y rpm jq libarchive-tools ruby
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.49.0
           go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
-          go install golang.org/x/tools/cmd/deadcode@v0.52.0
+          go install golang.org/x/tools/cmd/deadcode@v0.53.0
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
-          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
           install -d -m 0755 "${RUNNER_TEMP}/bin"
           curl -fsSLo "${RUNNER_TEMP}/syft.tar.gz" \
-            https://github.com/anchore/syft/releases/download/v1.57.1/syft_1.57.1_linux_amd64.tar.gz
+            https://github.com/anchore/syft/releases/download/v1.57.2/syft_1.57.2_linux_amd64.tar.gz
           printf '%s  %s\n' \
-            bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c \
+            ad92bd3ec1b94a3df01d4d0aec199afa9c42b72e86da436ff5f837914d32706b \
             "${RUNNER_TEMP}/syft.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/syft.tar.gz" -C "${RUNNER_TEMP}/bin" syft
           printf '%s\n' "${RUNNER_TEMP}/bin" >>"${GITHUB_PATH}"

@@ -73,9 +73,9 @@ versions, so install those versions locally:
 
 ```bash
 go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
-go install golang.org/x/tools/cmd/deadcode@v0.52.0
+go install golang.org/x/tools/cmd/deadcode@v0.53.0
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
-go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
 ```
 
 Changes under `tools/`, `packaging/`, `.goreleaser.yaml`, or the `Makefile` also

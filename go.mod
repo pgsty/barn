@@ -20,8 +20,8 @@ require (
 	github.com/elliotwutingfeng/asciiset v1.0.0 // indirect
 	github.com/go-test/deep v1.1.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/compress v1.20.4 // indirect
-	github.com/pierrec/lz4/v4 v4.1.33 // indirect
+	github.com/klauspost/compress v1.20.5 // indirect
+	github.com/pierrec/lz4/v4 v4.1.34 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/ulikunitz/xz v0.5.17 // indirect

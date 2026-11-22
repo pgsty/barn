@@ -33,9 +33,11 @@ Notable user-visible changes.
   YAML inventory's default `vm_arch: native` defers to an architecture-suffixed
   `vm_image` (and attributes the architecture source to that image). Omitting
   the image selects `u24`.
-- Update `golang.org/x/crypto` to 0.59.0 and `golang.org/x/net` to 0.63.0,
-  sync the packaged dependency-license inventory, and bump `actions/setup-go`
-  to v7.1.0 in CI workflows.
+- Update `golang.org/x/crypto` to 0.59.0, `golang.org/x/net` to 0.63.0,
+  `github.com/klauspost/compress` to 1.20.5, and `github.com/pierrec/lz4/v4`
+  to 4.1.34. Sync the packaged dependency-license inventory.
+- Build packages with GoReleaser 2.20.3, nFPM 2.49.0, and Syft 1.57.2.
+  CI uses `actions/setup-go` v7.1.0, deadcode 0.53.0, and govulncheck 1.10.0.
 - Mark `el8` (Rocky Linux 8) and `u22` (Ubuntu 22.04 LTS) as `deprecated` as
   support is phased out. Existing deployments and compatibility tests remain
   runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,
