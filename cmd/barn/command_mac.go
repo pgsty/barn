@@ -294,7 +294,7 @@ macOS base, its own private network with a fixed address, a login account with
 passwordless sudo, and pinned SSH keys. Machines never join the Linux lab or
 its inventory; their data lives under $BARN_HOME/mac.
 
-The macOS restore image comes only from Apple (about 27 GB, downloaded once and
+The macOS restore image comes only from Apple (about 26 GB, downloaded once and
 kept resumable) or from a local file you pass with --ipsw. Apple allows two
 macOS virtual machines to run at a time on one Mac.`,
 		Example: `  barn mac up    # create and start mac1, wait for SSH
@@ -335,7 +335,7 @@ boot, provisioning may still be in progress; run "barn mac up NAME" again to
 wait for SSH and finish initialization.`,
 		Example: `  barn mac up
   barn mac up dev --cpu 8 --memory 16G --share ~/src --share docs=~/Documents:ro
-  barn mac up --ipsw ~/Downloads/UniversalMac_27.0_26A428_Restore.ipsw
+  barn mac up --ipsw ~/Downloads/UniversalMac_27.2.1_26B131_Restore.ipsw
   barn mac up build --yes --no-wait`,
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: macCompletion(false),
@@ -717,7 +717,7 @@ host is published by address only.`,
 		Long: `Download macOS from Apple after you confirm, or read --ipsw, and install it
 once into the unbooted base that every machine is cloned from. up does this
 automatically; setup lets you do it ahead of time.`,
-		Example: "  barn mac setup\n  barn mac setup --ipsw ~/Downloads/UniversalMac_27.0_26A428_Restore.ipsw\n  barn mac setup --yes",
+		Example: "  barn mac setup\n  barn mac setup --ipsw ~/Downloads/UniversalMac_27.2.1_26B131_Restore.ipsw\n  barn mac setup --yes",
 	}
 	setup.RunE = func(cmd *cobra.Command, args []string) error {
 		setupOptions.Confirm = macDownloadConsent(setupYes, stderr)

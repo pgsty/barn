@@ -316,7 +316,8 @@ printf 'ipv4='; /usr/sbin/ipconfig getifaddr en0
         script = r"""set -eu
 printf 'auto_login='; /usr/bin/sudo -n /usr/bin/defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser
 printf 'console_user='; /usr/bin/stat -f '%Su' /dev/console
-/usr/bin/sudo -n /usr/sbin/sshd -T | /usr/bin/awk '$1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" || $1 == "permitrootlogin" {print $1 "=" $2}'
+policy=$(/usr/bin/sudo -n /usr/sbin/sshd -T)
+printf '%s\n' "$policy" | /usr/bin/awk 'tolower($1) ~ /^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)$/ {print tolower($1) "=" $2}'
 plist="$HOME/Library/Preferences/MobileMeAccounts.plist"
 if test -f "$plist" && /usr/libexec/PlistBuddy -c 'Print :Accounts:0' "$plist" >/dev/null 2>&1; then
   printf 'apple_account_preferences=present\n'
@@ -328,7 +329,8 @@ fi
         values = dict(line.split("=", 1) for line in result["stdout"].splitlines() if "=" in line)
         require(values.get("auto_login") == machine["user"] and values.get("console_user") == machine["user"], f"{name} automatic desktop login is not established")
         for setting in ("passwordauthentication", "kbdinteractiveauthentication", "permitrootlogin"):
-            require(values.get(setting) == "no", f"{name} effective sshd policy still permits {setting}")
+            require(setting in values, f"{name} sshd -T did not report {setting}")
+            require(values[setting] == "no", f"{name} sshd -T reports {setting}={values[setting]}, expected no")
         require(values.get("apple_account_preferences") == "empty", f"{name} has Apple Account preferences")
         return values
 
@@ -497,9 +499,9 @@ def main():
     parser.add_argument("--home", required=True, help="absolute disposable BARN_HOME; mac1 is recreated and destroyed")
     parser.add_argument("--output", required=True, help="absolute new/empty directory for structured evidence")
     parser.add_argument("--allow-test-root", action="store_true", help="explicitly mark this dedicated root for destructive acceptance; never use normal ~/.barn")
-    parser.add_argument("--expected-build", default="26A428", help="expected installed macOS 27 build (default: 26A428)")
+    parser.add_argument("--expected-build", default="26B131", help="expected installed macOS 27 build (default: %(default)s)")
     parser.add_argument("--operation-timeout", type=int, default=5400, help="up/start/recreate timeout in seconds, including preparation")
-    parser.add_argument("--allow-download", action="store_true", help="let up download macOS from Apple when no base is prepared (about 27 GB)")
+    parser.add_argument("--allow-download", action="store_true", help="let up download macOS from Apple when no base is prepared (about 26 GB)")
     parser.add_argument("--gui", action="store_true", help="also open a desktop window and test clipboard sharing; moves focus and restores the host clipboard text")
     parser.add_argument("--stop-survivor", action="store_true", help="leave the surviving machine stopped after success")
     parser.add_argument("--plan", action="store_true", help="print the sequence without executing Barn or touching files")

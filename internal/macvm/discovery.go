@@ -36,8 +36,8 @@ func (m *Manager) discoverRestoreImage(ctx context.Context) (restoreDiscovery, e
 }
 
 func (discovered restoreDiscovery) installerSpec(ctx context.Context) (IPSWSpec, error) {
-	if discovered.Build == DefaultIPSW().Build {
-		return DefaultIPSW(), nil
+	if spec, ok := pinnedIPSW(discovered.Build); ok {
+		return spec, nil
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodHead, discovered.URL, nil)
 	if err != nil {

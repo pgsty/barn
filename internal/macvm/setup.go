@@ -114,10 +114,13 @@ func (m *Manager) preflightSetup(ctx context.Context, config *Config, options Se
 			return plan, failure.New(failure.Usage, errors.New("the local IPSW is not a macOS 27 restore image this Mac supports"))
 		}
 		plan.sourcePath = path
-		if plan.metadata.Build != plan.spec.Build {
+		if pinned, ok := pinnedIPSW(plan.metadata.Build); ok {
+			if size != pinned.SizeBytes {
+				return plan, failure.New(failure.Integrity, fmt.Errorf("the local IPSW size does not match Apple's %s restore image", pinned.Build))
+			}
+			plan.spec = pinned
+		} else {
 			plan.spec = IPSWSpec{Version: plan.metadata.Version, Build: plan.metadata.Build, SizeBytes: size}
-		} else if size != plan.spec.SizeBytes {
-			return plan, failure.New(failure.Integrity, fmt.Errorf("the local IPSW size does not match Apple's %s restore image", plan.spec.Build))
 		}
 	case options.Update:
 		image, err := m.discoverRestoreImage(ctx)
@@ -131,6 +134,9 @@ func (m *Manager) preflightSetup(ctx context.Context, config *Config, options Se
 		build := plan.spec.Build
 		if defaultBase != nil {
 			build = defaultBase.Build
+			if pinned, ok := pinnedIPSW(build); ok {
+				plan.spec = pinned
+			}
 		}
 		if defaultBase != nil && defaultBase.State == "ready" && defaultBase.DiskBytes == plan.diskBytes {
 			plan.readyBase = defaultBase
@@ -188,6 +194,7 @@ func (m *Manager) preflightSetup(ctx context.Context, config *Config, options Se
 		if err := m.validateBase(plan.readyBase); err != nil {
 			return plan, fmt.Errorf("the prepared base is not reusable: %w", err)
 		}
+		plan.spec = IPSWSpec{Version: plan.readyBase.Version, Build: plan.readyBase.Build}
 		return plan, nil
 	}
 	if discovered != nil {

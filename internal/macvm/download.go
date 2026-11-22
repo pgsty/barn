@@ -30,8 +30,36 @@ type IPSWSpec struct {
 	SHA256 string `json:"sha256,omitempty"`
 }
 
+// The first entry is the pin for new installations. Older entries still
+// verify local IPSWs and can restore other disk capacities of an existing base.
+var pinnedIPSWs = [...]IPSWSpec{
+	{
+		Version:   "27.2.1",
+		Build:     "26B131",
+		URL:       "https://updates.cdn-apple.com/2026FallFCS/c202a724-db7e-4d56-917b-110aa0226507/UniversalMac_27.2.1_26B131_Restore.ipsw",
+		SizeBytes: 25595954706,
+		SHA256:    "233e85a09887579d47d0b195e7db72be7f204261059c6946f719acf6b300814f",
+	},
+	{
+		Version:   "27.0",
+		Build:     "26A428",
+		URL:       "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw",
+		SizeBytes: 26626436228,
+		SHA256:    "2a5d3c695d501022b7fad9adaffcf2627bcb867d993fb5662dcd41bac99a2836",
+	},
+}
+
 func DefaultIPSW() IPSWSpec {
-	return IPSWSpec{Version: "27.0", Build: "26A428", URL: "https://updates.cdn-apple.com/2026FallFCS/afcfc88e-bbe6-44bf-a5da-07c56eebc06c/UniversalMac_27.0_26A428_Restore.ipsw", SizeBytes: 26626436228, SHA256: "2a5d3c695d501022b7fad9adaffcf2627bcb867d993fb5662dcd41bac99a2836"}
+	return pinnedIPSWs[0]
+}
+
+func pinnedIPSW(build string) (IPSWSpec, bool) {
+	for _, spec := range pinnedIPSWs {
+		if spec.Build == build {
+			return spec, true
+		}
+	}
+	return IPSWSpec{}, false
 }
 
 type DownloadOptions struct {
