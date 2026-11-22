@@ -32,9 +32,13 @@ type darwinNetworkRunner struct {
 	args         []byte
 	foreignRoute bool
 	sharingCalls int
+	usedSudo     bool
 }
 
 func (r *darwinNetworkRunner) Run(ctx context.Context, binary string, args ...string) (execx.Result, error) {
+	if binary == "/usr/bin/sudo" {
+		r.usedSudo = true
+	}
 	command := binary + " " + strings.Join(args, " ")
 	switch command {
 	case "/usr/bin/plutil -extract ProgramArguments json -o - " + darwinnet.PlistPath:
@@ -168,21 +172,31 @@ func TestDarwinLogPermissionsPreserveNetworkOwnership(t *testing.T) {
 	}
 }
 
-func TestDarwinSharingPermissionErrorHasRelevantResolution(t *testing.T) {
+func TestFreshDarwinInstallDefersProtectedPreferencesAndBlocksLiveConflicts(t *testing.T) {
+	runner := &darwinNetworkRunner{}
 	probe := Probe{
-		Runner: &darwinNetworkRunner{},
+		Runner: runner,
 		Lstat:  func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 	}
-	report := Run(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Inspect, Layout: subnet.Default()}, probe)
-	for _, finding := range report.Findings {
-		if finding.Code == "vmnet.sharing_probe" {
-			if !strings.Contains(finding.Evidence, "permission denied") || !strings.Contains(finding.Fix, "sudo plutil -p") || report.Ready || report.CanRepair() {
-				t.Fatalf("finding=%+v report=%+v", finding, report)
+	free, err := subnet.Parse("172.31.251.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, layout := range []subnet.Layout{free, subnet.Default()} {
+		report := Run(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: layout}, probe)
+		if report.Ready != (layout == free) || runner.usedSudo {
+			t.Fatalf("preflight for %s used sudo=%v: %+v", layout.CIDR(), runner.usedSudo, report)
+		}
+		deferred := false
+		for _, finding := range report.Findings {
+			if finding.Code == "vmnet.sharing_probe" && finding.Severity == Warning && strings.Contains(finding.Evidence, "permission denied") {
+				deferred = true
 			}
-			return
+		}
+		if !deferred {
+			t.Fatalf("missing deferred preference check: %+v", report)
 		}
 	}
-	t.Fatalf("missing vmnet permission finding: %+v", report)
 }
 
 func TestDarwinOrphanLogDirectoryStillBlocksFreshInstall(t *testing.T) {

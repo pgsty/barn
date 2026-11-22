@@ -39,60 +39,6 @@ func (unreadableSharingRunner) Run(ctx context.Context, binary string, args ...s
 	return (sharingRunner{}).Run(ctx, binary, args...)
 }
 
-type vmnetPreferencesRunner struct {
-	protected  bool
-	values     map[string]string
-	privileged int
-}
-
-func (r *vmnetPreferencesRunner) Run(ctx context.Context, binary string, args ...string) (execx.Result, error) {
-	if binary == "/usr/bin/sudo" {
-		if len(args) < 3 || strings.Join(args[:3], " ") != "-n -- /usr/bin/plutil" {
-			return execx.Result{}, errors.New("unexpected privileged command")
-		}
-		r.privileged++
-		binary, args = args[2], args[3:]
-	} else if binary == "/usr/bin/plutil" && r.protected {
-		return execx.Result{}, errors.New("permission denied")
-	}
-	if binary != "/usr/bin/plutil" {
-		return (sharingRunner{}).Run(ctx, binary, args...)
-	}
-	if len(args) != 6 || args[0] != "-extract" || strings.Join(args[2:], " ") != "raw -o - /Library/Preferences/SystemConfiguration/com.apple.vmnet.plist" {
-		return execx.Result{}, errors.New("unexpected preference read")
-	}
-	if value, ok := r.values[args[1]]; ok {
-		return execx.Result{Stdout: []byte(value + "\n")}, nil
-	}
-	return execx.Result{ExitCode: 1, Stderr: []byte("Could not extract value, error: No value at that key path or invalid key path: " + args[1] + "\n")}, errors.New("plutil exited with status 1")
-}
-
-func TestDarwinSharingSubnetPreferences(t *testing.T) {
-	const address, mask = "Host_Net_Address", "Host_Net_Mask"
-	for _, tc := range []struct {
-		name              string
-		values            map[string]string
-		conflict, problem bool
-	}{
-		{name: "no custom subnet"},
-		{name: "different subnet", values: map[string]string{address: "192.168.64.1", mask: "255.255.255.0"}},
-		{name: "same subnet", values: map[string]string{address: "10.10.10.1", mask: "255.255.255.0"}, conflict: true},
-		{name: "only address", values: map[string]string{address: "10.10.10.1"}, problem: true},
-		{name: "only mask", values: map[string]string{mask: "255.255.255.0"}, problem: true},
-		{name: "empty values", values: map[string]string{address: "", mask: ""}, problem: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, protected := range []bool{false, true} {
-				runner := &vmnetPreferencesRunner{protected: protected, values: tc.values}
-				conflict, problem := (Probe{Runner: runner}).darwinSharingConflict(context.Background(), Request{Layout: subnet.Default()}, Installation{Status: "absent"})
-				if (conflict != "") != tc.conflict || (problem != "") != tc.problem || (runner.privileged > 0) != protected {
-					t.Errorf("protected=%v: conflict=%q problem=%q privileged reads=%d", protected, conflict, problem, runner.privileged)
-				}
-			}
-		})
-	}
-}
-
 func TestParseDarwinInterfacesAndRoutes(t *testing.T) {
 	interfaces := parseDarwinInterfaces("en0: flags=1\n\tinet 192.168.0.11 netmask 0xffffff00 broadcast 192.168.0.255\nbridge100: flags=1\n\tinet 10.10.10.1 netmask 0xffffff00 broadcast 10.10.10.255\n")
 	if len(interfaces) != 2 || interfaces[1].Interface != "bridge100" || interfaces[1].Prefix.Bits() != 24 {
@@ -149,9 +95,6 @@ func TestPlistArgumentsAndLinuxUnit(t *testing.T) {
 }
 
 func TestActiveNetworkSharingAndLinuxFamily(t *testing.T) {
-	if !activeNetworkSharing("active count = 2\nstate = running\n") || activeNetworkSharing("active count = 0\n") {
-		t.Fatal("active NetworkSharing count was parsed incorrectly")
-	}
 	for input, want := range map[string]string{
 		"ID=ubuntu\nID_LIKE=debian\n":                "debian",
 		"ID=rocky\nID_LIKE=\"rhel centos fedora\"\n": "rpm",
@@ -165,21 +108,17 @@ func TestActiveNetworkSharingAndLinuxFamily(t *testing.T) {
 	if !strings.Contains(conflict, "Internet Sharing") || !strings.Contains(conflict, "10.10.10.0/24") {
 		t.Fatalf("sharing conflict=%q", conflict)
 	}
-	if problem != "" {
+	if problem != nil {
 		t.Fatalf("sharing problem=%q", problem)
 	}
-	if conflict, problem := (Probe{Runner: sharingRunner{}}).darwinSharingConflict(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Use, Layout: subnet.Default()}, Installation{Status: "protected", CIDR: subnet.DefaultCIDR, Healthy: true}); conflict != "" || problem != "" {
+	if conflict, problem := (Probe{Runner: sharingRunner{}}).darwinSharingConflict(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Use, Layout: subnet.Default()}, Installation{Status: "protected", CIDR: subnet.DefaultCIDR, Healthy: true}); conflict != "" || problem != nil {
 		t.Fatalf("healthy protected Barn install was treated as external sharing: %q", conflict)
 	}
 }
 
-func TestActiveNetworkSharingUnknownSubnetFailsClosed(t *testing.T) {
-	conflict, problem := (Probe{Runner: unreadableSharingRunner{}}).darwinSharingConflict(context.Background(), Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: subnet.Default()}, Installation{Status: "absent"})
-	if conflict != "" || !strings.Contains(problem, "active") || !strings.Contains(problem, "could not be read") {
-		t.Fatalf("conflict=%q problem=%q", conflict, problem)
-	}
-	report := Evaluate(Request{OS: "darwin", Arch: "arm64", Purpose: Install, Layout: subnet.Default()}, Snapshot{Installation: Installation{Status: "absent"}, Problems: []string{problem}})
-	if report.Ready || report.ExitCode != 3 || len(report.Findings) == 0 || report.Findings[0].Code != "probe.incomplete" {
-		t.Fatalf("report=%#v", report)
+func TestActiveNetworkSharingUnreadableSubnetIsDistinctFromAnUnsetPreference(t *testing.T) {
+	conflict, err := (Probe{Runner: unreadableSharingRunner{}}).darwinSharingConflict(context.Background(), Request{Layout: subnet.Default()}, Installation{Status: "absent"})
+	if conflict != "" || !errors.Is(err, darwinnet.ErrSharingPreferencesUnreadable) {
+		t.Fatalf("conflict=%q err=%v", conflict, err)
 	}
 }

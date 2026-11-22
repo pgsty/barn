@@ -7,8 +7,9 @@ Notable user-visible changes.
 ## 1.3.0 — 2026-11-22
 
 - Fix macOS network setup when Internet Sharing is active and the vmnet
-  preferences contain neither a subnet address nor a mask. Barn can read
-  protected preferences with existing sudo credentials. A partial subnet or
+  preferences contain neither a subnet address nor a mask. If the preview
+  cannot read the preferences, the approved installer checks them before
+  writing any network files. A partial subnet or
   a conflict with a live address, route, or interface still blocks setup.
 - Pin first-time `barn mac setup` and `barn mac up` to Apple's macOS 27.2.1
   restore image (`26B131`). On a prepared Mac, `barn mac image update` selects

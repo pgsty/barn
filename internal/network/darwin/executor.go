@@ -531,12 +531,18 @@ func (e Executor) install(ctx context.Context, origin installOrigin, interfaceID
 		steps.Done("planned", "installation plan reviewed; no changes applied")
 		return report, nil
 	}
-	steps.Done("ok", "installation plan checked")
-	steps.Start("files", "installing", "verifying and installing socket_vmnet and network configuration")
 	layout, err := subnet.Parse(report.Plan.State.CIDR)
 	if err != nil {
 		return report, err
 	}
+	if err := CheckSharingSubnet(ctx, e.User, e.Root, layout); err != nil {
+		if errors.Is(err, ErrVMNetSharingBusy) {
+			return report, err
+		}
+		return report, failure.New(failure.Capability, err)
+	}
+	steps.Done("ok", "installation plan checked")
+	steps.Start("files", "installing", "verifying and installing socket_vmnet and network configuration")
 	parent := e.StagingParent
 	if parent == "" {
 		parent = os.TempDir()
