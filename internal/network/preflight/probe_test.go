@@ -39,6 +39,60 @@ func (unreadableSharingRunner) Run(ctx context.Context, binary string, args ...s
 	return (sharingRunner{}).Run(ctx, binary, args...)
 }
 
+type vmnetPreferencesRunner struct {
+	protected  bool
+	values     map[string]string
+	privileged int
+}
+
+func (r *vmnetPreferencesRunner) Run(ctx context.Context, binary string, args ...string) (execx.Result, error) {
+	if binary == "/usr/bin/sudo" {
+		if len(args) < 3 || strings.Join(args[:3], " ") != "-n -- /usr/bin/plutil" {
+			return execx.Result{}, errors.New("unexpected privileged command")
+		}
+		r.privileged++
+		binary, args = args[2], args[3:]
+	} else if binary == "/usr/bin/plutil" && r.protected {
+		return execx.Result{}, errors.New("permission denied")
+	}
+	if binary != "/usr/bin/plutil" {
+		return (sharingRunner{}).Run(ctx, binary, args...)
+	}
+	if len(args) != 6 || args[0] != "-extract" || strings.Join(args[2:], " ") != "raw -o - /Library/Preferences/SystemConfiguration/com.apple.vmnet.plist" {
+		return execx.Result{}, errors.New("unexpected preference read")
+	}
+	if value, ok := r.values[args[1]]; ok {
+		return execx.Result{Stdout: []byte(value + "\n")}, nil
+	}
+	return execx.Result{ExitCode: 1, Stderr: []byte("Could not extract value, error: No value at that key path or invalid key path: " + args[1] + "\n")}, errors.New("plutil exited with status 1")
+}
+
+func TestDarwinSharingSubnetPreferences(t *testing.T) {
+	const address, mask = "Host_Net_Address", "Host_Net_Mask"
+	for _, tc := range []struct {
+		name              string
+		values            map[string]string
+		conflict, problem bool
+	}{
+		{name: "no custom subnet"},
+		{name: "different subnet", values: map[string]string{address: "192.168.64.1", mask: "255.255.255.0"}},
+		{name: "same subnet", values: map[string]string{address: "10.10.10.1", mask: "255.255.255.0"}, conflict: true},
+		{name: "only address", values: map[string]string{address: "10.10.10.1"}, problem: true},
+		{name: "only mask", values: map[string]string{mask: "255.255.255.0"}, problem: true},
+		{name: "empty values", values: map[string]string{address: "", mask: ""}, problem: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, protected := range []bool{false, true} {
+				runner := &vmnetPreferencesRunner{protected: protected, values: tc.values}
+				conflict, problem := (Probe{Runner: runner}).darwinSharingConflict(context.Background(), Request{Layout: subnet.Default()}, Installation{Status: "absent"})
+				if (conflict != "") != tc.conflict || (problem != "") != tc.problem || (runner.privileged > 0) != protected {
+					t.Errorf("protected=%v: conflict=%q problem=%q privileged reads=%d", protected, conflict, problem, runner.privileged)
+				}
+			}
+		})
+	}
+}
+
 func TestParseDarwinInterfacesAndRoutes(t *testing.T) {
 	interfaces := parseDarwinInterfaces("en0: flags=1\n\tinet 192.168.0.11 netmask 0xffffff00 broadcast 192.168.0.255\nbridge100: flags=1\n\tinet 10.10.10.1 netmask 0xffffff00 broadcast 10.10.10.255\n")
 	if len(interfaces) != 2 || interfaces[1].Interface != "bridge100" || interfaces[1].Prefix.Bits() != 24 {

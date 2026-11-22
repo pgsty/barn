@@ -246,6 +246,35 @@ func activeNetworkSharing(output string) bool {
 	return false
 }
 
+// A nil value means plutil read the plist and found no such key. Other
+// failures leave the subnet unknown, including when sudo has no credentials.
+func (p Probe) darwinSharingPreference(ctx context.Context, key string) (*string, error) {
+	const plist = "/Library/Preferences/SystemConfiguration/com.apple.vmnet.plist"
+	args := []string{"-extract", key, "raw", "-o", "-", plist}
+	read := func(binary string, args ...string) (*string, error) {
+		result, err := p.Runner.Run(ctx, binary, args...)
+		if err == nil {
+			value := strings.TrimSpace(string(result.Stdout))
+			return &value, nil
+		}
+		if result.ExitCode == 1 && strings.HasSuffix(strings.TrimSpace(string(result.Stderr)), "No value at that key path or invalid key path: "+key) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	value, err := read("/usr/bin/plutil", args...)
+	if err == nil || ctx.Err() != nil {
+		return value, err
+	}
+	// macOS protects the preferences on some hosts. A read with existing
+	// sudo credentials can distinguish an unset key without opening a prompt.
+	value, retryErr := read("/usr/bin/sudo", append([]string{"-n", "--", "/usr/bin/plutil"}, args...)...)
+	if retryErr != nil {
+		return nil, fmt.Errorf("%v (non-interactive read: %w)", err, retryErr)
+	}
+	return value, nil
+}
+
 func (p Probe) darwinSharingConflict(ctx context.Context, request Request, installation Installation) (string, string) {
 	if (installation.Status == "exact" || installation.Status == "protected") && installation.CIDR == request.Layout.CIDR() && installation.Healthy {
 		return "", ""
@@ -261,20 +290,24 @@ func (p Probe) darwinSharingConflict(ctx context.Context, request Request, insta
 	if err != nil || !activeNetworkSharing(string(sharing.Stdout)) {
 		return "", ""
 	}
-	const vmnetPlist = "/Library/Preferences/SystemConfiguration/com.apple.vmnet.plist"
-	hostResult, hostErr := p.Runner.Run(ctx, "/usr/bin/plutil", "-extract", "Host_Net_Address", "raw", "-o", "-", vmnetPlist)
-	maskResult, maskErr := p.Runner.Run(ctx, "/usr/bin/plutil", "-extract", "Host_Net_Mask", "raw", "-o", "-", vmnetPlist)
-	if hostErr != nil || maskErr != nil {
-		readErr := hostErr
-		if readErr == nil {
-			readErr = maskErr
-		}
-		return "", fmt.Sprintf("macOS Internet Sharing is active, but the subnet it uses could not be read: %v", readErr)
+	host, err := p.darwinSharingPreference(ctx, "Host_Net_Address")
+	if err != nil {
+		return "", fmt.Sprintf("macOS Internet Sharing is active, but the subnet it uses could not be read: %v", err)
 	}
-	if strings.TrimSpace(string(maskResult.Stdout)) != "255.255.255.0" {
+	mask, err := p.darwinSharingPreference(ctx, "Host_Net_Mask")
+	if err != nil {
+		return "", fmt.Sprintf("macOS Internet Sharing is active, but the subnet it uses could not be read: %v", err)
+	}
+	if host == nil && mask == nil {
+		return "", ""
+	}
+	if host == nil || mask == nil {
+		return "", "macOS Internet Sharing has an incomplete subnet address and mask"
+	}
+	if *mask != "255.255.255.0" {
 		return "", "macOS Internet Sharing is active, but the subnet it uses is not a /24 Barn can check"
 	}
-	layout, err := subnet.FromHostAddress(strings.TrimSpace(string(hostResult.Stdout)))
+	layout, err := subnet.FromHostAddress(*host)
 	if err != nil {
 		return "", "macOS Internet Sharing is active, but the subnet it uses could not be parsed"
 	}
@@ -520,7 +553,7 @@ func (p Probe) collectDarwin(ctx context.Context, request Request) Snapshot {
 		snapshot.Findings = append(snapshot.Findings, Finding{
 			Code: "vmnet.sharing_probe", Severity: Error, Class: Capability,
 			Evidence: sharingProblem,
-			Fix:      "inspect the vmnet configuration with: sudo plutil -p /Library/Preferences/SystemConfiguration/com.apple.vmnet.plist",
+			Fix:      "if access was denied, run sudo -v in this terminal and retry, or inspect the subnet keys with sudo plutil -p /Library/Preferences/SystemConfiguration/com.apple.vmnet.plist",
 		})
 	}
 	return snapshot
