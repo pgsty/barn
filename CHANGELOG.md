@@ -6,42 +6,11 @@ Notable user-visible changes.
 
 ## 1.3.0 — 2026-11-22
 
-- Fix macOS network installation and repair when Internet Sharing is active and
-  the vmnet preferences contain neither a subnet address nor a mask. If preview
-  cannot read the protected preferences, both fresh installation and repair of
-  an existing matching network defer the check until approval, then verify both
-  keys before writing network files or restarting `socket_vmnet`. Pre-mutation
-  stops and clean rollbacks no longer report uncertain host mutations. A partial
-  subnet or a conflict with a live address, route, or interface still blocks.
-- Pin first-time `barn mac setup` and `barn mac up` to Apple's macOS 27.2.1
-  restore image (`26B131`). On a prepared Mac, `barn mac image update` selects
-  the new base for future VMs. Existing VMs keep their current disks and builds.
-- Refresh image catalog to revision `2026112101`: Debian 12/13 cloud builds
-  `20261117-2665` / `20261116-2664`, Rocky Linux 9.9 / 10.3, and Ubuntu
-  22.04 / 26.04 cloud builds `20261109` / `20261108`, on both architectures.
-  Rocky 10 images now include the signed kernel modules required by Docker's
-  default networking. Retain all 17 previous artifacts and the `u24` default;
-  mark `el8` and `u22` deprecated in the signed catalog as well.
+Barn 1.3.0 adds Linux guest clock synchronization, shorthand image family and
+architecture selectors, signed image catalog `2026112101`, macOS 27.2.1 base
+selection, and a fix for macOS network installation and repair under Internet
+Sharing.
 
-- Add shorthand image family aliases (`e`/`el`/`rocky` → `el10`, `u`/`ubuntu` →
-  `u26`, `d`/`debian` → `d13`) and architecture-specific aliases (`a` suffix for
-  `arm64`, `x` and `i` suffixes for `amd64`, such as `el10a`, `el10x`, `el10i`,
-  `u24a`, `d12a`, `ea`, `ela`, `ua`, `da`) across `image info/pull`, `--image/-I`,
-  and `vm_image`. To keep the 1.2.0 targets for `rocky` and `ubuntu`, use
-  `el9` and `u24` respectively. Conflicting explicit `--arch/-A` or `BARN_ARCH`
-  values (including `native`) fail consistently across all commands, while a
-  YAML inventory's default `vm_arch: native` defers to an architecture-suffixed
-  `vm_image` (and attributes the architecture source to that image). Omitting
-  the image selects `u24`.
-- Update `golang.org/x/crypto` to 0.59.0, `golang.org/x/net` to 0.63.0,
-  `github.com/klauspost/compress` to 1.20.5, and `github.com/pierrec/lz4/v4`
-  to 4.1.34. Sync the packaged dependency-license inventory.
-- Build packages with GoReleaser 2.20.3, nFPM 2.49.0, and Syft 1.57.2.
-  CI uses `actions/setup-go` v7.1.0, deadcode 0.53.0, and govulncheck 1.10.0.
-- Mark `el8` (Rocky Linux 8) and `u22` (Ubuntu 22.04 LTS) as `deprecated` as
-  support is phased out. Existing deployments and compatibility tests remain
-  runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,
-  `u24`, or `u26` for new labs.
 - Add `barn time status` and `barn time sync` to measure Linux guest clocks
   against the host and force a verified correction over management SSH,
   including running guests without Internet access. Report uncertainty and
@@ -54,6 +23,41 @@ Notable user-visible changes.
   resume. Skip busy deployments, retain the latest report, and detect recurring
   drift while guest NTP is synchronized. No Barn daemon or image rebuild is
   required; host and guest NTP configuration remain administrator-owned.
+- Add shorthand image family aliases (`e`/`el`/`rocky` → `el10`, `u`/`ubuntu` →
+  `u26`, `d`/`debian` → `d13`) and architecture-specific aliases (`a` suffix for
+  `arm64`, `x` and `i` suffixes for `amd64`, such as `el10a`, `el10x`, `el10i`,
+  `u24a`, `d12a`, `ea`, `ela`, `ua`, `da`) across `image info/pull`, `--image/-I`,
+  and `vm_image`. To keep the 1.2.0 targets for `rocky` and `ubuntu`, use
+  `el9` and `u24` respectively. Conflicting explicit `--arch/-A` or `BARN_ARCH`
+  values (including `native`) fail consistently across all commands, while a
+  YAML inventory's default `vm_arch: native` defers to an architecture-suffixed
+  `vm_image` (and attributes the architecture source to that image). Omitting
+  the image selects `u24`.
+- Refresh image catalog to revision `2026112101`: Debian 12/13 cloud builds
+  `20261117-2665` / `20261116-2664`, Rocky Linux 9.9 / 10.3, and Ubuntu
+  22.04 / 26.04 cloud builds `20261109` / `20261108`, on both architectures.
+  Rocky 10 images now include the signed kernel modules required by Docker's
+  default networking. Retain all 17 previous artifacts and the `u24` default;
+  mark `el8` and `u22` deprecated in the signed catalog as well.
+- Mark `el8` (Rocky Linux 8) and `u22` (Ubuntu 22.04 LTS) as `deprecated` as
+  support is phased out. Existing deployments and compatibility tests remain
+  runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,
+  `u24`, or `u26` for new labs.
+- Pin first-time `barn mac setup` and `barn mac up` to Apple's macOS 27.2.1
+  restore image (`26B131`). On a prepared Mac, `barn mac image update` selects
+  the new base for future VMs. Existing VMs keep their current disks and builds.
+- Fix macOS network installation and repair when Internet Sharing is active and
+  the vmnet preferences contain neither a subnet address nor a mask. If preview
+  cannot read the protected preferences, both fresh installation and repair of
+  an existing matching network defer the check until approval, then verify both
+  keys before writing network files or restarting `socket_vmnet`. Pre-mutation
+  stops and clean rollbacks no longer report uncertain host mutations. A partial
+  subnet or a conflict with a live address, route, or interface still blocks.
+- Update `golang.org/x/crypto` to 0.59.0, `golang.org/x/net` to 0.63.0,
+  `github.com/klauspost/compress` to 1.20.5, and `github.com/pierrec/lz4/v4`
+  to 4.1.34. Sync the packaged dependency-license inventory.
+- Build packages with GoReleaser 2.20.3, nFPM 2.49.0, and Syft 1.57.2.
+  CI uses `actions/setup-go` v7.1.0, deadcode 0.53.0, and govulncheck 1.10.0.
 
 ## 1.2.0 — 2026-11-12
 

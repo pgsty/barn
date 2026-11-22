@@ -50,11 +50,12 @@ software emulation for a different guest architecture. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **1.3.0** adds Linux guest clock synchronization and short image names
-such as `el10a` for Rocky Linux 10 on arm64. It embeds signed image catalog
-**2026112101** and selects macOS **27.2.1** for a new Mac base.
-Inventories that use `rocky` or `ubuntu` should review the
-[upgrade notes](.github/releases/1.3.0.md) before applying changes.
+Barn **1.3.0** adds Linux guest clock synchronization, short image names
+such as `el10a` for Rocky Linux 10 on arm64, and a fix for macOS network
+setup and repair. It embeds signed image catalog **2026112101** and selects
+macOS **27.2.1** for a new Mac base. Inventories that use `rocky` or `ubuntu`
+should review the [upgrade notes](.github/releases/1.3.0.md) before applying
+changes.
 
 ## Install
 
@@ -80,7 +81,7 @@ barn version
 ```
 
 Add the PATH line to your shell configuration when using the download installer.
-Set `BARN_VERSION=1.3.0` to pin the installer to that release once its assets are available.
+Set `BARN_VERSION=1.3.0` to pin a version.
 DEB/RPM packages and manual archives are also available; see
 [installation](https://barn.pgsty.com/docs/start/installation/) for requirements
 and upgrades.
@@ -118,14 +119,19 @@ barn init full --image el9 -o lab.yml
 one invocation, use `barn up -I u24`. The override replaces `vm_image` and
 `vm_version` for the selected nodes. The inventory is not rewritten; set
 `vm_image` there and remove any superseded `vm_version` to keep the choice.
+Shorthand aliases also select the latest family (`e`/`el`/`rocky` → `el10`,
+`u`/`ubuntu` → `u26`, `d`/`debian` → `d13`) and optional architecture suffix
+(`a` for `arm64`, `x`/`i` for `amd64`, such as `-I el10a` or `-I u24x`).
 
 Use `--arch/-A` to override the deployment's `vm_arch`. Accepted values are
-`amd64` (`x86_64`, `x64`), `arm64` (`aarch64`, `a64`), and `native`.
+`amd64` (`x86_64`, `x64`), `arm64` (`aarch64`, `a64`), and `native`; an
+explicit `-A` or `BARN_ARCH` value (including `native`) that conflicts with
+an architecture-suffixed image alias returns an error.
 For example, Apple Silicon can run an amd64 Linux guest through QEMU TCG:
 
 ```bash
 barn plan -I u24 -A amd64
-barn up -I u24 -A amd64
+barn up -I u24x
 ```
 
 Cross-architecture guests are slower than native guests; use them for
@@ -159,9 +165,11 @@ barn plan -f pigsty.yml
 barn up -f pigsty.yml
 ```
 
-To change a running VM, edit its `vm_cpu` or `vm_mem` in the inventory and
-apply the change with `barn resize`. QEMU hot-plugs an increase when the
-backend supports it; otherwise Barn briefly stops and starts the same VM.
+To change a running VM, edit its `vm_cpu`, `vm_mem`, or `vm_disk` in the
+inventory (or pass `-C`, `-M`, `-S`, or `-D`) and apply the change with
+`barn resize`. QEMU hot-plugs a CPU or memory increase when the backend
+supports it; otherwise Barn briefly stops and starts the same VM, and root
+growth expands supported ext4/XFS partitions in place.
 The VM UUID, disks, and SSH keys are preserved, and the inventory remains
 under your control. The launch-time CPU and memory capacity is a virtual QEMU
 limit; it does not pre-allocate the reserved host CPU or RAM:
@@ -215,7 +223,7 @@ installation, shared folders, desktop controls, and cleanup.
 | Create nodes or finish interrupted setup | `barn up` |
 | Run a guest command | `barn exec meta -- hostname` |
 | Stop / resume the lab | `barn stop` / `barn start` |
-| Change CPU or memory | `barn resize meta` |
+| Change CPU, memory, or root disk | `barn resize meta` |
 | Apply another changed VM definition | `barn recreate meta` |
 | Delete a VM | `barn destroy meta` |
 | Discard the entire Linux lab immediately | `barn purge` |
