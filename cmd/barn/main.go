@@ -2374,8 +2374,16 @@ type imageOptions struct {
 
 func runImage(parent context.Context, options imageOptions, stderr io.Writer) (commandOutcome, error) {
 	if options.Arch != "" {
-		var err error
-		options.Arch, err = platform.GuestArch(options.Arch, runtime.GOARCH)
+		normalized, err := platform.NormalizeArch(options.Arch)
+		if err != nil {
+			return commandOutcome{}, newUsageError(fmt.Errorf("--arch: %w", err))
+		}
+		if (options.Action == "info" || options.Action == "pull") && options.Alias != "" {
+			if resolved, refErr := image.ResolveReference(options.Alias); refErr == nil && resolved.Arch != "" && normalized != resolved.Arch {
+				return commandOutcome{}, newUsageError(failure.New(failure.Usage, fmt.Errorf("image alias %q targets %s, which conflicts with --arch %s", strings.TrimSpace(options.Alias), resolved.Arch, normalized)).Because("arch_conflict"))
+			}
+		}
+		options.Arch, err = platform.GuestArch(normalized, runtime.GOARCH)
 		if err != nil {
 			return commandOutcome{}, newUsageError(fmt.Errorf("--arch: %w", err))
 		}

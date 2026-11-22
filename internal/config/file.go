@@ -218,6 +218,9 @@ func (f *File) defaults() {
 	if f.Arch == "" {
 		f.Arch = "native"
 	}
+	// Generated inventories materialize vm_arch: native as their default, so an
+	// architecture-suffixed vm_image (such as el10a) may specialize native in YAML;
+	// concrete vm_arch values and explicit CLI/env --arch native still conflict.
 	defaultArch := f.Arch == "native" || f.archFromImage
 	if f.Network.Mode == "" {
 		f.Network.Mode = "private"

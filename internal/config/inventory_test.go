@@ -854,6 +854,9 @@ func TestParseInventoryImageShorthandAndArchAliases(t *testing.T) {
 			if err != nil || file.Nodes[0].Image != tc.wantImage || file.Arch != tc.wantArch || resolved.Arch != tc.wantArch {
 				t.Fatalf("got image=%q file.Arch=%q resolved.Arch=%q err=%v", file.Nodes[0].Image, file.Arch, resolved.Arch, err)
 			}
+			if tc.name == "d12i-with-native-vm-arch" && file.Resources[0].Sources["arch"] != file.Resources[0].Sources["image"] {
+				t.Fatalf("arch source = %q, want image source %q", file.Resources[0].Sources["arch"], file.Resources[0].Sources["image"])
+			}
 		})
 	}
 

@@ -980,7 +980,7 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 			}
 			resources.Sources[field] = origin
 		}
-		if node.ImageArch != "" && resources.Sources["arch"] == "default" {
+		if node.ImageArch != "" && (resources.Sources["arch"] == "default" || vmArch == "native") {
 			resources.Sources["arch"] = resources.Sources["image"]
 		}
 		overrides := ResourceOverrides{}

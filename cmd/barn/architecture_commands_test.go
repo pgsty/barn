@@ -163,8 +163,22 @@ func TestImageShorthandAndArchSpecificAliasesEndToEnd(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	if code := run([]string{"image", "info", "el10a", "-A", "amd64"}, &out, &errOut); code != exitUsage || !strings.Contains(errOut.String(), "conflicts") {
-		t.Fatalf("expected conflict on image info el10a -A amd64: %d %s %s", code, &out, &errOut)
+	for _, args := range [][]string{
+		{"image", "info", "el10a", "-A", "amd64"},
+		{"image", "info", "el10a", "-A", "native"},
+		{"image", "pull", "el10a", "-A", "native"},
+	} {
+		out.Reset()
+		errOut.Reset()
+		if code := run(args, &out, &errOut); code != exitUsage || !strings.Contains(errOut.String(), "conflicts") {
+			t.Fatalf("expected conflict on %v: %d %s %s", args, code, &out, &errOut)
+		}
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"image", "info", "el10a", "-A", "arm64", "--json"}, &out, &errOut); code != exitOK {
+		t.Fatalf("matching image info el10a -A arm64 failed: %d %s %s", code, &out, &errOut)
 	}
 
 	out.Reset()
@@ -176,10 +190,15 @@ func TestImageShorthandAndArchSpecificAliasesEndToEnd(t *testing.T) {
 		t.Fatalf("init -I u24x output = %s", &out)
 	}
 
-	out.Reset()
-	errOut.Reset()
-	if code := run([]string{"init", "-I", "el10a", "-A", "amd64", "-o", "-"}, &out, &errOut); code != exitUsage {
-		t.Fatalf("init accepted conflicting -I el10a -A amd64: %d %s %s", code, &out, &errOut)
+	for _, args := range [][]string{
+		{"init", "-I", "el10a", "-A", "amd64", "-o", "-"},
+		{"init", "-I", "el10a", "-A", "native", "-o", "-"},
+	} {
+		out.Reset()
+		errOut.Reset()
+		if code := run(args, &out, &errOut); code != exitUsage {
+			t.Fatalf("init accepted conflicting %v: %d %s %s", args, code, &out, &errOut)
+		}
 	}
 
 	invPath := filepath.Join(t.TempDir(), "barn.yml")
@@ -196,10 +215,12 @@ func TestImageShorthandAndArchSpecificAliasesEndToEnd(t *testing.T) {
 		t.Fatalf("validate resolved arch = %q (%v)", validated.Resolved.Arch, err)
 	}
 
-	out.Reset()
-	errOut.Reset()
-	if code := run([]string{"validate", "-f", invPath, "-A", "amd64"}, &out, &errOut); code != exitUsage {
-		t.Fatalf("validate accepted conflicting -A amd64 against vm_image el10a: %d %s %s", code, &out, &errOut)
+	for _, arch := range []string{"amd64", "native"} {
+		out.Reset()
+		errOut.Reset()
+		if code := run([]string{"validate", "-f", invPath, "-A", arch}, &out, &errOut); code != exitUsage {
+			t.Fatalf("validate accepted conflicting -A %s against vm_image el10a: %d %s %s", arch, code, &out, &errOut)
+		}
 	}
 
 	out.Reset()
