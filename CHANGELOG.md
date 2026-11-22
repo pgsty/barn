@@ -4,19 +4,37 @@ Notable user-visible changes.
 
 ## Unreleased
 
+## 1.3.0 — 2026-11-22
+
+- Fix macOS network setup when Internet Sharing is active and the vmnet
+  preferences contain neither a subnet address nor a mask. Barn can read
+  protected preferences with existing sudo credentials. A partial subnet or
+  a conflict with a live address, route, or interface still blocks setup.
+- Pin first-time `barn mac setup` and `barn mac up` to Apple's macOS 27.2.1
+  restore image (`26B131`). On a prepared Mac, `barn mac image update` selects
+  the new base for future VMs. Existing VMs keep their current disks and builds.
+- Refresh image catalog to revision `2026112101`: Debian 12/13 cloud builds
+  `20261117-2665` / `20261116-2664`, Rocky Linux 9.9 / 10.3, and Ubuntu
+  22.04 / 26.04 cloud builds `20261109` / `20261108`, on both architectures.
+  Rocky 10 images now include the signed kernel modules required by Docker's
+  default networking. Retain all 17 previous artifacts and the `u24` default;
+  mark `el8` and `u22` deprecated in the signed catalog as well.
+
 - Add shorthand image family aliases (`e`/`el`/`rocky` → `el10`, `u`/`ubuntu` →
   `u26`, `d`/`debian` → `d13`) and architecture-specific aliases (`a` suffix for
   `arm64`, `x` and `i` suffixes for `amd64`, such as `el10a`, `el10x`, `el10i`,
   `u24a`, `d12a`, `ea`, `ela`, `ua`, `da`) across `image info/pull`, `--image/-I`,
-  and `vm_image`. Conflicting explicit architectures fail closed; omitted image
-  defaults remain `u24`.
+  and `vm_image`. To keep the 1.2.0 targets for `rocky` and `ubuntu`, use
+  `el9` and `u24` respectively. Conflicting explicit architectures fail.
+  Omitting the image selects `u24`.
 - Mark `el8` (Rocky Linux 8) and `u22` (Ubuntu 22.04 LTS) as `deprecated` as
   support is phased out. Existing deployments and compatibility tests remain
   runnable and emit deprecation warnings; prefer `el9`, `el10`, `d12`, `d13`,
   `u24`, or `u26` for new labs.
 - Add `barn time status` and `barn time sync` to measure Linux guest clocks
   against the host and force a verified correction over management SSH,
-  including offline guests. Report uncertainty and guest NTP state separately.
+  including running guests without Internet access. Report uncertainty and
+  guest NTP state separately.
 - Check selected ready guests' clocks after startup commands, correcting offsets
   above two seconds. Surface failures as optional lifecycle warnings;
   `--no-wait` skips the check.
