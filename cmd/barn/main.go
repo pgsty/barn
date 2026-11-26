@@ -1327,6 +1327,11 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 				return commandOutcome{}, newUsageError(err)
 			}
 		}
+		if command == "purge" || purge {
+			// Terminal disposal removes every disk immediately afterward, so skip
+			// guest OS graceful shutdown and power off QEMU directly via QMP quit.
+			manager.ImmediateStop = true
+		}
 		timeout = 10 * time.Minute
 		operation = func(ctx context.Context) (privatevm.Status, error) {
 			if len(nodes) != 0 {

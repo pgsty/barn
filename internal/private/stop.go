@@ -22,11 +22,17 @@ import (
 
 type StopLifecycle interface {
 	Stop(context.Context, state.NodeState, time.Duration) error
+	StopImmediate(context.Context, state.NodeState) error
 }
 
 func (l NativeLifecycle) Stop(ctx context.Context, node state.NodeState, timeout time.Duration) error {
 	identityValue := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
 	return l.VM.Stop(ctx, node.Runtime.QMP, node.Node, node.VMUUID, identityValue, node.Invocation, timeout)
+}
+
+func (l NativeLifecycle) StopImmediate(ctx context.Context, node state.NodeState) error {
+	identityValue := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
+	return l.VM.StopImmediate(ctx, node.Runtime.QMP, node.Node, node.VMUUID, identityValue, node.Invocation)
 }
 
 type StopConfig struct {
@@ -37,6 +43,7 @@ type StopConfig struct {
 	Progress       activity.Reporter
 	Concurrency    int
 	GuestTimeout   time.Duration
+	Immediate      bool
 	CleanupRuntime func(state.NodeState) error
 	Now            func() time.Time
 }
@@ -211,10 +218,17 @@ func StopRunning(ctx context.Context, config StopConfig) ([]StopOutcome, error) 
 			defer wait.Done()
 			for index := range jobs {
 				node := nodes[index]
-				reportNode(node.Node, "stopping", "waiting for guest shutdown", false)
-				if err := config.Lifecycle.Stop(ctx, node, config.GuestTimeout); err != nil {
-					outcomes[index].Error = err.Error()
-					reportNode(node.Node, "failed", "shutdown failed: "+err.Error(), true)
+				var stopErr error
+				if config.Immediate {
+					reportNode(node.Node, "stopping", "powering off VM", false)
+					stopErr = config.Lifecycle.StopImmediate(ctx, node)
+				} else {
+					reportNode(node.Node, "stopping", "waiting for guest shutdown", false)
+					stopErr = config.Lifecycle.Stop(ctx, node, config.GuestTimeout)
+				}
+				if stopErr != nil {
+					outcomes[index].Error = stopErr.Error()
+					reportNode(node.Node, "failed", "shutdown failed: "+stopErr.Error(), true)
 					continue
 				}
 				reportNode(node.Node, "cleaning", "removing runtime files", false)

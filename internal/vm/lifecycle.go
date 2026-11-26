@@ -55,11 +55,12 @@ type QMPClient interface {
 var ErrQMPIdentityMismatch = errors.New("QMP identity mismatch")
 
 const (
-	defaultProcessPollInterval = 100 * time.Millisecond
-	defaultQMPQuitTimeout      = 10 * time.Second
-	defaultSIGTERMTimeout      = 10 * time.Second
-	defaultSIGKILLTimeout      = 5 * time.Second
-	defaultStartAbortTimeout   = 30 * time.Second
+	defaultProcessPollInterval     = 100 * time.Millisecond
+	defaultQMPQuitTimeout          = 10 * time.Second
+	defaultSIGTERMTimeout          = 10 * time.Second
+	defaultImmediateSIGTERMTimeout = 2 * time.Second
+	defaultSIGKILLTimeout          = 5 * time.Second
+	defaultStartAbortTimeout       = 30 * time.Second
 	// GracefulGuestShutdownTimeout covers ordinary systemd shutdown on a
 	// provisioned Pigsty node. Services such as Vector may use a 90-second
 	// stop timeout; forcing QEMU at the former 60-second boundary risks an
@@ -374,10 +375,34 @@ func (l Lifecycle) Stop(ctx context.Context, socket, name, uuid string, identity
 	if !l.matchesLive(ctx, identity, invocation) {
 		return errors.New("guest did not power down; refuse QMP quit without matching process identity")
 	}
-	if err := l.QMP.Quit(ctx, socket); err != nil {
-		return l.handleQMPFailure(ctx, socket, name, uuid, identity, invocation, "QMP quit failed", err)
+	return l.quitVerified(ctx, socket, name, uuid, identity, invocation, l.duration(l.termTimeout, defaultSIGTERMTimeout))
+}
+
+// StopImmediate terminates QEMU directly through verified QMP quit without
+// waiting for guest OS ACPI shutdown. Use it only for terminal disposal such
+// as purge, where all disks are removed immediately afterward.
+func (l Lifecycle) StopImmediate(ctx context.Context, socket, name, uuid string, identity process.Identity, invocation qemu.Invocation) error {
+	if err := l.validate(); err != nil {
+		return err
 	}
-	exited, err = l.waitForExit(ctx, identity.PID, l.duration(l.quitTimeout, defaultQMPQuitTimeout))
+	termTimeout := l.duration(l.termTimeout, defaultImmediateSIGTERMTimeout)
+	if err := l.ValidateIdentity(ctx, socket, name, uuid); err != nil {
+		if errors.Is(err, ErrQMPIdentityMismatch) {
+			return fmt.Errorf("will not stop: QMP identity does not match: %w", err)
+		}
+		return l.stopWithSignalsTimeout(ctx, identity, invocation, termTimeout, fmt.Errorf("QMP identity unavailable: %w", err))
+	}
+	if !l.matchesLive(ctx, identity, invocation) {
+		return errors.New("will not power off: the process identity does not match")
+	}
+	return l.quitVerified(ctx, socket, name, uuid, identity, invocation, termTimeout)
+}
+
+func (l Lifecycle) quitVerified(ctx context.Context, socket, name, uuid string, identity process.Identity, invocation qemu.Invocation, termTimeout time.Duration) error {
+	if err := l.QMP.Quit(ctx, socket); err != nil {
+		return l.handleQMPFailureTimeout(ctx, socket, name, uuid, identity, invocation, termTimeout, "QMP quit failed", err)
+	}
+	exited, err := l.waitForExit(ctx, identity.PID, l.duration(l.quitTimeout, defaultQMPQuitTimeout))
 	if err != nil {
 		return err
 	}
@@ -392,12 +417,16 @@ func (l Lifecycle) Stop(ctx context.Context, socket, name, uuid string, identity
 		if errors.Is(err, ErrQMPIdentityMismatch) {
 			return fmt.Errorf("QEMU remained after QMP quit; refuse stop with mismatched QMP identity: %w", err)
 		}
-		return l.stopWithSignals(ctx, identity, invocation, fmt.Errorf("QEMU remained after QMP quit and QMP became unavailable: %w", err))
+		return l.stopWithSignalsTimeout(ctx, identity, invocation, termTimeout, fmt.Errorf("QEMU remained after QMP quit and QMP became unavailable: %w", err))
 	}
 	return fmt.Errorf("QEMU pid %d remained after QMP quit while matching QMP was still available; no signal was sent", identity.PID)
 }
 
 func (l Lifecycle) handleQMPFailure(ctx context.Context, socket, name, uuid string, identity process.Identity, invocation qemu.Invocation, operation string, operationErr error) error {
+	return l.handleQMPFailureTimeout(ctx, socket, name, uuid, identity, invocation, l.duration(l.termTimeout, defaultSIGTERMTimeout), operation, operationErr)
+}
+
+func (l Lifecycle) handleQMPFailureTimeout(ctx context.Context, socket, name, uuid string, identity process.Identity, invocation qemu.Invocation, termTimeout time.Duration, operation string, operationErr error) error {
 	identityErr := l.ValidateIdentity(ctx, socket, name, uuid)
 	if identityErr == nil {
 		return fmt.Errorf("%s while matching QMP remained available; no signal was sent: %w", operation, operationErr)
@@ -405,10 +434,14 @@ func (l Lifecycle) handleQMPFailure(ctx context.Context, socket, name, uuid stri
 	if errors.Is(identityErr, ErrQMPIdentityMismatch) {
 		return fmt.Errorf("%s; refuse stop with mismatched QMP identity: %w", operation, identityErr)
 	}
-	return l.stopWithSignals(ctx, identity, invocation, fmt.Errorf("%s and QMP became unavailable: %w", operation, operationErr))
+	return l.stopWithSignalsTimeout(ctx, identity, invocation, termTimeout, fmt.Errorf("%s and QMP became unavailable: %w", operation, operationErr))
 }
 
 func (l Lifecycle) stopWithSignals(ctx context.Context, identity process.Identity, invocation qemu.Invocation, reason error) error {
+	return l.stopWithSignalsTimeout(ctx, identity, invocation, l.duration(l.termTimeout, defaultSIGTERMTimeout), reason)
+}
+
+func (l Lifecycle) stopWithSignalsTimeout(ctx context.Context, identity process.Identity, invocation qemu.Invocation, termTimeout time.Duration, reason error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -432,7 +465,7 @@ func (l Lifecycle) stopWithSignals(ctx context.Context, identity process.Identit
 		}
 		return fmt.Errorf("send SIGTERM to verified QEMU pid %d: %w", identity.PID, err)
 	}
-	exited, err := l.waitForExit(ctx, identity.PID, l.duration(l.termTimeout, defaultSIGTERMTimeout))
+	exited, err := l.waitForExit(ctx, identity.PID, termTimeout)
 	if err != nil {
 		return err
 	}

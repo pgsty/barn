@@ -597,3 +597,69 @@ func TestStopReportsBoundedKILLWaitExhaustion(t *testing.T) {
 		t.Fatalf("signals = %v", got)
 	}
 }
+
+func TestStopImmediateSkipsPowerdownAndCallsQuitDirectly(t *testing.T) {
+	t.Parallel()
+	names, uuids := matchingQMPIdentities(1)
+	fake := &lifecycleQMP{names: names, uuids: uuids}
+	recorder := &stopRecorder{matches: []bool{true}, waits: []bool{true}}
+	lifecycle := testStopLifecycle(fake, recorder)
+
+	if err := lifecycle.StopImmediate(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, testInvocation); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(fake.recordedCalls(), ","); got != "query-name,query-uuid,quit" {
+		t.Fatalf("QMP calls = %s, want query-name,query-uuid,quit", got)
+	}
+	if signals := recorder.recordedSignals(); len(signals) != 0 {
+		t.Fatalf("signals = %v", signals)
+	}
+	if waits := recorder.recordedWaits(); len(waits) != 1 || waits[0] != 23*time.Millisecond {
+		t.Fatalf("waits = %v", waits)
+	}
+}
+
+func TestStopImmediateRefusesMismatchedIdentityWithoutQuitOrSignal(t *testing.T) {
+	t.Parallel()
+	fakeMismatch := &lifecycleQMP{
+		names: []qmpResult[qmp.Name]{{value: qmp.Name{Name: "other-vm"}}},
+		uuids: []qmpResult[qmp.UUID]{{value: qmp.UUID{UUID: testVMUUID}}},
+	}
+	recorder := &stopRecorder{}
+	lifecycle := testStopLifecycle(fakeMismatch, recorder)
+	if err := lifecycle.StopImmediate(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, testInvocation); !errors.Is(err, ErrQMPIdentityMismatch) {
+		t.Fatalf("mismatched QMP error = %v", err)
+	}
+	if signals := recorder.recordedSignals(); len(signals) != 0 {
+		t.Fatalf("signals = %v", signals)
+	}
+
+	names, uuids := matchingQMPIdentities(1)
+	fakeProc := &lifecycleQMP{names: names, uuids: uuids}
+	procRecorder := &stopRecorder{matches: []bool{false}}
+	procLifecycle := testStopLifecycle(fakeProc, procRecorder)
+	if err := procLifecycle.StopImmediate(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, testInvocation); err == nil || !strings.Contains(err.Error(), "process identity does not match") {
+		t.Fatalf("mismatched process error = %v", err)
+	}
+	if got := strings.Join(fakeProc.recordedCalls(), ","); got != "query-name,query-uuid" {
+		t.Fatalf("QMP calls on process mismatch = %s", got)
+	}
+}
+
+func TestStopImmediateQMPUnavailableUsesImmediateTERMThenKILL(t *testing.T) {
+	t.Parallel()
+	fake := &lifecycleQMP{names: []qmpResult[qmp.Name]{{err: errors.New("socket unavailable")}}}
+	recorder := &stopRecorder{matches: []bool{true, true}, waits: []bool{false, true}}
+	lifecycle := testStopLifecycle(fake, recorder)
+	lifecycle.termTimeout = 0
+
+	if err := lifecycle.StopImmediate(context.Background(), "/qmp", testVMName, testVMUUID, testIdentity, testInvocation); err != nil {
+		t.Fatal(err)
+	}
+	if got := recorder.recordedSignals(); len(got) != 2 || got[0] != syscall.SIGTERM || got[1] != syscall.SIGKILL {
+		t.Fatalf("signals = %v", got)
+	}
+	if waits := recorder.recordedWaits(); len(waits) != 2 || waits[0] != defaultImmediateSIGTERMTimeout || waits[1] != 31*time.Millisecond {
+		t.Fatalf("waits = %v, want [%s, 31ms]", waits, defaultImmediateSIGTERMTimeout)
+	}
+}

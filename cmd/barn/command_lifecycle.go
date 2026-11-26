@@ -218,8 +218,9 @@ root disks, persistent data disks, SSH keys, state, and default SSH client
 configuration. The verified image cache and host-global network remain
 installed.
 
-Purge deletes immediately by default. Use --ask to review the nodes and
-deletion scope first, then confirm with y/yes or cancel with n/no.
+Purge deletes immediately by default and powers off running virtual machines
+directly rather than waiting for a graceful guest shutdown. Use --ask to review
+the nodes and deletion scope first, then confirm with y/yes or cancel with n/no.
 
 Purge accepts no node selectors and never reads an inventory. It is idempotent
 when no deployment exists, but still refuses ambiguous or unsafe retained

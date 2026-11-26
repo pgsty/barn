@@ -13,11 +13,12 @@ import (
 )
 
 type fakeStopLifecycle struct {
-	mu        sync.Mutex
-	active    int
-	maxActive int
-	fail      map[string]bool
-	timeouts  []time.Duration
+	mu             sync.Mutex
+	active         int
+	maxActive      int
+	fail           map[string]bool
+	timeouts       []time.Duration
+	immediateNodes []string
 }
 
 func (fake *fakeStopLifecycle) Stop(_ context.Context, node state.NodeState, timeout time.Duration) error {
@@ -36,6 +37,26 @@ func (fake *fakeStopLifecycle) Stop(_ context.Context, node state.NodeState, tim
 	time.Sleep(10 * time.Millisecond)
 	if fake.fail[node.Node] {
 		return errors.New("injected stop failure")
+	}
+	return nil
+}
+
+func (fake *fakeStopLifecycle) StopImmediate(_ context.Context, node state.NodeState) error {
+	fake.mu.Lock()
+	fake.active++
+	fake.immediateNodes = append(fake.immediateNodes, node.Node)
+	if fake.active > fake.maxActive {
+		fake.maxActive = fake.active
+	}
+	fake.mu.Unlock()
+	defer func() {
+		fake.mu.Lock()
+		fake.active--
+		fake.mu.Unlock()
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if fake.fail[node.Node] {
+		return errors.New("injected immediate stop failure")
 	}
 	return nil
 }
@@ -212,5 +233,47 @@ func TestStatusConvergesInterruptedTransitionAndUnblocksDestroy(t *testing.T) {
 	writeDestroyKeyFixtures(t, deploymentValue.Root)
 	if _, err := (Manager{BarnVersion: "test"}).Destroy(context.Background()); err != nil {
 		t.Fatalf("destroy after convergence failed: %v", err)
+	}
+}
+
+func TestStopRunningImmediateUsesStopImmediateAndCleansRuntime(t *testing.T) {
+	startConfig := runningStopFixture(t)
+	fake := &fakeStopLifecycle{fail: map[string]bool{}}
+	cleaned := make(map[string]bool)
+	var cleanMu sync.Mutex
+	var sawPowerOff bool
+	outcomes, err := StopRunning(context.Background(), StopConfig{
+		Deployment:  startConfig.Deployment,
+		Lifecycle:   fake,
+		Nodes:       startConfig.Nodes,
+		Concurrency: 2,
+		Immediate:   true,
+		CleanupRuntime: func(node state.NodeState) error {
+			cleanMu.Lock()
+			cleaned[node.Node] = true
+			cleanMu.Unlock()
+			return nil
+		},
+		Progress: func(event activity.Event) {
+			if event.State == "stopping" && event.Message == "powering off VM" {
+				sawPowerOff = true
+			}
+		},
+	})
+	if err != nil || len(stoppedNames(outcomes)) != 2 {
+		t.Fatalf("immediate stop outcomes=%#v err=%v", outcomes, err)
+	}
+	if len(fake.timeouts) != 0 || len(fake.immediateNodes) != 2 || !sawPowerOff {
+		t.Fatalf("immediate stop did not bypass graceful shutdown: timeouts=%v immediate=%v sawPowerOff=%v", fake.timeouts, fake.immediateNodes, sawPowerOff)
+	}
+	store := state.Store{Root: startConfig.Deployment.Root}
+	for _, name := range startConfig.Nodes {
+		if !cleaned[name] {
+			t.Fatalf("runtime cleanup skipped for %s", name)
+		}
+		node, readErr := store.ReadNode(name)
+		if readErr != nil || node.Phase != state.Stopped || node.Process != (state.ProcessIdentity{}) {
+			t.Fatalf("stopped node %s = %#v, %v", name, node, readErr)
+		}
 	}
 }

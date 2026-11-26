@@ -237,6 +237,7 @@ type Manager struct {
 	FirmwareLookup      func(platform.Profile, string) (platform.Firmware, error)
 	DialSSHAddress      func(string, string) (net.Conn, error)
 	Nodes               []string
+	ImmediateStop       bool
 	allowPartialDestroy bool
 	dropFromSpec        bool
 }
@@ -1983,7 +1984,7 @@ func (m Manager) stopLocked(ctx context.Context, deploymentValue Deployment) (St
 	lifecycle := NativeLifecycle{RetryGuestSetup: m.retryGuestSetup, VM: vm.Lifecycle{Runner: m.runner(), QMP: &qmp.Client{Timeout: 5 * time.Second}, SSHUser: deploymentState.Resolved.SSHUser}}
 	outcomes, err := StopRunning(ctx, StopConfig{
 		Deployment: deploymentValue, Lifecycle: lifecycle, Nodes: names, Concurrency: m.concurrency(len(names)),
-		NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Progress: m.Progress,
+		Immediate: m.ImmediateStop, NodeAddresses: resolvedNodeAddresses(deploymentState.Resolved), Progress: m.Progress,
 	})
 	if err != nil {
 		return Status{}, err
