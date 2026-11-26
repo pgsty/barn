@@ -104,3 +104,109 @@ func TestImageListUsesTheLocalCatalogWithoutNetwork(t *testing.T) {
 		t.Fatalf("offline list stdout=%q stderr=%q requests=%d", stdout.String(), stderr.String(), requests.Load())
 	}
 }
+
+func TestImageUpdateFreshCache(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "barn-home")
+	t.Setenv("BARN_HOME", home)
+	t.Setenv("BARN_ARCH", "")
+	repository := t.TempDir()
+	writeUpdateRepository(t, repository, image.EmbeddedManifestVersion+1)
+
+	for _, tc := range []struct {
+		args []string
+		arch string
+	}{
+		{},
+		{args: []string{"d13i"}, arch: "amd64"},
+		{args: []string{"d13", "--arch", "arm64", "d13a"}, arch: "arm64"},
+	} {
+		var stdout, stderr bytes.Buffer
+		args := append([]string{"--json", "image", "update", "--repo", repository, "--dry-run"}, tc.args...)
+		if code := run(args, &stdout, &stderr); code != exitOK {
+			t.Fatalf("%v: exit %d: %s", tc.args, code, stderr.String())
+		}
+		var report image.ImageUpdateReport
+		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+			t.Fatal(err)
+		}
+		if tc.arch == "" {
+			if len(report.Images) != 0 {
+				t.Fatalf("empty cache without selectors planned images: %+v", report.Images)
+			}
+		} else if len(report.Images) != 1 || report.Images[0].Alias != "d13" || report.Images[0].Arch != tc.arch || report.Images[0].State != "planned" {
+			t.Fatalf("%v: images = %+v", tc.args, report.Images)
+		}
+		if _, err := os.Stat(home); !os.IsNotExist(err) {
+			t.Fatalf("dry-run created its data directory: %v", err)
+		}
+	}
+}
+
+func TestImageUpdateCommandDryRunAndSelectorContracts(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "barn-home")
+	t.Setenv("BARN_HOME", home)
+	repository := t.TempDir()
+	revision := uint64(image.EmbeddedManifestVersion + 2)
+	writeUpdateRepository(t, repository, revision)
+
+	// Place a retired older d13 arm64 image in local cache.
+	d13Dir := filepath.Join(home, "images", "d13")
+	if err := os.MkdirAll(d13Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d13Dir, "d13-20261001.1-arm64.qcow2"), []byte("old-d13"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dry-run previews catalog and image updates strictly read-only.
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--json", "image", "u", "--dry-run", "--repo", repository}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("image update dry-run code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, "images", "manifests", "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote manifest state.json: %v", err)
+	}
+	var report image.ImageUpdateReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode image update JSON: %v\n%s", err, stdout.String())
+	}
+	if !report.DryRun || !report.Catalog.Updated || report.Catalog.ActiveVersion != revision || len(report.Images) != 1 || report.Images[0].Alias != "d13" || report.Images[0].Arch != "arm64" || report.Images[0].State != "planned" {
+		t.Fatalf("dry-run report = %#v", report)
+	}
+
+	// Text dry-run renders readable catalog, table, and summary.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"image", "update", "-d", "--repo", repository}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("text dry-run code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"would update image catalog", "d13", "arm64", "planned", "20261001.1 -> "} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("text dry-run missing %q:\n%s", want, stdout.String())
+		}
+	}
+
+	// Deprecated image warning is emitted when planned/updated.
+	u22Dir := filepath.Join(home, "images", "u22")
+	if err := os.MkdirAll(u22Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(u22Dir, "u22-20261001.0.1-arm64.qcow2"), []byte("old-u22"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"image", "update", "--dry-run", "--repo", repository, "u22"}, &stdout, &stderr); code != exitOK {
+		t.Fatalf("u22 dry-run code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "deprecated") {
+		t.Fatalf("expected deprecated warning on stderr, got %q", stderr.String())
+	}
+
+	// Architecture-suffixed alias conflicts with explicit --arch native.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"image", "update", "el10a", "-A", "native", "--dry-run", "--repo", repository}, &stdout, &stderr); code != exitUsage || !strings.Contains(stderr.String(), "conflicts with --arch native") {
+		t.Fatalf("arch conflict code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}

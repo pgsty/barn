@@ -2360,6 +2360,7 @@ type imageOptions struct {
 	Repository     string
 	Mirror         bool
 	Alias          string
+	Selectors      []string
 	Arch           string
 	Source         string
 	Path           string
@@ -2369,6 +2370,7 @@ type imageOptions struct {
 	SourceUser     string
 	DryRun         bool
 	Apply          bool
+	Prune          bool
 	AllowDowngrade bool
 }
 
@@ -2381,6 +2383,13 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 		if (options.Action == "info" || options.Action == "pull") && options.Alias != "" {
 			if resolved, refErr := image.ResolveReference(options.Alias); refErr == nil && resolved.Arch != "" && normalized != resolved.Arch {
 				return commandOutcome{}, newUsageError(failure.New(failure.Usage, fmt.Errorf("image alias %q targets %s, which conflicts with --arch %s", strings.TrimSpace(options.Alias), resolved.Arch, normalized)).Because("arch_conflict"))
+			}
+		}
+		if options.Action == "image-update" {
+			for _, selector := range options.Selectors {
+				if resolved, refErr := image.ResolveReference(selector); refErr == nil && resolved.Arch != "" && normalized != resolved.Arch {
+					return commandOutcome{}, newUsageError(failure.New(failure.Usage, fmt.Errorf("image alias %q targets %s, which conflicts with --arch %s", strings.TrimSpace(selector), resolved.Arch, normalized)).Because("arch_conflict"))
+				}
 			}
 		}
 		options.Arch, err = platform.GuestArch(normalized, runtime.GOARCH)
@@ -2416,6 +2425,48 @@ func runImage(parent context.Context, options imageOptions, stderr io.Writer) (c
 			textField(stdout, 12, "source", result.Source)
 			return nil
 		}}, nil
+	case "image-update":
+		ctx, cancel := context.WithCancel(parent)
+		defer cancel()
+		var progressItem *progress
+		service, err := imageService(options.Repository, options.Mirror, deferredProgressReporter(&progressItem))
+		if err != nil {
+			return commandOutcome{}, newRuntimeError(err)
+		}
+		operation := "image update"
+		if options.DryRun {
+			operation += " plan"
+		}
+		progressItem = startOperationProgress(ctx, stderr, "Updating image catalog and cached images", operation)
+		report, err := service.UpdateImages(ctx, image.ImageUpdateOptions{
+			Selectors: options.Selectors,
+			Arch:      options.Arch,
+			DryRun:    options.DryRun,
+			Prune:     options.Prune,
+			NodeRefs: func(context.Context) (map[string]struct{}, error) {
+				return nodeImageReferences(service.DataRoot)
+			},
+		})
+		progressItem.Stop(err)
+		if errors.Is(parent.Err(), context.Canceled) {
+			return commandOutcome{}, ErrCancelled
+		}
+		for _, item := range report.Images {
+			if item.State == "updated" || item.State == "planned" {
+				printImageStatusWarning(stderr, image.Entry{Alias: item.Alias, Arch: item.Arch, Release: item.Release, Status: item.Status})
+			}
+		}
+		renderText := func(stdout, _ io.Writer) error {
+			renderImageUpdateText(stdout, report)
+			return nil
+		}
+		if err != nil {
+			if len(report.Images) != 0 || report.Prune != nil {
+				return commandOutcome{}, newCommandError(exitRuntime, err).withPayload(report).withText(renderText)
+			}
+			return commandOutcome{}, newCommandError(exitRuntime, err)
+		}
+		return commandOutcome{payload: report, text: renderText}, nil
 	case "list":
 		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		defer cancel()

@@ -488,44 +488,53 @@ func (m ManifestManager) readSource(ctx context.Context, source string) ([]byte,
 	return data, signatureText, "local:" + absolute, err
 }
 
-func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade bool) (_ ManifestState, returnErr error) {
-	if err := m.validate(); err != nil {
-		return ManifestState{}, err
-	}
+type verifiedCatalog struct {
+	catalog    Catalog
+	data       []byte
+	signature  []byte
+	digest     string
+	keyID      uint64
+	keys       []minisign.PublicKey
+	provenance string
+}
+
+func (m ManifestManager) fetchAndVerify(ctx context.Context, source string) (verifiedCatalog, error) {
 	data, signatureText, provenance, err := m.readSource(ctx, source)
 	if err != nil {
-		return ManifestState{}, fmt.Errorf("fetch catalog %s: %w", source, err)
+		return verifiedCatalog{}, fmt.Errorf("fetch catalog %s: %w", source, err)
 	}
 	var keys []minisign.PublicKey
 	keyID := uint64(0)
 	if len(signatureText) != 0 {
 		keys, err = m.keys()
 		if err != nil {
-			return ManifestState{}, err
+			return verifiedCatalog{}, err
 		}
 		keyID, err = verifyManifest(keys, data, signatureText)
 		if err != nil {
-			return ManifestState{}, err
+			return verifiedCatalog{}, err
 		}
 	} else if !m.unsignedAllowed() {
-		return ManifestState{}, catalogIntegrity("catalog_signature", errors.New("image catalog has no detached signature"))
+		return verifiedCatalog{}, catalogIntegrity("catalog_signature", errors.New("image catalog has no detached signature"))
 	} else if !m.unsignedSourceMatchesRepository(provenance) {
-		return ManifestState{}, errors.New("unsigned catalog source does not match the selected repository catalog.json")
+		return verifiedCatalog{}, errors.New("unsigned catalog source does not match the selected repository catalog.json")
 	}
 	catalog, err := strictCatalog(data)
 	if err != nil {
-		return ManifestState{}, err
+		return verifiedCatalog{}, err
 	}
-	digest := manifestDigest(data)
-	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	manifestLock, err := lock.Acquire(lockContext, m.lockPath(), false)
-	if err != nil {
-		return ManifestState{}, err
-	}
-	defer func() {
-		returnErr = lock.JoinRelease(returnErr, manifestLock, "manifest registry lock")
-	}()
+	return verifiedCatalog{
+		catalog:    catalog,
+		data:       data,
+		signature:  signatureText,
+		digest:     manifestDigest(data),
+		keyID:      keyID,
+		keys:       keys,
+		provenance: provenance,
+	}, nil
+}
+
+func (m ManifestManager) currentForTransition() (ManifestState, error) {
 	stateKey, err := m.stateKey()
 	if err != nil {
 		return ManifestState{}, err
@@ -547,58 +556,121 @@ func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade
 			return ManifestState{}, err
 		}
 	}
-	if current.KeyID != "" && len(signatureText) == 0 && !allowDowngrade {
+	return current, nil
+}
+
+func validateCatalogTransition(current ManifestState, candidate verifiedCatalog, allowDowngrade bool) (ManifestState, error) {
+	if current.KeyID != "" && len(candidate.signature) == 0 && !allowDowngrade {
 		return ManifestState{}, errors.New("repository previously served a signed catalog; refusing an unsigned catalog without --allow-downgrade")
 	}
-	if current.ActiveVersion != 0 && catalog.Version == current.ActiveVersion && digest != current.ActiveDigest {
+	if current.ActiveVersion != 0 && candidate.catalog.Version == current.ActiveVersion && candidate.digest != current.ActiveDigest {
 		return ManifestState{}, catalogIntegrity("catalog_equivocation", errors.New("manifest version equivocation: same version has different bytes"))
 	}
-	if catalog.Version < current.HighestVersion && !allowDowngrade {
-		return ManifestState{}, fmt.Errorf("manifest version %d is below accepted high-water mark %d", catalog.Version, current.HighestVersion)
+	if candidate.catalog.Version < current.HighestVersion && !allowDowngrade {
+		return ManifestState{}, fmt.Errorf("manifest version %d is below accepted high-water mark %d", candidate.catalog.Version, current.HighestVersion)
 	}
-	filename := fmt.Sprintf("v%d-%s.json", catalog.Version, digest)
-	manifestPath := filepath.Join(m.versions(), filename)
+	highest := current.HighestVersion
+	if candidate.catalog.Version > highest {
+		highest = candidate.catalog.Version
+	}
+	keyText := ""
+	if candidate.keyID != 0 {
+		keyText = strings.ToUpper(strconv.FormatUint(candidate.keyID, 16))
+	}
+	filename := fmt.Sprintf("v%d-%s.json", candidate.catalog.Version, candidate.digest)
+	return ManifestState{
+		Schema:         ManifestStateSchema,
+		HighestVersion: highest,
+		Active:         filename,
+		ActiveVersion:  candidate.catalog.Version,
+		ActiveDigest:   candidate.digest,
+		KeyID:          keyText,
+		Source:         candidate.provenance,
+		AcceptedAt:     time.Now().UTC(),
+		Downgrade:      current.HighestVersion != 0 && candidate.catalog.Version < current.HighestVersion,
+	}, nil
+}
+
+// Preview fetches and verifies source under the same signature, schema,
+// equivocation, and anti-rollback rules as Sync without creating directories or
+// mutating local manifest state.
+func (m ManifestManager) Preview(ctx context.Context, source string) (Catalog, ManifestState, error) {
+	if m.DataRoot == "" || !filepath.IsAbs(m.DataRoot) {
+		return Catalog{}, ManifestState{}, errors.New("manifest data root must be absolute")
+	}
+	candidate, err := m.fetchAndVerify(ctx, source)
+	if err != nil {
+		return Catalog{}, ManifestState{}, err
+	}
+	current, err := m.currentForTransition()
+	if err != nil {
+		return Catalog{}, ManifestState{}, err
+	}
+	state, err := validateCatalogTransition(current, candidate, false)
+	if err != nil {
+		return Catalog{}, ManifestState{}, err
+	}
+	return candidate.catalog, state, nil
+}
+
+func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade bool) (_ ManifestState, returnErr error) {
+	if err := m.validate(); err != nil {
+		return ManifestState{}, err
+	}
+	candidate, err := m.fetchAndVerify(ctx, source)
+	if err != nil {
+		return ManifestState{}, err
+	}
+	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	manifestLock, err := lock.Acquire(lockContext, m.lockPath(), false)
+	if err != nil {
+		return ManifestState{}, err
+	}
+	defer func() {
+		returnErr = lock.JoinRelease(returnErr, manifestLock, "manifest registry lock")
+	}()
+	current, err := m.currentForTransition()
+	if err != nil {
+		return ManifestState{}, err
+	}
+	state, err := validateCatalogTransition(current, candidate, allowDowngrade)
+	if err != nil {
+		return ManifestState{}, err
+	}
+	manifestPath := filepath.Join(m.versions(), state.Active)
 	if existing, err := os.ReadFile(manifestPath); err == nil {
-		if !bytes.Equal(existing, data) {
+		if !bytes.Equal(existing, candidate.data) {
 			return ManifestState{}, catalogIntegrity("catalog_equivocation", errors.New("versioned manifest path contains different bytes"))
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
-		if err := fsutil.AtomicWrite(manifestPath, data, 0o600); err != nil {
+		if err := fsutil.AtomicWrite(manifestPath, candidate.data, 0o600); err != nil {
 			return ManifestState{}, err
 		}
 	} else {
 		return ManifestState{}, err
 	}
-	if len(signatureText) != 0 {
-		signaturePath := versionSignaturePath(manifestPath, strings.ToUpper(strconv.FormatUint(keyID, 16)))
+	if len(candidate.signature) != 0 {
+		signaturePath := versionSignaturePath(manifestPath, state.KeyID)
 		if existing, err := os.ReadFile(signaturePath); err == nil {
-			if !bytes.Equal(existing, signatureText) {
+			if !bytes.Equal(existing, candidate.signature) {
 				// A trusted key may re-sign identical bytes with a new timestamp.
 				// Keep an already valid signature; replace damaged cached bytes
 				// only with the incoming signature verified above.
-				if cachedKey, verifyErr := verifyManifest(keys, data, existing); verifyErr != nil || cachedKey != keyID {
-					if err := fsutil.AtomicWrite(signaturePath, signatureText, 0o600); err != nil {
+				if cachedKey, verifyErr := verifyManifest(candidate.keys, candidate.data, existing); verifyErr != nil || cachedKey != candidate.keyID {
+					if err := fsutil.AtomicWrite(signaturePath, candidate.signature, 0o600); err != nil {
 						return ManifestState{}, err
 					}
 				}
 			}
 		} else if errors.Is(err, os.ErrNotExist) {
-			if err := fsutil.AtomicWrite(signaturePath, signatureText, 0o600); err != nil {
+			if err := fsutil.AtomicWrite(signaturePath, candidate.signature, 0o600); err != nil {
 				return ManifestState{}, err
 			}
 		} else {
 			return ManifestState{}, err
 		}
 	}
-	highest := current.HighestVersion
-	if catalog.Version > highest {
-		highest = catalog.Version
-	}
-	keyText := ""
-	if keyID != 0 {
-		keyText = strings.ToUpper(strconv.FormatUint(keyID, 16))
-	}
-	state := ManifestState{Schema: ManifestStateSchema, HighestVersion: highest, Active: filename, ActiveVersion: catalog.Version, ActiveDigest: digest, KeyID: keyText, Source: provenance, AcceptedAt: time.Now().UTC(), Downgrade: current.HighestVersion != 0 && catalog.Version < current.HighestVersion}
 	if err := m.writeState(state); err != nil {
 		return ManifestState{}, err
 	}

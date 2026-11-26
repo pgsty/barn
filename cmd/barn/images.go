@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/image"
@@ -100,4 +102,141 @@ func nodeImageReferences(dataRoot string) (map[string]struct{}, error) {
 		references[node.Image.Digest] = struct{}{}
 	}
 	return references, nil
+}
+
+func renderImageUpdateText(stdout io.Writer, report image.ImageUpdateReport) {
+	frozen := lifecycleProgressFrozen(stdout)
+	if !frozen {
+		switch {
+		case report.Catalog.Updated && report.DryRun:
+			printItemResult(stdout, "catalog", "planned", fmt.Sprintf("would update image catalog from revision %d to %d", report.Catalog.PreviousVersion, report.Catalog.ActiveVersion))
+		case report.Catalog.Updated:
+			printItemResult(stdout, "catalog", "active", fmt.Sprintf("updated image catalog from revision %d to %d", report.Catalog.PreviousVersion, report.Catalog.ActiveVersion))
+		default:
+			printItemResult(stdout, "catalog", "unchanged", fmt.Sprintf("image catalog revision %d is current", report.Catalog.ActiveVersion))
+		}
+		textField(stdout, 12, "repository", report.Catalog.Repository)
+	}
+
+	if len(report.Images) == 0 {
+		printResultSummary(stdout, "images", "unchanged", "no cached catalog images to update")
+	} else {
+		var updatedCount, plannedCount, unchangedCount, skippedCount, failedCount int
+		var transferBytes int64
+		showMessage := false
+		for _, item := range report.Images {
+			switch item.State {
+			case "updated":
+				updatedCount++
+				transferBytes += item.ArtifactSize
+			case "planned":
+				plannedCount++
+				transferBytes += item.ArtifactSize
+			case "unchanged":
+				unchangedCount++
+			case "skipped":
+				skippedCount++
+				showMessage = true
+			case "failed":
+				failedCount++
+				showMessage = true
+			}
+		}
+		if !frozen {
+			header := []string{"IMAGE", "ARCH", "STATE", "RELEASE", "SIZE"}
+			if showMessage {
+				header = append(header, "MESSAGE")
+			}
+			rows := make([][]string, 0, len(report.Images))
+			for _, item := range report.Images {
+				archCell := item.Arch
+				if archCell == "" {
+					archCell = "-"
+				}
+				releaseCell := "-"
+				switch {
+				case (item.State == "updated" || item.State == "planned") && len(item.PreviousReleases) > 0:
+					releaseCell = item.PreviousReleases[len(item.PreviousReleases)-1] + " -> " + item.Release
+				case item.Release != "":
+					releaseCell = item.Release
+				case len(item.PreviousReleases) > 0:
+					releaseCell = item.PreviousReleases[len(item.PreviousReleases)-1]
+				}
+				sizeCell := "-"
+				if (item.State == "updated" || item.State == "planned") && item.ArtifactSize > 0 {
+					sizeCell = progressBytes(item.ArtifactSize)
+				}
+				row := []string{item.Alias, archCell, item.State, releaseCell, sizeCell}
+				if showMessage {
+					message := ""
+					if item.State == "skipped" || item.State == "failed" {
+						message = item.Message
+						if message == "" {
+							message = item.Error
+						}
+					}
+					row = append(row, message)
+				}
+				rows = append(rows, row)
+			}
+			bestEffortln(stdout)
+			printTable(stdout, header, rows, 2)
+		}
+		parts := make([]string, 0, 4)
+		if updatedCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d updated (%s)", updatedCount, progressBytes(transferBytes)))
+		}
+		if plannedCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d planned (%s)", plannedCount, progressBytes(transferBytes)))
+		}
+		if unchangedCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d unchanged", unchangedCount))
+		}
+		if skippedCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d skipped", skippedCount))
+		}
+		if failedCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d failed", failedCount))
+		}
+		summaryState := "unchanged"
+		switch {
+		case failedCount > 0 && updatedCount+unchangedCount > 0:
+			summaryState = "partial"
+		case failedCount > 0:
+			summaryState = "failed"
+		case updatedCount > 0:
+			summaryState = "updated"
+		case plannedCount > 0:
+			summaryState = "planned"
+		case skippedCount > 0:
+			summaryState = "skipped"
+		}
+		printResultSummary(stdout, "images", summaryState, strings.Join(parts, ", "))
+	}
+
+	if report.Prune != nil {
+		if len(report.Prune.Items) == 0 {
+			printResultSummary(stdout, "prune", "unchanged", "no unreferenced cache images")
+			return
+		}
+		var pruneBytes int64
+		pruneRows := make([][]string, 0, len(report.Prune.Items))
+		for _, item := range report.Prune.Items {
+			pruneBytes += item.Bytes
+			state := "planned"
+			if item.Applied {
+				state = "removed"
+			}
+			pruneRows = append(pruneRows, []string{item.ImagePath, state, item.Kind, progressBytes(item.Bytes)})
+		}
+		if !frozen {
+			bestEffortln(stdout)
+			printTable(stdout, []string{"IMAGE", "STATE", "KIND", "SIZE"}, pruneRows, 1)
+		}
+		state, verb := "planned", "would remove"
+		if report.Prune.Apply {
+			state, verb = "removed", "removed"
+		}
+		printResultSummary(stdout, "prune", state, fmt.Sprintf("%s %d file(s) (%s)", verb, len(report.Prune.Items), progressBytes(pruneBytes)))
+	}
 }

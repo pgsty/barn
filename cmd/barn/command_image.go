@@ -13,8 +13,10 @@ func newUpdateCommand(stdout, stderr io.Writer) *cobra.Command {
 		Short: "Refresh the image catalog",
 		Long: `Fetch the configured image repository's catalog, verify its signature, and
 activate it. Barn never refreshes the catalog implicitly: ordinary image and
-lifecycle commands use the active local catalog. Use image sync only to
-activate an exact URL or file. This does not update the Barn executable.`,
+lifecycle commands use the active local catalog. Use 'barn image update' to
+refresh the catalog and fetch selected or cached images, or 'barn image
+sync' to activate an exact URL or file.
+This does not update the Barn executable.`,
 		Example: `  barn update
   barn update --mirror
   barn update --repo https://mirror.example/barn
@@ -47,6 +49,7 @@ import local qcow2 files, and manage the active signed catalog.`,
 		`  barn image list
   barn image info u24
   barn image pull u24
+  barn image update
   barn image prune --dry-run`,
 		stdout, stderr,
 	)
@@ -125,6 +128,37 @@ URL records build provenance; it is not a repository-failure fallback.`
 		}
 		parent.AddCommand(command)
 	}
+
+	updateOptions := imageOptions{Action: "image-update"}
+	updateCommand := &cobra.Command{
+		Use:     "update [image[:channel]...]",
+		Aliases: []string{"u"},
+		Short:   "Refresh the catalog and fetch selected or cached images",
+		Long: `Fetch and verify the configured repository's catalog, then download the
+latest release for each cached family and architecture. Name an image to fetch
+it even on the first run. A bare name updates its cached architectures, or
+the host architecture for its first download. Existing VMs keep their bases.
+Use --prune to remove unreferenced files after updating or --dry-run to
+preview the operation without writing to the cache or catalog.`,
+		Example: `  barn image update
+  barn image update --dry-run
+  barn image update d13i d13a
+  barn image update --mirror --prune`,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: imageAliasCompletion,
+		PreRunE:           validateOverrideFlags,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			updateOptions.Selectors = arguments
+			return collectImageCommand(command, updateOptions, stdout, stderr)
+		},
+	}
+	addArchitectureFlag(updateCommand, &updateOptions.Arch, "limit updates to one architecture")
+	updateCommand.Flags().StringVarP(&updateOptions.Repository, "repo", "r", "", repositoryFlagHelp)
+	updateCommand.Flags().BoolVar(&updateOptions.Mirror, "mirror", false, mirrorFlagHelp)
+	updateCommand.Flags().BoolVarP(&updateOptions.DryRun, "dry-run", "d", false, "preview catalog and image updates without updating local catalog or downloading")
+	updateCommand.Flags().BoolVar(&updateOptions.Prune, "prune", false, "remove unreferenced cached images and stale staging files after updating")
+	noFileCompletions(updateCommand, "mirror", "dry-run", "prune")
+	parent.AddCommand(updateCommand)
 
 	pruneOptions := imageOptions{Action: "prune"}
 	prune := &cobra.Command{

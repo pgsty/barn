@@ -241,17 +241,27 @@ func (s Service) ResetManifest(ctx context.Context) (ManifestState, error) {
 // supplies the node-referenced digests; the catalog and registered local
 // aliases are always protected.
 func (s Service) PruneAll(ctx context.Context, apply bool, nodeRefs func(context.Context) (map[string]struct{}, error)) (PruneReport, error) {
+	return s.pruneAllWithCatalog(ctx, apply, nil, nodeRefs)
+}
+
+func (s Service) pruneAllWithCatalog(ctx context.Context, apply bool, catalogOverride *Catalog, nodeRefs func(context.Context) (map[string]struct{}, error)) (PruneReport, error) {
 	store, err := s.store("")
 	if err != nil {
 		return PruneReport{}, err
 	}
 	resolve := func() (_ map[string]struct{}, returnErr error) {
 		references := make(map[string]struct{})
-		session, err := s.OpenCatalog()
-		if err != nil {
-			return nil, err
+		var entries []Entry
+		if catalogOverride != nil {
+			entries = catalogOverride.Entries()
+		} else {
+			session, err := s.OpenCatalog()
+			if err != nil {
+				return nil, err
+			}
+			entries = session.Entries()
 		}
-		for _, entry := range session.Entries() {
+		for _, entry := range entries {
 			references[entry.SHA256] = struct{}{}
 		}
 		if nodeRefs != nil {

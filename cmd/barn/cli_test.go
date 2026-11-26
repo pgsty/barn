@@ -132,6 +132,7 @@ func TestCommandAliasesResolveToCanonicalCommands(t *testing.T) {
 		{arguments: []string{"im", "ls"}, path: "barn image list"},
 		{arguments: []string{"im", "in"}, path: "barn image info"},
 		{arguments: []string{"im", "p"}, path: "barn image pull"},
+		{arguments: []string{"im", "u"}, path: "barn image update"},
 		{arguments: []string{"im", "pr"}, path: "barn image prune"},
 		{arguments: []string{"im", "sy"}, path: "barn image sync"},
 		{arguments: []string{"im", "i"}, path: "barn image import"},
@@ -219,6 +220,9 @@ func TestOperationalFlagsExposeScopedShorthands(t *testing.T) {
 		{path: []string{"validate"}, flag: "arch", shorthand: "A"},
 		{path: []string{"image", "info"}, flag: "arch", shorthand: "A"},
 		{path: []string{"image", "pull"}, flag: "arch", shorthand: "A"},
+		{path: []string{"image", "update"}, flag: "arch", shorthand: "A"},
+		{path: []string{"image", "update"}, flag: "dry-run", shorthand: "d"},
+		{path: []string{"image", "update"}, flag: "repo", shorthand: "r"},
 		{path: []string{"image", "import"}, flag: "arch", shorthand: "A"},
 		{path: []string{"provision"}, flag: "script", shorthand: "s"},
 		{path: []string{"provision"}, flag: "parallel", shorthand: "p"},
@@ -277,6 +281,7 @@ func TestSafetySensitiveFlagsRemainLongOnly(t *testing.T) {
 		{path: []string{"destroy"}, flag: "purge"},
 		{path: []string{"provision"}, flag: "sudo"},
 		{path: []string{"image", "sync"}, flag: "allow-downgrade"},
+		{path: []string{"image", "update"}, flag: "prune"},
 	} {
 		command, _, err := root.Find(test.path)
 		if err != nil {
@@ -296,12 +301,13 @@ func TestSafetySensitiveFlagsRemainLongOnly(t *testing.T) {
 func TestMirrorFlagIsLongOnlyAndDownloadScoped(t *testing.T) {
 	root := newRootCommand(&bytes.Buffer{}, &bytes.Buffer{})
 	want := map[string]bool{
-		"barn setup":      true,
-		"barn up":         true,
-		"barn reload":     true,
-		"barn recreate":   true,
-		"barn update":     true,
-		"barn image pull": true,
+		"barn setup":        true,
+		"barn up":           true,
+		"barn reload":       true,
+		"barn recreate":     true,
+		"barn update":       true,
+		"barn image pull":   true,
+		"barn image update": true,
 	}
 	seen := make(map[string]bool)
 	var walk func(*cobra.Command)
