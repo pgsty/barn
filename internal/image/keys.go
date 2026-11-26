@@ -2,17 +2,13 @@ package image
 
 import "aead.dev/minisign"
 
-// Production catalog signing keys. The active key signs current catalogs; the
-// standby exists so signing can rotate to a pre-trusted key without shipping
-// new binaries first. Verification accepts either. The private keys live on
-// the repository build host (m0:/data/nginx/keys/barn); signing and rotation
-// use tools/catalogsign; operator policy lives at
-// https://barn.pgsty.com/docs/reference/images/.
+// Official catalogs are signed locally with the active Minisign key.
+// The standby is trusted for rotation by the same Barn release.
 var productionManifestKeys = mustPublicKeys(
-	// barn-catalog-active, key ID 4686B39A40F9B562
-	"RWRitflAmrOGRpW2vJzySbsKSA2m94Fmp7CRjvOM8Cf7hE/im1xHVz7u",
-	// barn-catalog-standby, key ID B3170D11FD89AD9A
-	"RWSarYn9EQ0Xs6QhJm9Ha5MXgGQSy61YwZNmjCYgXpGCeFnj+MUmHhmT",
+	// barn-catalog-active-20261126, key ID B848292042883667
+	"RWRnNohCIClIuE9mVPBzP0kn8cfo63nSJguTCsflMO73bjoFFkQOUGYf",
+	// barn-catalog-standby-20261126, key ID 3182E82817D2B25A
+	"RWRastIXKOiCMc1UxUx8h2/yT8VnKWtCJ2n13AbDclZtj8c0Hc2UYrXt",
 )
 
 func mustPublicKeys(encoded ...string) []minisign.PublicKey {

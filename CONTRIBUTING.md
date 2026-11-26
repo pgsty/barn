@@ -90,8 +90,9 @@ Catalog maintenance stays separate from the user-facing `barn repo` command.
 the destination may be relative or use `~/`, and must not exist. `tools/catalogsign`
 manages Minisign keys and signatures accepted by the runtime. Its password is
 read only from inherited `CATALOGSIGN_PASSWORD` (empty is allowed), never from a
-command-line argument. Production private keys never enter this repository or
-CI; they stay on the repository host.
+command-line argument. The operator signs locally and publishes the catalog
+and its detached signature. Keep both production Minisign private keys
+outside Git, CI, and the published image repository.
 
 `make catalog-check` (`tools/catalogcheck`) is the online pre-release gate.
 It activates each official mirror's signed catalog in a fresh temporary data
