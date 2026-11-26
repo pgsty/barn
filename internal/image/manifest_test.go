@@ -71,12 +71,12 @@ func TestEmbeddedFormalGuestMatrixExact(t *testing.T) {
 			sha256: "dceb3d3da442ccaf941fd5f4425fa31dcb6181919da70f9f0b15003f11f3a751", artifactSize: 711000064, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d13/amd64": {
-			release: "20261116.2664.1", url: "",
-			sha256: "123642b11aec0577e82c59f045520dfa748290ef2b0f69deb503367caf98cf85", artifactSize: 563675136, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20261123.2671.1", url: "",
+			sha256: "27f92ad31cb6119fb75c31a794697d06b784055179860043432b4884e6b420e4", artifactSize: 543883264, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"d13/arm64": {
-			release: "20261116.2664.1", url: "",
-			sha256: "872931d1b1b82aed395b237f8674c85c76f4ec577e5cfcc2535f03c0a3fc062a", artifactSize: 598999040, virtualSize: 3221225472, sourceUser: "dba",
+			release: "20261123.2671.1", url: "",
+			sha256: "fcc690489358b0a59472365488458c9df78a322c46b41d6a65afec85fe999d0c", artifactSize: 587923456, virtualSize: 3221225472, sourceUser: "dba",
 		},
 		"u22/amd64": {
 			release: "20261109.0.1", url: "",
