@@ -57,6 +57,10 @@ macOS **27.2.1** for a new Mac base. Inventories that use `rocky` or `ubuntu`
 should review the [upgrade notes](.github/releases/1.3.0.md) before applying
 changes.
 
+The **1.4.0 development build** adds `barn image update` and includes Debian
+13.8 for amd64 and arm64. The official catalog signing key changes with this
+release. [1.4.0 upgrade notes](.github/releases/1.4.0.md)
+
 ## Install
 
 The download installer selects the [latest published stable release](https://github.com/pgsty/barn/releases/latest).

@@ -4,6 +4,21 @@ Notable user-visible changes.
 
 ## Unreleased
 
+### 1.4.0 (in development)
+
+- Add `barn image update` to refresh the catalog and download images in one
+  command. Run it without arguments for cached images, or name the images to
+  fetch. Use `--dry-run` to preview and `--prune` to remove unreferenced files
+  after a successful update.
+- Power off running Linux VMs immediately via verified QMP quit during
+  `barn purge` and `barn destroy --purge` instead of waiting for graceful guest
+  shutdown, while preserving full runtime and disk cleanup.
+- Set `d13:stable` to Debian 13.8 (`20261123.2671.1`) on amd64 and arm64 in
+  catalog revision `2026112601`. Both images passed native boot, dual-interface
+  SSH, root disk growth, and XFS persistence checks across a restart.
+- Replace the catalog signing keys. Upgrade the Barn CLI to 1.4.0 before
+  refreshing from an official repository that serves the new signature.
+
 ## 1.3.0 — 2026-11-23
 
 Barn 1.3.0 adds Linux guest clock synchronization, shorthand image family and
