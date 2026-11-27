@@ -3,19 +3,16 @@
 package linux
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/network/subnet"
 )
 
@@ -366,10 +363,7 @@ func ReconcileBridgeConf(existing string, install bool) (string, error) {
 	return result + block, nil
 }
 
-func fileDigest(content string) string {
-	digest := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(digest[:])
-}
+func fileDigest(content string) string { return fsutil.SHA256Bytes([]byte(content)) }
 
 var accessGroupPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,63}$`)
 
@@ -424,26 +418,20 @@ type PublicNetworkState struct {
 
 func RenderPublicState(config Config) (string, error) {
 	state := PublicNetworkState{Schema: 1, Backend: BackendNetworkManager, Bridge: BridgeName, CIDR: config.CIDR, HostAddress: config.HostAddress, DHCPEnd: config.DHCPEnd}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := fsutil.MarshalJSONIndent(state)
 	if err != nil {
 		return "", err
 	}
-	return string(append(data, '\n')), nil
+	return string(data), nil
 }
 
 func ParsePublicState(data []byte) (PublicNetworkState, error) {
 	if len(data) == 0 || len(data) > 1<<20 {
 		return PublicNetworkState{}, errors.New("linux public network state size is invalid")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var state PublicNetworkState
-	if err := decoder.Decode(&state); err != nil {
-		return PublicNetworkState{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return PublicNetworkState{}, errors.New("linux public network state has trailing JSON data")
+	if err := fsutil.DecodeStrictJSON(data, &state); err != nil {
+		return PublicNetworkState{}, fmt.Errorf("decode linux public network state: %w", err)
 	}
 	if state.Schema != 1 || state.Backend != BackendNetworkManager || state.Bridge != BridgeName {
 		return PublicNetworkState{}, errors.New("linux public network state identity is invalid")
@@ -471,6 +459,96 @@ func NMConnectionAddArgs(config Config, firewalld bool) []string {
 	return args
 }
 
+func flattenPhases(phases []CommandPhase) []Command {
+	commands := make([]Command, 0)
+	for _, phase := range phases {
+		commands = append(commands, phase.Commands...)
+	}
+	return commands
+}
+
+type installBackendSpec struct {
+	backend          string
+	otherBackendName string
+	networkManager   bool
+	publicDirCreated bool
+	networkdUnits    map[string]UnitState
+	extraFiles       []File
+	extraDirs        []Directory
+	activation       *NetworkdActivationSafety
+	buildPhases      func(helperCommands []Command) []CommandPhase
+}
+
+func buildInstallPlan(facts Facts, config Config, spec installBackendSpec) (Plan, error) {
+	bridgeConf, err := ReconcileBridgeConf(facts.BridgeConf, true)
+	if err != nil {
+		return Plan{}, err
+	}
+	appliedOverride, helperCommands, warnings, err := validateHelper(facts)
+	if err != nil {
+		return Plan{}, err
+	}
+	files := append([]File{{Path: BridgeConfPath, Owner: "root:root", Mode: "0644", Content: bridgeConf}}, spec.extraFiles...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+
+	originalHelper := Override{Owner: "root", Group: facts.Helper.Group, Mode: fmt.Sprintf("%04o", facts.Helper.Mode)}
+	originalBridgeConf := facts.BridgeConf
+	originalBridgePath := facts.BridgeConfState
+	qemuConfigCreated := !facts.QEMUConfigDirExisted
+	publicDirCreated := spec.publicDirCreated
+	originalUnits := spec.networkdUnits
+	if facts.ExistingManifest != nil {
+		if err := validateManifest(*facts.ExistingManifest); err != nil {
+			return Plan{}, fmt.Errorf("existing Linux network manifest: %w", err)
+		}
+		existing := facts.ExistingManifest
+		if ManifestBackend(*existing) != spec.backend {
+			return Plan{}, failure.WithNext(
+				fmt.Errorf("the Barn network was installed with %s; remove it before switching backends", spec.otherBackendName),
+				"barn network uninstall --yes",
+			)
+		}
+		if existing.Family != facts.Family || existing.CIDR != config.CIDR || existing.HostAddress != config.HostAddress || existing.DHCPEnd != config.DHCPEnd || existing.HelperPath != facts.Helper.Path || existing.NetworkManager != spec.networkManager {
+			return Plan{}, errors.New("existing Linux network manifest does not match requested install")
+		}
+		originalHelper = existing.OriginalHelper
+		originalBridgeConf = existing.OriginalBridgeConf
+		originalBridgePath = existing.OriginalBridgePath
+		qemuConfigCreated = existing.QEMUConfigCreated
+		publicDirCreated = existing.PublicDirCreated
+		if !spec.networkManager {
+			originalUnits = copyUnitStates(existing.NetworkdUnits)
+		}
+		appliedOverride = existing.AppliedOverride
+	}
+	manifest := Manifest{
+		Schema: 1, Family: facts.Family, Backend: spec.backend, Bridge: BridgeName, CIDR: config.CIDR,
+		HostAddress: config.HostAddress, DHCPEnd: config.DHCPEnd, HelperPath: facts.Helper.Path,
+		OriginalHelper: originalHelper, OriginalBridgeConf: originalBridgeConf, OriginalBridgePath: originalBridgePath,
+		QEMUConfigCreated: qemuConfigCreated, PublicDirCreated: publicDirCreated, NetworkdUnits: originalUnits,
+		AppliedOverride: appliedOverride, Files: make(map[string]string, len(files)), NetworkManager: spec.networkManager,
+	}
+	for _, file := range files {
+		manifest.Files[file.Path] = fileDigest(file.Content)
+	}
+	stateBytes, err := fsutil.MarshalJSONIndent(manifest)
+	if err != nil {
+		return Plan{}, err
+	}
+	files = append(files, File{Path: StatePath, Owner: "root:root", Mode: "0600", Content: string(stateBytes)})
+	phases := spec.buildPhases(helperCommands)
+	directories := make([]Directory, 0, 1+len(spec.extraDirs)+1)
+	if !facts.QEMUConfigDirExisted {
+		directories = append(directories, Directory{Path: QEMUConfigDir, Owner: "root:root", Mode: "0755"})
+	}
+	directories = append(directories, spec.extraDirs...)
+	directories = append(directories, Directory{Path: "/var/lib/barn", Owner: "root:root", Mode: "0700"})
+	return Plan{
+		Manifest: manifest, NetworkdActivation: spec.activation, Directories: directories,
+		Files: files, Commands: flattenPhases(phases), Phases: phases, Warnings: warnings,
+	}, nil
+}
+
 func newNetworkManagerInstallPlan(facts Facts, config Config) (Plan, error) {
 	if err := validateBridgePathState(facts.BridgeConfState); err != nil {
 		return Plan{}, err
@@ -481,81 +559,34 @@ func newNetworkManagerInstallPlan(facts Facts, config Config) (Plan, error) {
 	if facts.NMConnectionExists && facts.ExistingManifest == nil {
 		return Plan{}, errors.New("will not take over an existing barn0 NetworkManager connection that Barn did not create")
 	}
-	bridgeConf, err := ReconcileBridgeConf(facts.BridgeConf, true)
-	if err != nil {
-		return Plan{}, err
-	}
-	appliedOverride, helperCommands, warnings, err := validateHelper(facts)
-	if err != nil {
-		return Plan{}, err
-	}
 	publicState, err := RenderPublicState(config)
 	if err != nil {
 		return Plan{}, err
 	}
-	files := []File{
-		{Path: BridgeConfPath, Owner: "root:root", Mode: "0644", Content: bridgeConf},
-		{Path: PublicStatePath, Owner: "root:root", Mode: "0644", Content: publicState},
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	originalHelper := Override{Owner: "root", Group: facts.Helper.Group, Mode: fmt.Sprintf("%04o", facts.Helper.Mode)}
-	originalBridgeConf := facts.BridgeConf
-	originalBridgePath := facts.BridgeConfState
-	qemuConfigCreated := !facts.QEMUConfigDirExisted
-	publicDirCreated := !facts.PublicDirExisted
-	if facts.ExistingManifest != nil {
-		if err := validateManifest(*facts.ExistingManifest); err != nil {
-			return Plan{}, fmt.Errorf("existing Linux network manifest: %w", err)
-		}
-		existing := facts.ExistingManifest
-		if ManifestBackend(*existing) != BackendNetworkManager {
-			return Plan{}, failure.WithNext(errors.New("the Barn network was installed with systemd-networkd; remove it before switching backends"), "barn network uninstall --yes")
-		}
-		if existing.Family != facts.Family || existing.CIDR != config.CIDR || existing.HostAddress != config.HostAddress || existing.DHCPEnd != config.DHCPEnd || existing.HelperPath != facts.Helper.Path {
-			return Plan{}, errors.New("existing Linux network manifest does not match requested install")
-		}
-		originalHelper = existing.OriginalHelper
-		originalBridgeConf = existing.OriginalBridgeConf
-		originalBridgePath = existing.OriginalBridgePath
-		qemuConfigCreated = existing.QEMUConfigCreated
-		publicDirCreated = existing.PublicDirCreated
-		appliedOverride = existing.AppliedOverride
-	}
-	manifest := Manifest{
-		Schema: 1, Family: facts.Family, Backend: BackendNetworkManager, Bridge: BridgeName, CIDR: config.CIDR,
-		HostAddress: config.HostAddress, DHCPEnd: config.DHCPEnd, HelperPath: facts.Helper.Path,
-		OriginalHelper: originalHelper, OriginalBridgeConf: originalBridgeConf, OriginalBridgePath: originalBridgePath,
-		QEMUConfigCreated: qemuConfigCreated, PublicDirCreated: publicDirCreated, NetworkdUnits: map[string]UnitState{},
-		AppliedOverride: appliedOverride, Files: make(map[string]string), NetworkManager: true,
-	}
-	for _, file := range files {
-		manifest.Files[file.Path] = fileDigest(file.Content)
-	}
-	stateBytes, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return Plan{}, err
-	}
-	files = append(files, File{Path: StatePath, Owner: "root:root", Mode: "0600", Content: string(append(stateBytes, '\n'))})
-	create := make([]Command, 0, 2)
-	if !facts.NMConnectionExists {
-		create = append(create, Command{Binary: NMCLIPath, Args: NMConnectionAddArgs(config, facts.FirewalldActive)})
-	}
-	create = append(create, Command{Binary: NMCLIPath, Args: []string{"connection", "up", BridgeName}})
-	phases := []CommandPhase{{Name: "create-bridge-connection", Commands: create}}
-	privilege := append([]Command(nil), helperCommands...)
-	phases = append(phases, CommandPhase{Name: "helper-and-runtime-boundary", Commands: privilege})
-	commands := make([]Command, 0)
-	for _, phase := range phases {
-		commands = append(commands, phase.Commands...)
-	}
-	directories := []Directory{{Path: "/var/lib/barn", Owner: "root:root", Mode: "0700"}}
+	var extraDirs []Directory
 	if !facts.PublicDirExisted {
-		directories = append([]Directory{{Path: PublicStateDir, Owner: "root:root", Mode: "0755"}}, directories...)
+		extraDirs = []Directory{{Path: PublicStateDir, Owner: "root:root", Mode: "0755"}}
 	}
-	if !facts.QEMUConfigDirExisted {
-		directories = append([]Directory{{Path: QEMUConfigDir, Owner: "root:root", Mode: "0755"}}, directories...)
-	}
-	return Plan{Manifest: manifest, Directories: directories, Files: files, Commands: commands, Phases: phases, Warnings: warnings}, nil
+	return buildInstallPlan(facts, config, installBackendSpec{
+		backend:          BackendNetworkManager,
+		otherBackendName: "systemd-networkd",
+		networkManager:   true,
+		publicDirCreated: !facts.PublicDirExisted,
+		networkdUnits:    map[string]UnitState{},
+		extraFiles:       []File{{Path: PublicStatePath, Owner: "root:root", Mode: "0644", Content: publicState}},
+		extraDirs:        extraDirs,
+		buildPhases: func(helperCommands []Command) []CommandPhase {
+			create := make([]Command, 0, 2)
+			if !facts.NMConnectionExists {
+				create = append(create, Command{Binary: NMCLIPath, Args: NMConnectionAddArgs(config, facts.FirewalldActive)})
+			}
+			create = append(create, Command{Binary: NMCLIPath, Args: []string{"connection", "up", BridgeName}})
+			return []CommandPhase{
+				{Name: "create-bridge-connection", Commands: create},
+				{Name: "helper-and-runtime-boundary", Commands: append([]Command(nil), helperCommands...)},
+			}
+		},
+	})
 }
 
 func NewInstallPlan(facts Facts, config Config) (Plan, error) {
@@ -583,82 +614,33 @@ func NewInstallPlan(facts Facts, config Config) (Plan, error) {
 			return Plan{}, err
 		}
 	}
-	bridgeConf, err := ReconcileBridgeConf(facts.BridgeConf, true)
-	if err != nil {
-		return Plan{}, err
-	}
-	appliedOverride, helperCommands, warnings, err := validateHelper(facts)
-	if err != nil {
-		return Plan{}, err
-	}
 	netdev := "[NetDev]\nName=barn0\nKind=bridge\n"
 	network := fmt.Sprintf("[Match]\nName=barn0\n\n[Network]\nAddress=%s/%s\nConfigureWithoutCarrier=yes\nLinkLocalAddressing=no\nIPv6AcceptRA=no\n\n[Link]\nRequiredForOnline=no\n", config.HostAddress, strings.Split(config.CIDR, "/")[1])
-	files := []File{
-		{Path: BridgeConfPath, Owner: "root:root", Mode: "0644", Content: bridgeConf},
-		{Path: NetDevPath, Owner: "root:root", Mode: "0644", Content: netdev},
-		{Path: NetworkPath, Owner: "root:root", Mode: "0644", Content: network},
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	originalHelper := Override{Owner: "root", Group: facts.Helper.Group, Mode: fmt.Sprintf("%04o", facts.Helper.Mode)}
-	originalBridgeConf := facts.BridgeConf
-	originalBridgePath := facts.BridgeConfState
-	qemuConfigCreated := !facts.QEMUConfigDirExisted
-	originalUnits := copyUnitStates(facts.NetworkdUnits)
-	if facts.ExistingManifest != nil {
-		if err := validateManifest(*facts.ExistingManifest); err != nil {
-			return Plan{}, fmt.Errorf("existing Linux network manifest: %w", err)
-		}
-		existing := facts.ExistingManifest
-		if ManifestBackend(*existing) != BackendNetworkd {
-			return Plan{}, failure.WithNext(errors.New("the Barn network was installed with NetworkManager; remove it before switching backends"), "barn network uninstall --yes")
-		}
-		if existing.Family != facts.Family || existing.CIDR != config.CIDR || existing.HostAddress != config.HostAddress || existing.DHCPEnd != config.DHCPEnd || existing.HelperPath != facts.Helper.Path || existing.NetworkManager {
-			return Plan{}, errors.New("existing Linux network manifest does not match requested install")
-		}
-		originalHelper = existing.OriginalHelper
-		originalBridgeConf = existing.OriginalBridgeConf
-		originalBridgePath = existing.OriginalBridgePath
-		qemuConfigCreated = existing.QEMUConfigCreated
-		originalUnits = copyUnitStates(existing.NetworkdUnits)
-		appliedOverride = existing.AppliedOverride
-	}
-	manifest := Manifest{
-		Schema: 1, Family: facts.Family, Backend: BackendNetworkd, Bridge: BridgeName, CIDR: config.CIDR,
-		HostAddress: config.HostAddress, DHCPEnd: config.DHCPEnd, HelperPath: facts.Helper.Path,
-		OriginalHelper: originalHelper, OriginalBridgeConf: originalBridgeConf, OriginalBridgePath: originalBridgePath,
-		QEMUConfigCreated: qemuConfigCreated, NetworkdUnits: originalUnits,
-		AppliedOverride: appliedOverride, Files: make(map[string]string), NetworkManager: false,
-	}
-	for _, file := range files {
-		manifest.Files[file.Path] = fileDigest(file.Content)
-	}
-	stateBytes, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return Plan{}, err
-	}
-	stateContent := string(append(stateBytes, '\n'))
-	files = append(files, File{Path: StatePath, Owner: "root:root", Mode: "0600", Content: stateContent})
-	phases := make([]CommandPhase, 0, 4)
-	activate := make([]Command, 0, 3)
-	if serviceState.ActiveState != "active" {
-		activate = append(activate, Command{Binary: "/usr/bin/systemctl", Args: []string{"start", "systemd-networkd.service"}})
-	}
-	activate = append(activate, Command{Binary: "/usr/bin/networkctl", Args: []string{"reload"}}, Command{Binary: "/usr/bin/networkctl", Args: []string{"reconfigure", BridgeName}})
-	phases = append(phases, CommandPhase{Name: "activate-bridge", Commands: activate})
-	privilege := append([]Command(nil), helperCommands...)
-	phases = append(phases, CommandPhase{Name: "helper-and-runtime-boundary", Commands: privilege})
-	if serviceState.UnitFileState != "enabled" {
-		phases = append(phases, CommandPhase{Name: "persist-after-attach-verification", Commands: []Command{{Binary: "/usr/bin/systemctl", Args: []string{"enable", "systemd-networkd.service"}}}})
-	}
-	commands := make([]Command, 0)
-	for _, phase := range phases {
-		commands = append(commands, phase.Commands...)
-	}
-	directories := []Directory{{Path: "/var/lib/barn", Owner: "root:root", Mode: "0700"}}
-	if !facts.QEMUConfigDirExisted {
-		directories = append([]Directory{{Path: QEMUConfigDir, Owner: "root:root", Mode: "0755"}}, directories...)
-	}
-	return Plan{Manifest: manifest, NetworkdActivation: facts.NetworkdActivation, Directories: directories, Files: files, Commands: commands, Phases: phases, Warnings: warnings}, nil
+	return buildInstallPlan(facts, config, installBackendSpec{
+		backend:          BackendNetworkd,
+		otherBackendName: "NetworkManager",
+		networkdUnits:    copyUnitStates(facts.NetworkdUnits),
+		activation:       facts.NetworkdActivation,
+		extraFiles: []File{
+			{Path: NetDevPath, Owner: "root:root", Mode: "0644", Content: netdev},
+			{Path: NetworkPath, Owner: "root:root", Mode: "0644", Content: network},
+		},
+		buildPhases: func(helperCommands []Command) []CommandPhase {
+			activate := make([]Command, 0, 3)
+			if serviceState.ActiveState != "active" {
+				activate = append(activate, Command{Binary: "/usr/bin/systemctl", Args: []string{"start", "systemd-networkd.service"}})
+			}
+			activate = append(activate, Command{Binary: "/usr/bin/networkctl", Args: []string{"reload"}}, Command{Binary: "/usr/bin/networkctl", Args: []string{"reconfigure", BridgeName}})
+			phases := []CommandPhase{
+				{Name: "activate-bridge", Commands: activate},
+				{Name: "helper-and-runtime-boundary", Commands: append([]Command(nil), helperCommands...)},
+			}
+			if serviceState.UnitFileState != "enabled" {
+				phases = append(phases, CommandPhase{Name: "persist-after-attach-verification", Commands: []Command{{Binary: "/usr/bin/systemctl", Args: []string{"enable", "systemd-networkd.service"}}}})
+			}
+			return phases
+		},
+	})
 }
 
 func validateManifest(manifest Manifest) error {
@@ -693,6 +675,11 @@ func validateManifest(manifest Manifest) error {
 		if err := validateNetworkdUnits(manifest.NetworkdUnits); err != nil {
 			return err
 		}
+		// Only the NetworkManager backend creates PublicStateDir; refusing the
+		// flag here keeps a networkd uninstall from failing half-way at rmdir.
+		if manifest.PublicDirCreated {
+			return errors.New("networkd-backend manifest must not claim the public state directory")
+		}
 		allowed = map[string]struct{}{BridgeConfPath: {}, NetDevPath: {}, NetworkPath: {}}
 		required = []string{BridgeConfPath, NetDevPath, NetworkPath}
 	}
@@ -716,15 +703,9 @@ func StrictManifest(data []byte) (Manifest, error) {
 	if len(data) == 0 || len(data) > 1<<20 {
 		return Manifest{}, errors.New("linux network manifest size is invalid")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var manifest Manifest
-	if err := decoder.Decode(&manifest); err != nil {
-		return Manifest{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return Manifest{}, errors.New("linux network manifest has trailing JSON data")
+	if err := fsutil.DecodeStrictJSON(data, &manifest); err != nil {
+		return Manifest{}, fmt.Errorf("decode linux network manifest: %w", err)
 	}
 	if err := validateManifest(manifest); err != nil {
 		return Manifest{}, err
@@ -784,21 +765,18 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 			return UninstallPlan{}, fmt.Errorf("owned Linux network file changed or missing: %s", pathname)
 		}
 	}
+	helperCommands, err := helperRestoreCommands(manifest, facts)
+	if err != nil {
+		return UninstallPlan{}, err
+	}
 	if ManifestBackend(manifest) == BackendNetworkManager {
-		return newNetworkManagerUninstallPlan(manifest, facts)
+		phases := []CommandPhase{{Name: "delete-bridge-connection", Commands: []Command{{Binary: NMCLIPath, Args: []string{"connection", "delete", BridgeName}}}}}
+		if len(helperCommands) > 0 {
+			phases = append(phases, CommandPhase{Name: "restore-helper-after-vm-detach", Commands: helperCommands})
+		}
+		return finishUninstallPlan(manifest, phases, []string{PublicStatePath}, false), nil
 	}
 	phases := []CommandPhase{{Name: "delete-bridge-before-owned-files", Commands: []Command{{Binary: "/usr/bin/networkctl", Args: []string{"delete", BridgeName}}}}}
-	helperCommands := make([]Command, 0, 3)
-	if manifest.AppliedOverride != nil {
-		if facts.CurrentOverride == nil || *facts.CurrentOverride != *manifest.AppliedOverride || facts.CurrentHelper != *manifest.AppliedOverride {
-			return UninstallPlan{}, errors.New("qemu-bridge-helper override/current state no longer matches Barn manifest")
-		}
-		helperCommands = append(helperCommands,
-			Command{Binary: "/usr/bin/dpkg-statoverride", Args: []string{"--remove", manifest.HelperPath}},
-			Command{Binary: "/bin/chown", Args: []string{manifest.OriginalHelper.Owner + ":" + manifest.OriginalHelper.Group, manifest.HelperPath}},
-			Command{Binary: "/bin/chmod", Args: []string{manifest.OriginalHelper.Mode, manifest.HelperPath}},
-		)
-	}
 	if len(helperCommands) > 0 {
 		phases = append(phases, CommandPhase{Name: "restore-helper-after-vm-detach", Commands: helperCommands})
 	}
@@ -826,24 +804,37 @@ func NewUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, e
 			removeFiles = append(removeFiles, pathname)
 		}
 	}
+	return finishUninstallPlan(manifest, phases, removeFiles, preserveNetworkd), nil
+}
+
+func finishUninstallPlan(manifest Manifest, phases []CommandPhase, removeFiles []string, preserveNetworkd bool) UninstallPlan {
 	restoreFiles := make([]File, 0, 1)
 	if manifest.OriginalBridgePath.Existed {
-		restoreFiles = append(restoreFiles, File{Path: BridgeConfPath, Owner: manifest.OriginalBridgePath.Owner + ":" + manifest.OriginalBridgePath.Group, Mode: manifest.OriginalBridgePath.Mode, Content: manifest.OriginalBridgeConf})
+		restoreFiles = append(restoreFiles, File{
+			Path:    BridgeConfPath,
+			Owner:   manifest.OriginalBridgePath.Owner + ":" + manifest.OriginalBridgePath.Group,
+			Mode:    manifest.OriginalBridgePath.Mode,
+			Content: manifest.OriginalBridgeConf,
+		})
 	} else {
 		removeFiles = append(removeFiles, BridgeConfPath)
 	}
 	removeFiles = append(removeFiles, StatePath)
 	removeDirectories := []string{"/var/lib/barn"}
+	if manifest.PublicDirCreated {
+		removeDirectories = append(removeDirectories, PublicStateDir)
+	}
 	if manifest.QEMUConfigCreated {
 		removeDirectories = append(removeDirectories, QEMUConfigDir)
 	}
-	commands := make([]Command, 0)
-	for _, phase := range phases {
-		commands = append(commands, phase.Commands...)
-	}
 	return UninstallPlan{
-		RestoreFiles: restoreFiles, RemoveFiles: removeFiles, RemoveDirectories: removeDirectories, Commands: commands, Phases: phases, PreserveNetworkd: preserveNetworkd,
-	}, nil
+		PreserveNetworkd:  preserveNetworkd,
+		RestoreFiles:      restoreFiles,
+		RemoveFiles:       removeFiles,
+		RemoveDirectories: removeDirectories,
+		Commands:          flattenPhases(phases),
+		Phases:            phases,
+	}
 }
 
 func helperRestoreCommands(manifest Manifest, facts UninstallFacts) ([]Command, error) {
@@ -858,35 +849,4 @@ func helperRestoreCommands(manifest Manifest, facts UninstallFacts) ([]Command, 
 		{Binary: "/bin/chown", Args: []string{manifest.OriginalHelper.Owner + ":" + manifest.OriginalHelper.Group, manifest.HelperPath}},
 		{Binary: "/bin/chmod", Args: []string{manifest.OriginalHelper.Mode, manifest.HelperPath}},
 	}, nil
-}
-
-func newNetworkManagerUninstallPlan(manifest Manifest, facts UninstallFacts) (UninstallPlan, error) {
-	phases := []CommandPhase{{Name: "delete-bridge-connection", Commands: []Command{{Binary: NMCLIPath, Args: []string{"connection", "delete", BridgeName}}}}}
-	helperCommands, err := helperRestoreCommands(manifest, facts)
-	if err != nil {
-		return UninstallPlan{}, err
-	}
-	if len(helperCommands) > 0 {
-		phases = append(phases, CommandPhase{Name: "restore-helper-after-vm-detach", Commands: helperCommands})
-	}
-	removeFiles := []string{PublicStatePath}
-	restoreFiles := make([]File, 0, 1)
-	if manifest.OriginalBridgePath.Existed {
-		restoreFiles = append(restoreFiles, File{Path: BridgeConfPath, Owner: manifest.OriginalBridgePath.Owner + ":" + manifest.OriginalBridgePath.Group, Mode: manifest.OriginalBridgePath.Mode, Content: manifest.OriginalBridgeConf})
-	} else {
-		removeFiles = append(removeFiles, BridgeConfPath)
-	}
-	removeFiles = append(removeFiles, StatePath)
-	removeDirectories := []string{"/var/lib/barn"}
-	if manifest.PublicDirCreated {
-		removeDirectories = append(removeDirectories, PublicStateDir)
-	}
-	if manifest.QEMUConfigCreated {
-		removeDirectories = append(removeDirectories, QEMUConfigDir)
-	}
-	commands := make([]Command, 0)
-	for _, phase := range phases {
-		commands = append(commands, phase.Commands...)
-	}
-	return UninstallPlan{RestoreFiles: restoreFiles, RemoveFiles: removeFiles, RemoveDirectories: removeDirectories, Commands: commands, Phases: phases}, nil
 }

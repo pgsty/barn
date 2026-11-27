@@ -2,12 +2,11 @@ package darwin
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/network/subnet"
 )
 
@@ -93,15 +92,9 @@ func StrictInterfaceMarker(data []byte) (InterfaceMarker, error) {
 	if len(data) == 0 || len(data) > 1<<16 {
 		return InterfaceMarker{}, errors.New("darwin interface marker size is invalid")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var marker InterfaceMarker
-	if err := decoder.Decode(&marker); err != nil {
-		return InterfaceMarker{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return InterfaceMarker{}, errors.New("darwin interface marker has trailing JSON data")
+	if err := fsutil.DecodeStrictJSON(data, &marker); err != nil {
+		return InterfaceMarker{}, fmt.Errorf("decode darwin interface marker: %w", err)
 	}
 	layout, layoutErr := subnet.Parse(marker.CIDR)
 	if marker.Schema != 1 || !uuidPattern.MatchString(marker.InterfaceID) ||
@@ -121,15 +114,9 @@ func StrictNetworkState(data []byte) (NetworkState, error) {
 	if len(data) == 0 || len(data) > 1<<20 {
 		return NetworkState{}, errors.New("darwin network state size is invalid")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var state NetworkState
-	if err := decoder.Decode(&state); err != nil {
-		return NetworkState{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return NetworkState{}, errors.New("darwin network state has trailing JSON data")
+	if err := fsutil.DecodeStrictJSON(data, &state); err != nil {
+		return NetworkState{}, fmt.Errorf("decode darwin network state: %w", err)
 	}
 	layout, layoutErr := subnet.Parse(state.CIDR)
 	if state.Schema != 1 || state.Release != ReleaseVersion || (state.Arch != "arm64" && state.Arch != "amd64") || (state.Mode != "host" && state.Mode != "shared") || layoutErr != nil || state.HostAddress != layout.HostAddress() || state.DHCPEnd != layout.DHCPEnd() || !uuidPattern.MatchString(state.InterfaceID) {
@@ -235,11 +222,7 @@ func (p InstallPlan) WithBSDInterface(name string) (InstallPlan, error) {
 }
 
 func marshalInterfaceMarker(marker InterfaceMarker) ([]byte, error) {
-	data, err := json.MarshalIndent(marker, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(data, '\n'), nil
+	return fsutil.MarshalJSONIndent(marker)
 }
 
 func (p InstallPlan) InterfaceJSON() ([]byte, error) {
@@ -283,11 +266,7 @@ func (p InstallPlan) StateJSON() ([]byte, error) {
 	if p.State.Schema != 1 {
 		return nil, errors.New("network state plan is incomplete")
 	}
-	data, err := json.MarshalIndent(p.State, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(data, '\n'), nil
+	return fsutil.MarshalJSONIndent(p.State)
 }
 
 func xmlEscape(value string) string {

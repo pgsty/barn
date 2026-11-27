@@ -1,15 +1,14 @@
 package linux
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 type StagedTarget struct {
@@ -71,15 +70,14 @@ func StageInstallPlan(plan Plan, staging string) (StagedPlan, error) {
 		if closeErr != nil {
 			return StagedPlan{}, closeErr
 		}
-		digest := sha256.Sum256([]byte(file.Content))
-		targets[file.Path] = StagedTarget{Source: source, Owner: file.Owner, Mode: file.Mode, SHA256: hex.EncodeToString(digest[:])}
+		targets[file.Path] = StagedTarget{Source: source, Owner: file.Owner, Mode: file.Mode, SHA256: fsutil.SHA256Bytes([]byte(file.Content))}
 	}
 	result := StagedPlan{Schema: 1, StagingDir: staging, Plan: plan, Targets: targets}
-	data, err := json.MarshalIndent(result, "", "  ")
+	data, err := fsutil.MarshalJSONIndent(result)
 	if err != nil {
 		return StagedPlan{}, err
 	}
-	if err := os.WriteFile(filepath.Join(staging, "install-plan.json"), append(data, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, "install-plan.json"), data, 0o600); err != nil {
 		return StagedPlan{}, err
 	}
 	return result, nil

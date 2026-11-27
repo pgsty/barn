@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/execx"
+	"github.com/pgsty/barn/internal/fsutil"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	"github.com/pgsty/barn/internal/network/subnet"
 )
@@ -64,7 +65,7 @@ func installedDarwinProbe(t *testing.T, logInfo os.FileInfo) (Probe, *darwinNetw
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err = plan.WithRecordedBinaries(darwinnet.SourceHomebrew, digestBytes(daemon), digestBytes(client))
+	plan, err = plan.WithRecordedBinaries(darwinnet.SourceHomebrew, fsutil.SHA256Bytes(daemon), fsutil.SHA256Bytes(client))
 	if err != nil {
 		t.Fatal(err)
 	}

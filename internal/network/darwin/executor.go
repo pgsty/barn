@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -91,16 +89,7 @@ func (e Executor) validate() error {
 }
 
 func digestFile(path string) (string, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 4<<20 {
-		return "", fmt.Errorf("network file is unsafe: %s", path)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:]), nil
+	return fileDigest(path)
 }
 
 func (e Executor) rootStat(ctx context.Context, path, owner, group, mode, kind string) error {

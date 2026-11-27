@@ -76,7 +76,7 @@ func (e Executor) PlanInstallConfig(ctx context.Context, config Config) (Plan, e
 
 func stagedFileDigest(path string) (string, error) {
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
 		return "", fmt.Errorf("staged network source is unsafe: %s", path)
 	}
 	data, err := os.ReadFile(path)

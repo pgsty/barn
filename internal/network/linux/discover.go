@@ -204,7 +204,7 @@ func discoverBridgeConf() (string, PathState, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return "", PathState{}, nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !info.Mode().IsRegular() {
 		return "", PathState{}, errors.New("existing bridge.conf is not a regular non-symlink file")
 	}
 	uid, gid, mode, err := hostStatIdentity(info)

@@ -93,6 +93,25 @@ func TestManifestRequiresExplicitBackend(t *testing.T) {
 	}
 }
 
+func TestNetworkdManifestRejectsPublicDirectoryClaim(t *testing.T) {
+	t.Parallel()
+	plan, err := NewInstallPlan(debianFacts(), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Manifest.PublicDirCreated {
+		t.Fatal("networkd install claimed the public state directory")
+	}
+	plan.Manifest.PublicDirCreated = true
+	data, _ := json.Marshal(plan.Manifest)
+	if _, err := StrictManifest(data); err == nil || !strings.Contains(err.Error(), "public state directory") {
+		t.Fatalf("networkd manifest claiming %s was accepted: %v", PublicStateDir, err)
+	}
+	if _, err := NewUninstallPlan(plan.Manifest, UninstallFacts{}); err == nil {
+		t.Fatalf("networkd uninstall would remove %s", PublicStateDir)
+	}
+}
+
 func TestDebianInstallPlanIsTypedAndMarkerPreserving(t *testing.T) {
 	t.Parallel()
 	plan, err := NewInstallPlan(debianFacts(), testConfig())

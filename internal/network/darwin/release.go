@@ -14,6 +14,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 const ReleaseVersion = "1.2.2"
@@ -56,34 +58,8 @@ func PinnedRelease(arch string) (Release, error) {
 }
 
 func fileDigest(path string) (string, error) {
-	fileInfo, err := os.Lstat(path)
-	if err != nil {
-		return "", err
-	}
-	if !fileInfo.Mode().IsRegular() {
-		return "", errors.New("socket_vmnet archive must be a regular non-symlink file")
-	}
-	handle, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		// The archive handle is read-only; its bounded digest is already held
-		// by the caller before this descriptor is released.
-		_ = handle.Close()
-	}()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, io.LimitReader(handle, 4<<20)); err != nil {
-		return "", err
-	}
-	info, err := handle.Stat()
-	if err != nil {
-		return "", err
-	}
-	if info.Size() > 4<<20 {
-		return "", errors.New("socket_vmnet archive exceeds 4 MiB safety limit")
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	digest, _, err := fsutil.SHA256File(path, 4<<20)
+	return digest, err
 }
 
 func canonicalArchivePath(path string) (string, error) {
