@@ -2,14 +2,15 @@
 
 Notable user-visible changes.
 
-## Unreleased
-
-### 1.4.0 (in development)
+## 1.4.0 — 2026-11-27
 
 - Add `barn image update` to refresh the catalog and download images in one
   command. Run it without arguments for cached images, or name the images to
   fetch. Use `--dry-run` to preview and `--prune` to remove unreferenced files
   after a successful update.
+- Keep the active catalog, deployed VM backing files and registered aliases
+  protected during cache cleanup, including concurrent catalog updates.
+  Preview verifies cached bytes and preserves data-directory permissions.
 - Power off running Linux VMs immediately via verified QMP quit during
   `barn purge` and `barn destroy --purge` instead of waiting for graceful guest
   shutdown, while preserving full runtime and disk cleanup.

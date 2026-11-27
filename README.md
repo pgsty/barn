@@ -50,16 +50,11 @@ software emulation for a different guest architecture. Mac guests use Apple's
 Virtualization framework. Barn runs on your hardware and works independently
 of Pigsty.
 
-Barn **1.3.0** adds Linux guest clock synchronization, short image names
-such as `el10a` for Rocky Linux 10 on arm64, and a fix for macOS network
-setup and repair. It embeds signed image catalog **2026112101** and selects
-macOS **27.2.1** for a new Mac base. Inventories that use `rocky` or `ubuntu`
-should review the [upgrade notes](.github/releases/1.3.0.md) before applying
-changes.
-
-The **1.4.0 development build** adds `barn image update` and includes Debian
-13.8 for amd64 and arm64. The official catalog signing key changes with this
-release. [1.4.0 upgrade notes](.github/releases/1.4.0.md)
+Barn **1.4.0** adds `barn image update` and ships Debian 13.8 for amd64
+and arm64 in signed catalog **2026112601**. Upgrade the CLI before refreshing
+the official catalog so it can verify the new signing key. Running Linux VMs
+power off immediately during purge. Use `barn stop` first for a graceful
+shutdown. [1.4.0 upgrade notes](.github/releases/1.4.0.md)
 
 ## Install
 
@@ -85,7 +80,7 @@ barn version
 ```
 
 Add the PATH line to your shell configuration when using the download installer.
-Set `BARN_VERSION=1.3.0` to pin a version.
+Set `BARN_VERSION=1.4.0` to pin a version.
 DEB/RPM packages and manual archives are also available; see
 [installation](https://barn.pgsty.com/docs/start/installation/) for requirements
 and upgrades.
@@ -288,7 +283,7 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 - [Command reference](https://barn.pgsty.com/docs/reference/commands/) — every Linux and Mac command, its options, defaults, and examples.
 - [Reference](https://barn.pgsty.com/docs/reference/) — configuration, output, image catalogs, and exit codes.
 - [Platforms and limits](https://barn.pgsty.com/docs/about/status/) — host requirements and guest restrictions.
-- [Release notes](.github/releases/1.3.0.md) — changes and upgrade instructions for 1.3.0.
+- [Release notes](.github/releases/1.4.0.md) — changes and upgrade instructions for 1.4.0.
 - [Design and validation history](https://barn.pgsty.com/blog/design/) — design decisions, implementation boundaries, and dated acceptance records.
 - [Issues](https://github.com/pgsty/barn/issues) — bug reports and feature requests; use the [security policy](SECURITY.md) for vulnerabilities.
 
