@@ -14,14 +14,14 @@ func TestFreshUntouchedInitCanUseAnAvailableNetwork(t *testing.T) {
 	cwd := t.TempDir()
 	t.Setenv("BARN_HOME", t.TempDir())
 	path := filepath.Join(cwd, "barn.yml")
-	original, err := config.Template("dual", "")
+	original, err := config.TemplateWithOptions("dual", "", config.TemplateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	selection, err := resolveSetupSelection("", "", "", cwd)
+	selection, err := resolveSetupSelectionInputs("", "", "", vmInputs{}, cwd)
 	if err != nil || !selection.Generated || selection.Publish {
 		t.Fatalf("selection=%+v err=%v", selection, err)
 	}
@@ -62,14 +62,14 @@ func TestFreshGeneratedImageTemplateCanRebaseWithoutDroppingImage(t *testing.T) 
 	cwd := t.TempDir()
 	t.Setenv("BARN_HOME", t.TempDir())
 	path := filepath.Join(cwd, "barn.yml")
-	original, err := config.TemplateWithImage("dual", "", "el9")
+	original, err := config.TemplateWithOptions("dual", "", config.TemplateOptions{Image: "el9"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	selection, err := resolveSetupSelection("", "", "", cwd)
+	selection, err := resolveSetupSelectionInputs("", "", "", vmInputs{}, cwd)
 	if err != nil || !selection.Generated || selection.Image != "el9" {
 		t.Fatalf("image template should be recognized: %+v, %v", selection, err)
 	}
@@ -91,14 +91,14 @@ func TestGeneratedArchitectureSurvivesDiscoveryAndNetworkRebase(t *testing.T) {
 			t.Run(guest+"/"+selectedImage, func(t *testing.T) {
 				cwd := t.TempDir()
 				t.Setenv("BARN_HOME", t.TempDir())
-				selection, err := resolveSetupSelectionWithOverrides("dual", "", "", selectedImage, guest, cwd)
+				selection, err := resolveSetupSelectionInputs("dual", "", "", vmInputs{Image: selectedImage, Arch: guest}, cwd)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if err := publishSetupConfig(selection); err != nil {
 					t.Fatal(err)
 				}
-				selection, err = resolveSetupSelection("", "", "", cwd)
+				selection, err = resolveSetupSelectionInputs("", "", "", vmInputs{}, cwd)
 				wantImage := selectedImage
 				if wantImage == "" {
 					wantImage = "u24"
@@ -120,7 +120,7 @@ func TestGeneratedArchitectureSurvivesDiscoveryAndNetworkRebase(t *testing.T) {
 					t.Fatalf("rebase lost image: %s", data)
 				}
 				for _, filePath := range []string{"", selection.ConfigPath} {
-					if _, err := resolveSetupSelectionWithOverrides("", filePath, "", "", "amd64", cwd); err == nil {
+					if _, err := resolveSetupSelectionInputs("", filePath, "", vmInputs{Arch: "amd64"}, cwd); err == nil {
 						t.Fatal("setup accepted a template override on an existing inventory")
 					}
 				}
@@ -140,7 +140,7 @@ func TestSetupPublishesThroughDirectoryAliasAndReusesLinkedInventory(t *testing.
 	if err := os.Symlink(directory, link); err != nil {
 		t.Fatal(err)
 	}
-	selection, err := resolveSetupSelection("meta", "", "", link)
+	selection, err := resolveSetupSelectionInputs("meta", "", "", vmInputs{}, link)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestSetupPublishesThroughDirectoryAliasAndReusesLinkedInventory(t *testing.
 	if err := os.Symlink(filepath.Join(directory, "barn.yml"), linkedInventory); err != nil {
 		t.Fatal(err)
 	}
-	selection, err = resolveSetupSelection("", "", "", root)
+	selection, err = resolveSetupSelectionInputs("", "", "", vmInputs{}, root)
 	if err != nil || selection.Generated || selection.Publish || selection.ConfigPath != linkedInventory {
 		t.Fatalf("linked inventory should be reused: %+v, %v", selection, err)
 	}
@@ -161,18 +161,18 @@ func TestSetupPreservesExplicitCustomAndConcurrentlyEditedInventory(t *testing.T
 	cwd := t.TempDir()
 	t.Setenv("BARN_HOME", t.TempDir())
 	path := filepath.Join(cwd, "barn.yml")
-	original, err := config.Template("meta", "")
+	original, err := config.TemplateWithOptions("meta", "", config.TemplateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	explicit, err := resolveSetupSelection("", path, "", cwd)
+	explicit, err := resolveSetupSelectionInputs("", path, "", vmInputs{}, cwd)
 	if err != nil || explicit.Generated {
 		t.Fatalf("explicit file changed: %+v %v", explicit, err)
 	}
-	selection, err := resolveSetupSelection("", "", "", cwd)
+	selection, err := resolveSetupSelectionInputs("", "", "", vmInputs{}, cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestSetupPreservesExplicitCustomAndConcurrentlyEditedInventory(t *testing.T
 	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, edited) {
 		t.Fatalf("concurrent data lost: %s %v", data, err)
 	}
-	custom, err := resolveSetupSelection("", "", "", cwd)
+	custom, err := resolveSetupSelectionInputs("", "", "", vmInputs{}, cwd)
 	if err != nil || custom.Generated {
 		t.Fatalf("custom file eligible for rebase: %+v %v", custom, err)
 	}
@@ -216,7 +216,7 @@ func TestLoadSetupFileExpandsHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	path := filepath.Join(home, "lab.yml")
-	data, err := config.Template("meta", "")
+	data, err := config.TemplateWithOptions("meta", "", config.TemplateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

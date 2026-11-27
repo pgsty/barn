@@ -43,13 +43,6 @@ func TestDarwinInstallForwardsSharedMode(t *testing.T) {
 	}
 }
 
-func TestSortedMapKeysMakesPlanOutputDeterministic(t *testing.T) {
-	got := strings.Join(sortedMapKeys(map[string]string{"/z": "z", "/a": "a", "/m": "m"}), ",")
-	if got != "/a,/m,/z" {
-		t.Fatalf("sorted keys = %q", got)
-	}
-}
-
 func TestVersion(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
@@ -142,19 +135,6 @@ func TestSetupRejectsMalformedImageReferenceAsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--json", "setup", "full", "--image", "el9/name"}, &stdout, &stderr); code != exitUsage || !strings.Contains(stdout.String(), `"exit_code": 2`) || !strings.Contains(stderr.String(), "invalid image reference") {
 		t.Fatalf("malformed setup image: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-}
-
-func TestConfigurationWarningsIncludeNonLoopbackForwards(t *testing.T) {
-	t.Parallel()
-	resolved := quickResolved(true, false)
-	resolved.Nodes[0].Forwards = []spec.Forward{
-		{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"},
-		{Bind: "0.0.0.0", Host: 13000, Guest: 3000, Protocol: "tcp"},
-	}
-	warnings := configurationWarnings(resolved)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "exposes host TCP 0.0.0.0:13000 beyond loopback") || strings.Contains(warnings[0], "WARNING") {
-		t.Fatalf("warnings = %v", warnings)
 	}
 }
 
@@ -1091,12 +1071,17 @@ func TestDeploymentDiagnosticsRejectUnsupportedNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (state.Store{Root: root}).WriteDeployment(state.DeploymentState{
+	payload, err := json.Marshal(state.DeploymentState{
 		Schema: state.DeploymentSchema, BarnVersion: "test", SpecHash: hash,
 		Resolved: resolved, UpdatedAt: time.Now().UTC(),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "state.json"), payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantMessage := state.ErrInvalidDeploymentNetwork.Error()
 	for _, command := range []string{"logs", "ssh-config", "status", "ssh"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
@@ -1107,7 +1092,7 @@ func TestDeploymentDiagnosticsRejectUnsupportedNetwork(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &failure); err != nil {
 			t.Fatalf("%s failure JSON: %v\n%s", command, err, stdout.String())
 		}
-		if failure.Error != "conflict" || failure.Message != invalidDeploymentNetworkMessage || !strings.Contains(stderr.String(), invalidDeploymentNetworkMessage) {
+		if failure.Error != "conflict" || failure.Message != wantMessage || !strings.Contains(stderr.String(), wantMessage) {
 			t.Fatalf("%s failure=%#v stderr=%q", command, failure, stderr.String())
 		}
 	}

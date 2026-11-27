@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -202,6 +201,21 @@ func rejectedPresentationAlias(argument string) bool {
 	return false
 }
 
+func applyFormatFlag(current outputFormat, fromCLI *bool, target, other outputFormat, flagName, otherFlag string, enabled bool) (outputFormat, error) {
+	if enabled {
+		if *fromCLI && current == other {
+			return current, fmt.Errorf("%s conflicts with %s", flagName, otherFlag)
+		}
+		*fromCLI = true
+		return target, nil
+	}
+	if current == target || (current != other && current != outputText) {
+		*fromCLI = true
+		return outputText, nil
+	}
+	return current, nil
+}
+
 // prepareOutput removes the cross-command presentation flags before the
 // existing command-local flag parsers run. A literal -- ends presentation flag
 // parsing so remote command arguments remain byte-for-byte untouched.
@@ -216,11 +230,10 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 	if value := strings.TrimSpace(os.Getenv("BARN_VERBOSE")); value != "" {
 		verbose, verboseErr = strconv.ParseBool(value)
 	}
-	formatFromCLI, help := false, false
-	passthrough := false
+	formatFromCLI, help, passthrough := false, false, false
 	values := commandFlagValues(args)
 	for index, argument := range args {
-		if values[index] {
+		if values[index] || passthrough {
 			clean = append(clean, argument)
 			continue
 		}
@@ -229,14 +242,7 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 			clean = append(clean, argument)
 			continue
 		}
-		if passthrough {
-			clean = append(clean, argument)
-			continue
-		}
-		if argument == "--help" || argument == "-h" || argument == "--help=true" {
-			help = true
-		}
-		if argument == "help" && len(clean) == 0 {
+		if argument == "--help" || argument == "-h" || argument == "--help=true" || (argument == "help" && len(clean) == 0) {
 			help = true
 		}
 		if rejectedPresentationAlias(argument) {
@@ -246,15 +252,8 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 			if err != nil {
 				return nil, stdout, stderr, err
 			}
-			if enabled {
-				if formatFromCLI && format == outputYAML {
-					return nil, stdout, stderr, errors.New("--json conflicts with --yaml")
-				}
-				format = outputJSON
-				formatFromCLI = true
-			} else if format == outputJSON || format != outputYAML && format != outputText {
-				format = outputText
-				formatFromCLI = true
+			if format, err = applyFormatFlag(format, &formatFromCLI, outputJSON, outputYAML, "--json", "--yaml", enabled); err != nil {
+				return nil, stdout, stderr, err
 			}
 			continue
 		}
@@ -262,15 +261,8 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 			if err != nil {
 				return nil, stdout, stderr, err
 			}
-			if enabled {
-				if formatFromCLI && format == outputJSON {
-					return nil, stdout, stderr, errors.New("--yaml conflicts with --json")
-				}
-				format = outputYAML
-				formatFromCLI = true
-			} else if format == outputYAML || format != outputJSON && format != outputText {
-				format = outputText
-				formatFromCLI = true
+			if format, err = applyFormatFlag(format, &formatFromCLI, outputYAML, outputJSON, "--yaml", "--json", enabled); err != nil {
+				return nil, stdout, stderr, err
 			}
 			continue
 		}
@@ -313,6 +305,22 @@ func prepareOutput(args []string, stdout, stderr io.Writer) ([]string, io.Writer
 	return clean, &outputWriter{Writer: stdout, context: state}, &outputWriter{Writer: stderr, context: state, stderr: true}, nil
 }
 
+func encodeYAMLDocument(buffer *bytes.Buffer, value any, separator bool) error {
+	normalized, err := normalizeForYAML(value)
+	if err != nil {
+		return err
+	}
+	if separator {
+		buffer.WriteString("---\n")
+	}
+	encoder := yaml.NewEncoder(buffer)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(normalized); err != nil {
+		return err
+	}
+	return encoder.Close()
+}
+
 func normalizeForYAML(value any) (any, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -338,21 +346,11 @@ func clearYAMLFlowStyle(node *yaml.Node) {
 
 func encodeOutput(out io.Writer, value any) error {
 	var buffer bytes.Buffer
-	switch outputFormatFor(out) {
-	case outputYAML:
-		normalized, err := normalizeForYAML(value)
-		if err != nil {
+	if outputFormatFor(out) == outputYAML {
+		if err := encodeYAMLDocument(&buffer, value, false); err != nil {
 			return err
 		}
-		encoder := yaml.NewEncoder(&buffer)
-		encoder.SetIndent(2)
-		if err := encoder.Encode(normalized); err != nil {
-			return err
-		}
-		if err := encoder.Close(); err != nil {
-			return err
-		}
-	default:
+	} else {
 		encoder := json.NewEncoder(&buffer)
 		encoder.SetIndent("", "  ")
 		encoder.SetEscapeHTML(false)
@@ -377,25 +375,12 @@ func encodeJSON(out, errOut io.Writer, value any) int {
 // encodeOutput and remain a single document.
 func encodeStreamOutput(out io.Writer, value any) error {
 	var buffer bytes.Buffer
-	switch outputFormatFor(out) {
-	case outputYAML:
-		normalized, err := normalizeForYAML(value)
-		if err != nil {
+	if outputFormatFor(out) == outputYAML {
+		if err := encodeYAMLDocument(&buffer, value, true); err != nil {
 			return err
 		}
-		buffer.WriteString("---\n")
-		encoder := yaml.NewEncoder(&buffer)
-		encoder.SetIndent(2)
-		if err := encoder.Encode(normalized); err != nil {
-			return err
-		}
-		if err := encoder.Close(); err != nil {
-			return err
-		}
-	default:
-		if err := json.NewEncoder(&buffer).Encode(value); err != nil {
-			return err
-		}
+	} else if err := json.NewEncoder(&buffer).Encode(value); err != nil {
+		return err
 	}
 	_, err := io.Copy(out, &buffer)
 	return err

@@ -13,6 +13,7 @@ import (
 	"github.com/pgsty/barn/internal/execx"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
+	setuphost "github.com/pgsty/barn/internal/setup"
 	"golang.org/x/term"
 )
 
@@ -74,7 +75,7 @@ func (installer *setupAuthInstaller) InstallFromHomebrew(ctx context.Context, bi
 	if binaries.Socket != filepath.Join(installer.runner.keg, "bin", "socket_vmnet") || interfaceID == "" || arch != runtime.GOARCH || mode != "host" || cidr != "10.10.10.0/24" || !apply {
 		return darwinnet.InstallReport{}, errors.New("network install lost the selected source or network")
 	}
-	if _, err := (sudoRunner{base: installer.runner}).Run(ctx, "/usr/bin/true"); err != nil {
+	if _, err := (setuphost.SudoRunner{Base: installer.runner}).Run(ctx, "/usr/bin/true"); err != nil {
 		return darwinnet.InstallReport{}, err
 	}
 	if installer.installErr != nil {
@@ -218,8 +219,8 @@ func TestSetupNetworkRepairStillAuthenticatesWithoutSourcePreparation(t *testing
 		t.Skip("requires a non-root, non-interactive sudo session")
 	}
 	runner := newSetupAuthRunner(t)
-	session := &sudoSession{base: runner, stderr: io.Discard}
-	defer session.close()
+	session := newSudoSession(runner, io.Discard, "")
+	defer session.Close()
 	report := netpreflight.Report{
 		CIDR:         "10.10.10.0/24",
 		Installation: netpreflight.Installation{Status: "exact", CIDR: "10.10.10.0/24"},

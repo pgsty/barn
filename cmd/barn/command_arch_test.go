@@ -12,10 +12,13 @@ import (
 
 func TestCommandRunnersReturnOutcomesWithoutRenderingFailures(t *testing.T) {
 	runners := map[string]bool{
-		"runVersionCommand": true, "runNetwork": true, "runSSH": true,
-		"runProvision": true, "runPrivateCommand": true, "runLifecycleCommand": true, "runPurgeCommand": true,
-		"runSSHConfig": true, "runHosts": true, "runLogs": true, "runValidate": true,
-		"runInit": true, "runImage": true, "runDoctor": true, "runSetupCommand": true,
+		"runVersionCommand": true, "runNetworkStatus": true, "runNetworkInstall": true, "runNetworkUninstall": true,
+		"runSSH": true, "runProvision": true, "runPrivateCommand": true, "runLifecycleCommand": true,
+		"runPlanCommand": true, "runPurgeCommand": true, "runSSHConfig": true, "runHosts": true,
+		"runLogs": true, "runValidate": true, "runInit": true, "runDoctor": true, "runSetupCommand": true,
+		"runUpdateCatalog": true, "runImageUpdate": true, "runImageList": true, "runImageInfo": true,
+		"runImagePull": true, "runImagePrune": true, "runImageSync": true, "runImageReset": true,
+		"runImageImport": true, "runRepoScan": true, "runRepoBuild": true, "runRepoVerify": true,
 	}
 	streaming := map[string]bool{"runSSH": true, "runLogs": true}
 	files, err := filepath.Glob("*.go")

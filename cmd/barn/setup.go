@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
@@ -20,9 +18,9 @@ import (
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
-	"github.com/pgsty/barn/internal/hostconfig"
 	"github.com/pgsty/barn/internal/identity"
 	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/linuxvm"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	linuxnet "github.com/pgsty/barn/internal/network/linux"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
@@ -173,7 +171,7 @@ func reconcileGeneratedTarget(selection setupSelection) (setupSelection, error) 
 	if err != nil {
 		return selection, err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if !info.Mode().IsRegular() {
 		return selection, fmt.Errorf("%s is not a regular file; setup will not write through it", selection.ConfigPath)
 	}
 	existingFile, existingResolved, err := loadSetupFile(selection.ConfigPath)
@@ -211,20 +209,12 @@ func discoverSetupConfig(cwd string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		if !info.Mode().IsRegular() {
 			return "", fmt.Errorf("configuration is not a regular file: %s", candidate)
 		}
 		return candidate, nil
 	}
 	return "", nil
-}
-
-func resolveSetupSelection(profileName, filePath, cidr, cwd string) (setupSelection, error) {
-	return resolveSetupSelectionWithOverrides(profileName, filePath, cidr, "", "", cwd)
-}
-
-func resolveSetupSelectionWithOverrides(profileName, filePath, cidr, imageOverride, archOverride, cwd string) (setupSelection, error) {
-	return resolveSetupSelectionInputs(profileName, filePath, cidr, vmInputs{Image: imageOverride, Arch: archOverride}, cwd)
 }
 
 func resolveSetupSelectionInputs(profileName, filePath, cidr string, input vmInputs, cwd string) (setupSelection, error) {
@@ -318,7 +308,7 @@ func setupAddresses(selection setupSelection) []string {
 			addresses = append(addresses, node.Address)
 		}
 	}
-	return withoutRecordedAddresses(addresses)
+	return linuxvm.FilterRecordedAddresses(addresses)
 }
 
 func inspectSetupNetwork(ctx context.Context, selection setupSelection, runner execx.Runner) (netpreflight.Report, error) {
@@ -450,107 +440,38 @@ func confirmSetup(yes bool, mutating bool, stdin io.Reader, stderr io.Writer) er
 	return confirmPlan("Continue with this setup? [Y/n] ", true, stdin, stderr)
 }
 
-// sudoSession asks for the user's password at most once per command.
-// The first privileged step announces its reason and prompts; a background
-// keeper then refreshes the cached credential every minute until the command
-// finishes, so no later step prompts again — even when a slow download or
-// package installation outlives sudo's timestamp window.
-type sudoSession struct {
-	base     execx.Runner
-	stderr   io.Writer
-	scope    string
-	acquired bool
-	stop     context.CancelFunc
-}
-
-func (session *sudoSession) ensure(ctx context.Context, reason string) error {
-	resume := suspendProgress(session.stderr)
-	defer resume()
-	if os.Geteuid() == 0 {
-		return nil
+func newSudoSession(base execx.Runner, stderr io.Writer, scope string) *setuphost.SudoSession {
+	if scope == "" {
+		scope = "command"
 	}
-	if session.acquired {
-		return nil
-	}
-	if reason != "" {
-		textField(session.stderr, 10, "sudo", "needed: "+reason)
-		scope := session.scope
-		if scope == "" {
-			scope = "command"
-		}
-		textField(session.stderr, 10, "note", "one password prompt covers this whole "+scope)
-	}
-	const sudo = "/usr/bin/sudo"
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		command := exec.CommandContext(ctx, sudo, "-v")
-		command.Stdin = os.Stdin
-		command.Stdout = rawWriter(session.stderr)
-		command.Stderr = rawWriter(session.stderr)
-		if err := command.Run(); err != nil {
-			return failure.New(failure.Capability, fmt.Errorf("sudo authentication failed: %w", err)).Because("sudo_unavailable")
-		}
-	} else if _, err := session.base.Run(ctx, sudo, "-n", "-v"); err != nil {
-		// `sudo -n -v` can still demand authentication under a NOPASSWD: ALL
-		// policy because it validates a timestamp without running a command.
-		// Prove the command path separately before rejecting automation hosts.
-		if _, commandErr := session.base.Run(ctx, sudo, "-n", "--", "/usr/bin/true"); commandErr != nil {
-			return failure.New(failure.Capability, errors.New("sudo needs a password, but stdin is not a terminal")).Because("sudo_unavailable").Then("rerun in a terminal, or allow passwordless sudo for this user")
-		}
-	}
-	keeperContext, cancel := context.WithCancel(ctx)
-	session.stop = cancel
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-keeperContext.Done():
-				return
-			case <-ticker.C:
-				_, _ = session.base.Run(keeperContext, sudo, "-n", "-v")
-			}
-		}
-	}()
-	session.acquired = true
-	return nil
-}
-
-func (session *sudoSession) close() {
-	if session.stop != nil {
-		session.stop()
+	return &setuphost.SudoSession{
+		Base:        base,
+		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
+		Stdin:       os.Stdin,
+		Output:      rawWriter(stderr),
+		BeforePrompt: func() func() {
+			return suspendProgress(stderr)
+		},
+		Announce: func(reason string) {
+			textField(stderr, 10, "sudo", "needed: "+reason)
+			textField(stderr, 10, "note", "one password prompt covers this whole "+scope)
+		},
 	}
 }
 
-func setupRootRunner(base execx.Runner) execx.Runner {
-	if os.Geteuid() == 0 {
-		return base
-	}
-	return sudoRunner{base: base}
-}
-
-// setupPackageManagerRunner preserves only the standard proxy controls across
-// sudo. Homebrew runs as the invoking user and already inherits them directly;
-// APT/DNF otherwise commonly lose them at the privilege boundary.
-func setupPackageManagerRunner(base execx.Runner) execx.Runner {
-	if os.Geteuid() == 0 {
-		return base
-	}
-	return sudoRunner{base: base, preserveEnvironment: setuphost.ProxyEnvironmentNames()}
-}
-
-func runSetupCommands(ctx context.Context, commands []setuphost.Command, base execx.Runner, sudo *sudoSession, stderr io.Writer) (changed, mutationUncertain bool, err error) {
+func runSetupCommands(ctx context.Context, commands []setuphost.Command, base execx.Runner, sudo *setuphost.SudoSession, stderr io.Writer) (changed, mutationUncertain bool, err error) {
 	for _, command := range commands {
 		if err := command.Validate(); err != nil {
 			return changed, false, err
 		}
 		if command.Root {
-			if err := sudo.ensure(ctx, command.Name+" (system package manager)"); err != nil {
+			if err := sudo.Ensure(ctx, command.Name+" (system package manager)"); err != nil {
 				return changed, false, err
 			}
 		}
 		runner := base
 		if command.Root {
-			runner = setupPackageManagerRunner(base)
+			runner = setuphost.PackageManagerRunner(base)
 		}
 		progressItem := startProgress(ctx, stderr, command.Name)
 		result, err := runner.Run(ctx, command.Binary, command.Args...)
@@ -577,7 +498,7 @@ func networkRepairNeedsRestart(report netpreflight.Report) bool {
 	return false
 }
 
-func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflight.Report, base execx.Runner, sudo *sudoSession, stderr io.Writer) (setupStep, bool, error) {
+func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflight.Report, base execx.Runner, sudo *setuphost.SudoSession, stderr io.Writer) (setupStep, bool, error) {
 	if !setupNeedsNetworkInstall(report) {
 		tickf(stderr, "Network %s is already installed", report.CIDR)
 		return setupStep{Name: "network", Status: "ready", Detail: report.CIDR}, false, nil
@@ -590,7 +511,7 @@ func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflig
 		networkReason = "install the Barn network " + report.CIDR + " (root-owned barn0 bridge)"
 	}
 	if runtime.GOOS != "darwin" || report.CanRepair() {
-		if err := sudo.ensure(ctx, networkReason); err != nil {
+		if err := sudo.Ensure(ctx, networkReason); err != nil {
 			return setupStep{}, false, err
 		}
 	}
@@ -598,21 +519,21 @@ func applySetupNetwork(ctx context.Context, mode, repo string, report netpreflig
 		if report.CanRepair() {
 			progressItem := startProgress(ctx, stderr, "Restoring the Barn network")
 			defer progressItem.Stop(nil)
-			executor := darwinnet.Executor{User: base, Root: setupRootRunner(base)}
+			executor := darwinnet.Executor{User: base, Root: setuphost.RootRunner(base)}
 			if err := executor.Repair(ctx, mode, report.CIDR, networkRepairNeedsRestart(report)); err != nil {
 				return setupStep{}, !errors.Is(err, darwinnet.ErrNoHostChanges), err
 			}
 			return setupStep{Name: "network", Status: "repaired", Detail: report.CIDR, Changed: true}, false, nil
 		}
-		executor := darwinnet.Executor{User: base, Root: setupRootRunner(base)}
-		authorize := func() error { return sudo.ensure(ctx, networkReason) }
+		executor := darwinnet.Executor{User: base, Root: setuphost.RootRunner(base)}
+		authorize := func() error { return sudo.Ensure(ctx, networkReason) }
 		return installSetupDarwinNetwork(ctx, mode, repo, report.CIDR, base, authorize, stderr, executor)
 	}
 	linuxConfig, err := linuxnet.ConfigForCIDR(report.CIDR)
 	if err != nil {
 		return setupStep{}, false, err
 	}
-	executor := linuxnet.Executor{User: base, Root: setupRootRunner(base)}
+	executor := linuxnet.Executor{User: base, Root: setuphost.RootRunner(base)}
 	progressItem := startProgress(ctx, stderr, "Installing the Barn network")
 	installReport, err := executor.InstallConfig(ctx, linuxConfig, true)
 	progressItem.Stop(err)
@@ -711,114 +632,23 @@ func setupHomebrewSocketVMNet(ctx context.Context, base execx.Runner, stderr io.
 	return discovery.Binaries, true
 }
 
-func companionHostsHelper() (string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	if canonical, canonicalErr := filepath.EvalSymlinks(executable); canonicalErr == nil {
-		executable = canonical
-	}
-	executable, err = filepath.Abs(executable)
-	if err != nil {
-		return "", err
-	}
-	directory := filepath.Dir(executable)
-	candidates := []string{
-		filepath.Join(directory, "barn-hosts-helper"),
-		filepath.Join(filepath.Dir(directory), "libexec", "barn-hosts-helper"),
-	}
-	for _, candidate := range candidates {
-		candidate = filepath.Clean(candidate)
-		if _, err := hostconfig.CompanionHelperDigest(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("matching barn-hosts-helper was not found beside the CLI or in its package libexec directory")
-}
-
-func ensureSetupHostsHelper(ctx context.Context, base execx.Runner, sudo *sudoSession, stderr io.Writer) (setupStep, bool, error) {
-	if digest, err := hostconfig.InstalledHelperDigest(); err == nil {
+func ensureSetupHostsHelper(ctx context.Context, base execx.Runner, sudo *setuphost.SudoSession, stderr io.Writer) (setupStep, bool, error) {
+	result, uncertain, err := setuphost.EnsureHostsHelper(
+		ctx,
+		base,
+		func(reason string) error { return sudo.Ensure(ctx, reason) },
+		func(install func() error) error {
+			progressItem := startProgress(ctx, stderr, "Installing the hosts helper")
+			installErr := install()
+			progressItem.Stop(installErr)
+			return installErr
+		},
+	)
+	if err == nil && result.Status == "ready" {
 		tickf(stderr, "Hosts helper is already installed")
-		return setupStep{Name: "hosts-helper", Status: "ready", Detail: digest}, false, nil
 	}
-	targetExists := false
-	if _, err := os.Lstat(hostconfig.InstalledHelperPath); err == nil {
-		if _, safeErr := hostconfig.RootOwnedHelperDigest(hostconfig.InstalledHelperPath); safeErr != nil {
-			return setupStep{}, false, fmt.Errorf("existing privileged hosts helper is unsafe and was preserved: %w", safeErr)
-		}
-		targetExists = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return setupStep{}, false, err
-	}
-	source, err := companionHostsHelper()
-	if err != nil {
-		return setupStep{}, false, err
-	}
-	digest, err := hostconfig.CompanionHelperDigest(source)
-	if err != nil {
-		return setupStep{}, false, err
-	}
-	if err := sudo.ensure(ctx, "install the /etc/hosts helper at "+hostconfig.InstalledHelperPath+" (root-owned; lets `barn hosts install` publish node names)"); err != nil {
-		return setupStep{}, false, err
-	}
-	for _, directory := range []string{"/opt", "/opt/barn", "/opt/barn/libexec"} {
-		info, statErr := os.Lstat(directory)
-		if errors.Is(statErr, os.ErrNotExist) {
-			continue
-		}
-		if statErr != nil {
-			return setupStep{}, false, fmt.Errorf("inspect privileged helper directory %s: %w", directory, statErr)
-		}
-		statistics, ok := info.Sys().(*syscall.Stat_t)
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !ok || statistics.Uid != 0 || statistics.Gid != 0 || info.Mode().Perm()&0o022 != 0 {
-			return setupStep{}, false, fmt.Errorf("will not install the hosts helper: %s must be a root-owned directory writable only by root", directory)
-		}
-	}
-	root := setupRootRunner(base)
-	if _, directoryErr := root.Run(ctx, "/usr/bin/install", "-d", "-o", "root", "-g", "0", "-m", "0755", "/opt/barn", "/opt/barn/libexec"); directoryErr != nil {
-		return setupStep{}, true, fmt.Errorf("prepare privileged helper directory: %w", directoryErr)
-	}
-	stageID, err := identity.NewUUID()
-	if err != nil {
-		return setupStep{}, true, err
-	}
-	staged := filepath.Join(filepath.Dir(hostconfig.InstalledHelperPath), ".barn-hosts-helper.next-"+stageID)
-	defer func() {
-		if staged != "" {
-			_, _ = root.Run(context.WithoutCancel(ctx), "/bin/rm", "-f", "--", staged)
-		}
-	}()
-	progressItem := startProgress(ctx, stderr, "Installing the hosts helper")
-	_, installErr := root.Run(ctx, "/usr/bin/install", "-o", "root", "-g", "0", "-m", "0755", source, staged)
-	progressItem.Stop(installErr)
-	if installErr != nil {
-		return setupStep{}, true, fmt.Errorf("install hosts helper: %w", installErr)
-	}
-	stagedDigest, stageErr := hostconfig.RootOwnedHelperDigest(staged)
-	if stageErr != nil || stagedDigest != digest {
-		if stageErr == nil {
-			stageErr = failure.New(failure.Integrity, errors.New("staged hosts helper digest differs from the packaged CLI companion"))
-		}
-		return setupStep{}, true, fmt.Errorf("verify staged hosts helper: %w", stageErr)
-	}
-	_, moveErr := root.Run(ctx, "/bin/mv", "-f", "--", staged, hostconfig.InstalledHelperPath)
-	if moveErr != nil {
-		return setupStep{}, true, fmt.Errorf("publish hosts helper: %w", moveErr)
-	}
-	staged = ""
-	installedDigest, verifyErr := hostconfig.InstalledHelperDigest()
-	if verifyErr != nil || installedDigest != digest {
-		if verifyErr == nil {
-			verifyErr = failure.New(failure.Integrity, errors.New("installed hosts helper digest changed"))
-		}
-		return setupStep{Name: "hosts-helper", Status: "failed", Changed: true}, true, fmt.Errorf("verify hosts helper: %w", verifyErr)
-	}
-	status := "installed"
-	if targetExists {
-		status = "updated"
-	}
-	return setupStep{Name: "hosts-helper", Status: status, Detail: installedDigest, Changed: true}, false, nil
+	step := setupStep{Name: "hosts-helper", Status: result.Status, Detail: result.Digest, Changed: result.Changed}
+	return step, uncertain, err
 }
 
 func setupCheckIgnored(name string, private bool) bool {
@@ -1083,19 +913,7 @@ func failSetupRendered(result *setupResult, code int, failure error) (commandOut
 	return commandOutcome{}, err
 }
 
-func shellQuote(argument string) string {
-	if argument == "" {
-		return "''"
-	}
-	for _, character := range argument {
-		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-			(character >= '0' && character <= '9') || strings.ContainsRune("_@%+=:,./-", character) {
-			continue
-		}
-		return "'" + strings.ReplaceAll(argument, "'", "'\\''") + "'"
-	}
-	return argument
-}
+func shellQuote(argument string) string { return fsutil.ShellQuote(argument) }
 
 func setupNextCommand(selection setupSelection, cwd string) (string, []string) {
 	arguments := []string{"barn", "up"}
@@ -1140,6 +958,193 @@ func formatSetupCommand(arguments []string) (string, []string) {
 	return strings.Join(quoted, " "), arguments
 }
 
+type setupSession struct {
+	result       *setupResult
+	selection    *setupSelection
+	options      setupCLIOptions
+	base         execx.Runner
+	sudo         *setuphost.SudoSession
+	stderr       io.Writer
+	progressItem *progress
+	activeStep   string
+	networkMode  string
+}
+
+func (s *setupSession) working(name, message string) {
+	s.activeStep = name
+	s.progressItem.Report(activity.Event{Phase: "setup", Item: name, State: "running", Message: message})
+}
+
+func (s *setupSession) recordStep(steps ...setupStep) {
+	s.result.Steps = append(s.result.Steps, steps...)
+	for _, step := range steps {
+		if s.options.DryRun {
+			continue
+		}
+		s.progressItem.Report(activity.Event{Phase: "setup", Item: step.Name, State: step.Status, Message: step.Detail, Done: true})
+		if s.activeStep == step.Name {
+			s.activeStep = ""
+		}
+	}
+}
+
+// chooseNetwork selects the network the inventory will use (a fresh default
+// template may move off a taken /24) and records it in result.
+func (s *setupSession) chooseNetwork(ctx context.Context) (netpreflight.Report, error) {
+	report, err := selectSetupNetwork(ctx, s.selection, s.base)
+	if err != nil {
+		return report, err
+	}
+	report, s.networkMode = constrainSetupNetworkMode(report, s.options.Mode, s.options.ModeExplicit)
+	s.result.Network, s.result.NetworkMode = &report, s.networkMode
+	if s.selection.Resolved.Private != nil {
+		s.result.NetworkCIDR = s.selection.Resolved.Private.CIDR
+	}
+	return report, nil
+}
+
+// blockedNetwork records a network that setup cannot install or repair.
+func (s *setupSession) blockedNetwork(report netpreflight.Report) (int, error) {
+	err := setupFindingError(report)
+	s.result.Blocked = true
+	s.result.Resolution = err.Error()
+	s.result.Next = "fix the network conflict, then rerun barn setup"
+	s.result.NextArgv = nil
+	if report.ExitCode == exitOK {
+		return exitConflict, err
+	}
+	return report.ExitCode, err
+}
+
+func (s *setupSession) applyDependencies(ctx context.Context, dependencyPlan setuphost.DependencyPlan) error {
+	s.working("dependencies", "checking and installing host dependencies")
+	if len(dependencyPlan.Commands) > 0 {
+		changed, uncertain, err := runSetupCommands(ctx, dependencyPlan.Commands, s.base, s.sudo, s.stderr)
+		s.result.Changed = s.result.Changed || changed
+		s.result.MutationUncertain = s.result.MutationUncertain || uncertain
+		if err != nil {
+			verified, verifyErr := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
+			if verifyErr != nil || !verified.Ready {
+				s.recordStep(setupStep{Name: "dependencies", Status: "failed", Changed: changed})
+				_, failErr := failSetup(s.result, exitCapability, err)
+				return failErr
+			}
+			debugf(s.stderr, "package manager returned an error, but all required capabilities are installed: %v", err)
+		}
+		s.recordStep(setupStep{Name: "dependencies", Status: "installed", Changed: changed})
+	} else {
+		tickf(s.stderr, "Dependencies ready (QEMU, qemu-img, UEFI firmware, OpenSSH)")
+		s.recordStep(setupStep{Name: "dependencies", Status: "ready"})
+	}
+	s.working("dependencies", "verifying installed dependencies")
+	verifiedDependencies, err := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
+	if err != nil || !verifiedDependencies.Ready {
+		if err == nil {
+			err = fmt.Errorf("dependencies remain unavailable: %s", strings.Join(verifiedDependencies.Missing, ", "))
+		}
+		_, failErr := failSetup(s.result, exitCapability, err)
+		return failErr
+	}
+	s.result.Dependencies = verifiedDependencies
+	s.progressItem.Report(activity.Event{Phase: "setup", Item: "dependencies", State: "ready", Message: "QEMU, qemu-img, firmware and OpenSSH ready", Done: true})
+	return nil
+}
+
+func (s *setupSession) verifyCapabilities(ctx context.Context) error {
+	s.working("capabilities", "verifying native QEMU")
+	capabilityProgress := startProgress(ctx, s.stderr, "Verifying native QEMU")
+	capabilityChecks, capabilityErr := verifySetup(ctx, false)
+	capabilityProgress.Stop(capabilityErr)
+	s.result.Checks = capabilityChecks
+	if capabilityErr != nil {
+		s.recordStep(setupStep{Name: "capabilities", Status: "failed"})
+		_, failErr := failSetup(s.result, exitCapability, capabilityErr)
+		return failErr
+	}
+	s.recordStep(setupStep{Name: "capabilities", Status: "ready"})
+	return nil
+}
+
+func (s *setupSession) applyNetworkPhase(ctx context.Context, repository, plannedCIDR string) error {
+	s.working("network", "preparing the Barn network")
+	report, reportErr := s.chooseNetwork(ctx)
+	if reportErr != nil {
+		_, failErr := failSetup(s.result, exitCapability, reportErr)
+		return failErr
+	}
+	if s.result.NetworkCIDR != plannedCIDR {
+		infof(s.stderr, "using network %s: %s is not available on this host", s.result.NetworkCIDR, plannedCIDR)
+		// The confirmed plan named another network; ask again unless --yes.
+		if !s.options.Yes {
+			resume := suspendProgress(s.stderr)
+			err := confirmPlan("Continue with "+s.result.NetworkCIDR+"? [Y/n] ", true, os.Stdin, s.stderr)
+			resume()
+			if err != nil {
+				if errors.Is(err, ErrCancelled) {
+					return err
+				}
+				_, failErr := failSetup(s.result, exitRuntime, err)
+				return failErr
+			}
+		}
+	}
+	if !report.Ready && !report.CanRepair() {
+		code, err := s.blockedNetwork(report)
+		_, failErr := failSetup(s.result, code, err)
+		return failErr
+	}
+	step, uncertain, installErr := applySetupNetwork(ctx, s.networkMode, repository, report, s.base, s.sudo, s.stderr)
+	if installErr != nil {
+		s.result.MutationUncertain = s.result.MutationUncertain || uncertain
+		s.recordStep(setupStep{Name: "network", Status: "failed"})
+		_, failErr := failSetup(s.result, exitRuntime, installErr)
+		return failErr
+	}
+	s.recordStep(step)
+	s.result.Changed = s.result.Changed || step.Changed
+	s.working("verify", "verifying installed network")
+	finalReport, finalErr := inspectSetupNetwork(ctx, *s.selection, s.base)
+	finalReport, _ = constrainSetupNetworkMode(finalReport, s.networkMode, true)
+	if finalErr != nil || !finalReport.Ready || !finalReport.Installation.Healthy {
+		if finalErr == nil {
+			finalErr = setupFindingError(finalReport)
+		}
+		_, failErr := failSetup(s.result, exitRuntime, fmt.Errorf("verify the Barn network: %w", finalErr))
+		return failErr
+	}
+	s.result.Network = &finalReport
+	s.recordStep(setupStep{Name: "hosts-helper", Status: "on-demand"}, setupStep{Name: "verify", Status: "ready"})
+	return nil
+}
+
+func (s *setupSession) publishConfig() error {
+	if s.selection.Publish {
+		s.working("config", "writing "+s.selection.ConfigPath)
+		if len(bytes.TrimSpace(s.selection.ConfigData)) == 0 {
+			_, failErr := failSetup(s.result, exitRuntime, errors.New("generated setup configuration is empty"))
+			return failErr
+		}
+		if err := publishSetupConfig(*s.selection); err != nil {
+			code := exitRuntime
+			if errors.Is(err, os.ErrExist) {
+				code = exitConflict
+			}
+			s.recordStep(setupStep{Name: "config", Status: "failed", Detail: s.selection.ConfigPath})
+			_, failErr := failSetup(s.result, code, fmt.Errorf("publish setup configuration without replacing concurrent content: %w", err))
+			return failErr
+		}
+		s.result.Config = s.selection.ConfigPath
+		s.result.Changed = true
+		tickf(s.stderr, "Wrote %s", s.selection.ConfigPath)
+		s.recordStep(setupStep{Name: "config", Status: "created", Detail: s.selection.ConfigPath, Changed: true})
+	} else if s.selection.ConfigPath != "" {
+		s.result.Config = s.selection.ConfigPath
+		tickf(s.stderr, "Using %s", s.selection.ConfigPath)
+		s.recordStep(setupStep{Name: "config", Status: "ready", Detail: s.selection.ConfigPath})
+	}
+	return nil
+}
+
 func runSetupCommand(parent context.Context, profileName string, options setupCLIOptions, format outputFormat, verbose bool, stderr io.Writer) (_ commandOutcome, returnErr error) {
 	result := setupResult{
 		Schema: 1, OS: runtime.GOOS, Arch: runtime.GOARCH,
@@ -1147,13 +1152,13 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		Steps: make([]setupStep, 0, 6), NextArgv: nil,
 	}
 
-	inputDirectory, err := os.Getwd()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return failSetup(&result, exitRuntime, err)
 	}
 	useEnvironment := options.Applied == nil && options.FilePath == ""
 	if useEnvironment && profileName == "" {
-		discovered, discoverErr := discoverSetupConfig(inputDirectory)
+		discovered, discoverErr := discoverSetupConfig(cwd)
 		if discoverErr != nil {
 			return failSetup(&result, exitUsage, discoverErr)
 		}
@@ -1177,26 +1182,19 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		operation = "setup plan"
 	}
 	progressItem := startOperationProgress(parent, stderr, "Preparing host", operation)
-	activeStep := ""
-	working := func(name, message string) {
-		activeStep = name
-		progressItem.Report(activity.Event{Phase: "setup", Item: name, State: "running", Message: message})
+	session := &setupSession{
+		result:       &result,
+		options:      options,
+		stderr:       stderr,
+		progressItem: progressItem,
+		networkMode:  "bridge",
 	}
-	recordStep := func(steps ...setupStep) {
-		result.Steps = append(result.Steps, steps...)
-		for _, step := range steps {
-			if options.DryRun {
-				continue
-			}
-			progressItem.Report(activity.Event{Phase: "setup", Item: step.Name, State: step.Status, Message: step.Detail, Done: true})
-			if activeStep == step.Name {
-				activeStep = ""
-			}
-		}
+	if runtime.GOOS == "darwin" {
+		session.networkMode = options.Mode
 	}
 	defer func() {
-		if returnErr != nil && activeStep != "" {
-			progressItem.Report(activity.Event{Phase: "setup", Item: activeStep, State: "failed", Message: returnErr.Error(), Done: true})
+		if returnErr != nil && session.activeStep != "" {
+			progressItem.Report(activity.Event{Phase: "setup", Item: session.activeStep, State: "failed", Message: returnErr.Error(), Done: true})
 		}
 		progressItem.Stop(returnErr)
 	}()
@@ -1215,10 +1213,6 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	if err != nil {
 		return failSetup(&result, exitUsage, err)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return failSetup(&result, exitRuntime, err)
-	}
 	var selection setupSelection
 	if options.Applied != nil {
 		if options.vmInputs.any() {
@@ -1232,14 +1226,13 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 		}
 		return failSetup(&result, code, err)
 	}
+	session.selection = &selection
 	result.Resources = resourceInputSources(selection.File.Resources, selection.Inputs, nil)
 	result.Profile = selection.Profile
 	result.Config = selection.ConfigPath
 	result.Image = selection.Image
 	result.GuestArch = lifecycleImageArch(selection.Resolved)
-	next, nextArgv := setupNextCommand(selection, cwd)
-	result.Next = next
-	result.NextArgv = nextArgv
+	result.Next, result.NextArgv = setupNextCommand(selection, cwd)
 	dependencyPlan, err := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
 	if err != nil {
 		return failSetup(&result, exitCapability, err)
@@ -1251,47 +1244,19 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	base := execx.OSRunner{Timeout: 20 * time.Minute, OutputLimit: 64 << 10}
 	ctx, cancel := context.WithTimeout(parent, 45*time.Minute)
 	defer cancel()
-	sudoSession := &sudoSession{base: base, stderr: stderr, scope: "setup run"}
-	defer sudoSession.close()
-	networkMode := "bridge"
-	if runtime.GOOS == "darwin" {
-		networkMode = options.Mode
-	}
-	// chooseNetwork selects the network the inventory will use (a fresh
-	// default template may move off a taken /24) and records it in result.
-	chooseNetwork := func() (netpreflight.Report, error) {
-		report, err := selectSetupNetwork(ctx, &selection, base)
-		if err != nil {
-			return report, err
-		}
-		report, networkMode = constrainSetupNetworkMode(report, options.Mode, options.ModeExplicit)
-		result.Network, result.NetworkMode = &report, networkMode
-		if selection.Resolved.Private != nil {
-			result.NetworkCIDR = selection.Resolved.Private.CIDR
-		}
-		return report, nil
-	}
-	// blocked records a network that setup cannot install or repair.
-	blocked := func(report netpreflight.Report) (int, error) {
-		failure := setupFindingError(report)
-		result.Blocked = true
-		result.Resolution = failure.Error()
-		result.Next = "fix the network conflict, then rerun barn setup"
-		result.NextArgv = nil
-		if report.ExitCode == exitOK {
-			return exitConflict, failure
-		}
-		return report.ExitCode, failure
-	}
+	sudoSession := newSudoSession(base, stderr, "setup run")
+	defer sudoSession.Close()
+	session.base, session.sudo = base, sudoSession
+
 	var networkReport *netpreflight.Report
 	if dependencyPlan.Ready {
-		report, reportErr := chooseNetwork()
+		report, reportErr := session.chooseNetwork(ctx)
 		if reportErr != nil {
 			return failSetup(&result, exitCapability, reportErr)
 		}
 		networkReport = &report
 	} else {
-		result.NetworkMode = networkMode
+		result.NetworkMode = session.networkMode
 		if selection.Resolved.Private != nil {
 			result.NetworkCIDR = selection.Resolved.Private.CIDR
 		}
@@ -1301,17 +1266,17 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	result.Config = selection.ConfigPath
 	result.Dependencies = dependencyPlan
 	if networkReport != nil && !networkReport.Ready && !networkReport.CanRepair() {
-		code, failure := blocked(*networkReport)
-		return failSetupRendered(&result, code, failure)
+		code, blockedErr := session.blockedNetwork(*networkReport)
+		return failSetupRendered(&result, code, blockedErr)
 	}
 	if options.DryRun {
 		result.Applicable = true
-		recordStep(
+		session.recordStep(
 			setupStep{Name: "dependencies", Status: "planned"},
 			setupStep{Name: "network", Status: "planned"},
 			setupStep{Name: "hosts-helper", Status: "on-demand"})
 		if selection.Publish {
-			recordStep(setupStep{Name: "config", Status: "planned", Detail: selection.ConfigPath})
+			session.recordStep(setupStep{Name: "config", Status: "planned", Detail: selection.ConfigPath})
 		}
 		if setupMutating(dependencyPlan, selection, networkReport) {
 			result.Next, result.NextArgv = setupApplyCommand(options.arguments(profileName), format, verbose)
@@ -1333,108 +1298,17 @@ func runSetupCommand(parent context.Context, profileName string, options setupCL
 	if selection.Publish || selection.ConfigPath != "" {
 		progressItem.Report(activity.Event{Phase: "setup", Item: "config", State: "queued", Message: selection.ConfigPath})
 	}
-	working("dependencies", "checking and installing host dependencies")
-	if len(dependencyPlan.Commands) > 0 {
-		changed, uncertain, err := runSetupCommands(ctx, dependencyPlan.Commands, base, sudoSession, stderr)
-		result.Changed = result.Changed || changed
-		result.MutationUncertain = result.MutationUncertain || uncertain
-		if err != nil {
-			verified, verifyErr := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
-			if verifyErr != nil || !verified.Ready {
-				recordStep(setupStep{Name: "dependencies", Status: "failed", Changed: changed})
-				return failSetup(&result, exitCapability, err)
-			}
-			debugf(stderr, "package manager returned an error, but all required capabilities are installed: %v", err)
-		}
-		recordStep(setupStep{Name: "dependencies", Status: "installed", Changed: changed})
-	} else {
-		tickf(stderr, "Dependencies ready (QEMU, qemu-img, UEFI firmware, OpenSSH)")
-		recordStep(setupStep{Name: "dependencies", Status: "ready"})
+	if err := session.applyDependencies(ctx, dependencyPlan); err != nil {
+		return commandOutcome{}, err
 	}
-	working("dependencies", "verifying installed dependencies")
-	verifiedDependencies, err := setuphost.PlanDependencies(setuphost.DependencyProbe{}, true)
-	if err != nil || !verifiedDependencies.Ready {
-		if err == nil {
-			err = fmt.Errorf("dependencies remain unavailable: %s", strings.Join(verifiedDependencies.Missing, ", "))
-		}
-		return failSetup(&result, exitCapability, err)
+	if err := session.verifyCapabilities(ctx); err != nil {
+		return commandOutcome{}, err
 	}
-	result.Dependencies = verifiedDependencies
-	progressItem.Report(activity.Event{Phase: "setup", Item: "dependencies", State: "ready", Message: "QEMU, qemu-img, firmware and OpenSSH ready", Done: true})
-	working("capabilities", "verifying native QEMU")
-	capabilityProgress := startProgress(ctx, stderr, "Verifying native QEMU")
-	capabilityChecks, capabilityErr := verifySetup(ctx, false)
-	capabilityProgress.Stop(capabilityErr)
-	result.Checks = capabilityChecks
-	if capabilityErr != nil {
-		recordStep(setupStep{Name: "capabilities", Status: "failed"})
-		return failSetup(&result, exitCapability, capabilityErr)
+	if err := session.applyNetworkPhase(ctx, repository, plannedCIDR); err != nil {
+		return commandOutcome{}, err
 	}
-	recordStep(setupStep{Name: "capabilities", Status: "ready"})
-	working("network", "preparing the Barn network")
-	report, reportErr := chooseNetwork()
-	if reportErr != nil {
-		return failSetup(&result, exitCapability, reportErr)
-	}
-	if result.NetworkCIDR != plannedCIDR {
-		infof(stderr, "using network %s: %s is not available on this host", result.NetworkCIDR, plannedCIDR)
-		// The confirmed plan named another network; ask again unless --yes.
-		if !options.Yes {
-			resume := suspendProgress(stderr)
-			err := confirmPlan("Continue with "+result.NetworkCIDR+"? [Y/n] ", true, os.Stdin, stderr)
-			resume()
-			if err != nil {
-				if errors.Is(err, ErrCancelled) {
-					return commandOutcome{}, err
-				}
-				return failSetup(&result, exitRuntime, err)
-			}
-		}
-	}
-	if !report.Ready && !report.CanRepair() {
-		code, failure := blocked(report)
-		return failSetup(&result, code, failure)
-	}
-	step, uncertain, installErr := applySetupNetwork(ctx, networkMode, repository, report, base, sudoSession, stderr)
-	if installErr != nil {
-		result.MutationUncertain = result.MutationUncertain || uncertain
-		recordStep(setupStep{Name: "network", Status: "failed"})
-		return failSetup(&result, exitRuntime, installErr)
-	}
-	recordStep(step)
-	result.Changed = result.Changed || step.Changed
-	working("verify", "verifying installed network")
-	finalReport, finalErr := inspectSetupNetwork(ctx, selection, base)
-	finalReport, _ = constrainSetupNetworkMode(finalReport, networkMode, true)
-	if finalErr != nil || !finalReport.Ready || !finalReport.Installation.Healthy {
-		if finalErr == nil {
-			finalErr = setupFindingError(finalReport)
-		}
-		return failSetup(&result, exitRuntime, fmt.Errorf("verify the Barn network: %w", finalErr))
-	}
-	result.Network = &finalReport
-	recordStep(setupStep{Name: "hosts-helper", Status: "on-demand"}, setupStep{Name: "verify", Status: "ready"})
-	if selection.Publish {
-		working("config", "writing "+selection.ConfigPath)
-		if len(bytes.TrimSpace(selection.ConfigData)) == 0 {
-			return failSetup(&result, exitRuntime, errors.New("generated setup configuration is empty"))
-		}
-		if err := publishSetupConfig(selection); err != nil {
-			code := exitRuntime
-			if errors.Is(err, os.ErrExist) {
-				code = exitConflict
-			}
-			recordStep(setupStep{Name: "config", Status: "failed", Detail: selection.ConfigPath})
-			return failSetup(&result, code, fmt.Errorf("publish setup configuration without replacing concurrent content: %w", err))
-		}
-		result.Config = selection.ConfigPath
-		result.Changed = true
-		tickf(stderr, "Wrote %s", selection.ConfigPath)
-		recordStep(setupStep{Name: "config", Status: "created", Detail: selection.ConfigPath, Changed: true})
-	} else if selection.ConfigPath != "" {
-		result.Config = selection.ConfigPath
-		tickf(stderr, "Using %s", selection.ConfigPath)
-		recordStep(setupStep{Name: "config", Status: "ready", Detail: selection.ConfigPath})
+	if err := session.publishConfig(); err != nil {
+		return commandOutcome{}, err
 	}
 	result.Applicable = true
 	result.Ready = true

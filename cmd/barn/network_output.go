@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/pgsty/barn/internal/activity"
@@ -66,7 +68,7 @@ func darwinInstallOutcome(report darwinnet.InstallReport, next string) commandOu
 		pending := report.Action != "none" && !report.Applied
 		printItemResult(stdout, "network", planStatus(report.Applied, pending), fmt.Sprintf("%s (vmnet %s mode)", report.Plan.State.CIDR, report.Plan.State.Mode))
 		if pending || report.Applied {
-			for _, path := range sortedMapKeys(report.Targets) {
+			for _, path := range slices.Sorted(maps.Keys(report.Targets)) {
 				textField(stdout, 9, "install", path+"  "+report.Targets[path])
 			}
 		}

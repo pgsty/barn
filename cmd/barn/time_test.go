@@ -14,6 +14,7 @@ import (
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
 	"github.com/pgsty/barn/internal/timesync"
+	"github.com/pgsty/barn/internal/version"
 )
 
 func TestTimeNoDeploymentAndInvalidTimeout(t *testing.T) {
@@ -141,7 +142,7 @@ func TestRenderTimeFormatsTableWithNTPSourceAndPurgeCleansTimeFiles(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	if err := purgeDeployment(context.Background()); err != nil {
+	if err := (linuxvm.Manager{BarnVersion: version.Version}).PurgeDeployment(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"time-sync.json", "time-last.json"} {

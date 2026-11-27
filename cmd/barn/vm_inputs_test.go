@@ -134,7 +134,7 @@ func TestVMEnvironmentOnlyAppliesToSupportedCommandMode(t *testing.T) {
 			t.Fatalf("unrelated env affected %v: %d %s", arguments, code, &errOut)
 		}
 	}
-	data, err := config.Template("meta", "")
+	data, err := config.TemplateWithOptions("meta", "", config.TemplateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestSetupPreservesResourceBasesAcrossReuseAndRebase(t *testing.T) {
 	if _, err := resolveSetupSelectionInputs("dual", "", "", vmInputs{CPU: "4", Mem: "8G", Scale: "1", Disk: "128"}, cwd); err == nil {
 		t.Fatal("same final spec concealed different bases")
 	}
-	selection, err = resolveSetupSelection("", "", "", cwd)
+	selection, err = resolveSetupSelectionInputs("", "", "", vmInputs{}, cwd)
 	if err != nil || !selection.Generated {
 		t.Fatalf("recognize: %v", err)
 	}

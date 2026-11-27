@@ -145,7 +145,6 @@ before applying it.`,
 		stdout, stderr,
 	)
 	for _, action := range []string{"install", "uninstall"} {
-		action := action
 		apply := false
 		configPath := ""
 		short := "Install deployment host entries"

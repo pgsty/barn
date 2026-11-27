@@ -53,9 +53,6 @@ configuration and host time services are left to the administrator.`, Example: `
 				if resolveErr != nil {
 					return deploymentReadError(resolveErr)
 				}
-				if resolved.Network != "private" {
-					return newConflictError(errors.New(invalidDeploymentNetworkMessage))
-				}
 				if selectorErr := validateNodeSelectors(resolved, nodes, "deployment"); selectorErr != nil {
 					return newUsageError(selectorErr)
 				}

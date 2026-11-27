@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
@@ -200,6 +201,10 @@ func (s Store) nodePath(name, filename string) (string, error) {
 	return filepath.Join(directory, filename), nil
 }
 
+// ErrInvalidDeploymentNetwork reports a deployment state whose network mode is
+// not Barn's private fixed-IP network.
+var ErrInvalidDeploymentNetwork = failure.New(failure.Conflict, errors.New("deployment state must use a private network"))
+
 func validateDeployment(value DeploymentState) error {
 	if value.Schema != DeploymentSchema {
 		return fmt.Errorf("unsupported deployment state schema %d", value.Schema)
@@ -214,18 +219,19 @@ func validateDeployment(value DeploymentState) error {
 	if actualHash != value.SpecHash {
 		return errors.New("deployment resolved spec hash mismatch")
 	}
-	if value.Resolved.Network == "private" {
-		if value.Resolved.Private == nil {
-			return errors.New("deployment state lacks its network settings")
-		}
-		layout, err := subnet.Parse(value.Resolved.Private.CIDR)
-		if err != nil || value.Resolved.Private.HostAddress != layout.HostAddress() || value.Resolved.Private.DHCPEnd != layout.DHCPEnd() {
-			return errors.New("deployment state has invalid network settings")
-		}
-		for _, node := range value.Resolved.Nodes {
-			if !layout.IsStatic(node.Address) {
-				return fmt.Errorf("private deployment state node %s address is outside the static pool", node.Name)
-			}
+	if value.Resolved.Network != "private" {
+		return ErrInvalidDeploymentNetwork
+	}
+	if value.Resolved.Private == nil {
+		return errors.New("deployment state lacks its network settings")
+	}
+	layout, err := subnet.Parse(value.Resolved.Private.CIDR)
+	if err != nil || value.Resolved.Private.HostAddress != layout.HostAddress() || value.Resolved.Private.DHCPEnd != layout.DHCPEnd() {
+		return errors.New("deployment state has invalid network settings")
+	}
+	for _, node := range value.Resolved.Nodes {
+		if !layout.IsStatic(node.Address) {
+			return fmt.Errorf("private deployment state node %s address is outside the static pool", node.Name)
 		}
 	}
 	return nil

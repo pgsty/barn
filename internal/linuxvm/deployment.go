@@ -2,15 +2,18 @@ package linuxvm
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/lock"
 	"github.com/pgsty/barn/internal/state"
@@ -146,4 +149,136 @@ func Open() (Deployment, error) { return openDeployment(false) }
 // AcquireLock takes the deployment lock; the caller must Release it.
 func AcquireLock(ctx context.Context, deployment Deployment, shared bool) (*lock.File, error) {
 	return acquireDeploymentLock(ctx, deployment.Root, shared, nil)
+}
+
+// PurgeDeployment removes what destroy deliberately preserves: keys and the
+// deployment state documents. Images stay cached; persistent disks must have
+// been deleted already.
+func (m Manager) PurgeDeployment(ctx context.Context) error {
+	if _, err := m.PurgeKeys(ctx, true); err != nil {
+		return err
+	}
+	root, err := state.ResolveDataRoot()
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"state.json", "events.jsonl", "time-sync.json", "time-last.json"} {
+		if err := os.Remove(filepath.Join(root, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	for _, directory := range []string{"nodes", "disks", "guest-warnings"} {
+		if err := os.Remove(filepath.Join(root, directory)); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return err
+		}
+	}
+	return nil
+}
+
+// VerifyResidualPurgeRoot checks whether root exists and is a current-user
+// real directory protected from group/world writes before a residual purge.
+func VerifyResidualPurgeRoot(root string) (exists bool, err error) {
+	info, statErr := os.Lstat(root)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return false, nil
+	}
+	if statErr != nil {
+		return false, fmt.Errorf("inspect deployment root for purge: %w", statErr)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || int(stat.Uid) != os.Geteuid() {
+		return true, fmt.Errorf("deployment root is not a current-user directory protected from group/world writes: %s", root)
+	}
+	return true, nil
+}
+
+// DeploymentInUse refuses privileged network teardown while any recorded node
+// of the single deployment is provably (or ambiguously) live.
+func DeploymentInUse(ctx context.Context) error {
+	root, err := state.ResolveDataRoot()
+	if err != nil {
+		return nil
+	}
+	store := state.Store{Root: root}
+	entries, err := os.ReadDir(filepath.Join(root, "nodes"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	audit := RuntimeIdentityAuditor(execx.OSRunner{Timeout: 15 * time.Second, OutputLimit: 1 << 20}, time.Second)
+	for _, entry := range entries {
+		node, readErr := store.ReadNode(entry.Name())
+		if readErr != nil {
+			continue
+		}
+		observation, auditErr := audit(ctx, node)
+		if auditErr != nil {
+			return fmt.Errorf("node %s runtime audit is inconclusive (%v); stop the deployment first", entry.Name(), auditErr)
+		}
+		if observation.Live {
+			return fmt.Errorf("node %s is running; stop the deployment first", node.Node)
+		}
+	}
+	return nil
+}
+
+// FilterRecordedAddresses drops addresses belonging to this deployment's own
+// recorded nodes so preflight does not report a running lab as a conflict.
+func FilterRecordedAddresses(addresses []string) []string {
+	root, err := state.ResolveDataRoot()
+	if err != nil {
+		return addresses
+	}
+	deploymentState, err := (state.Store{Root: root}).ReadDeployment()
+	if err != nil {
+		return addresses
+	}
+	recorded := make(map[string]struct{}, len(deploymentState.Resolved.Nodes))
+	for _, node := range deploymentState.Resolved.Nodes {
+		recorded[node.Address] = struct{}{}
+	}
+	filtered := make([]string, 0, len(addresses))
+	for _, address := range addresses {
+		if _, mine := recorded[address]; !mine {
+			filtered = append(filtered, address)
+		}
+	}
+	return filtered
+}
+
+func validImageDigest(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32 && value == fmt.Sprintf("%x", decoded)
+}
+
+// NodeImageReferences collects every image digest a deployment node still
+// references, so image prune never deletes a base image in use.
+func NodeImageReferences(dataRoot string) (map[string]struct{}, error) {
+	references := make(map[string]struct{})
+	store := state.Store{Root: dataRoot}
+	entries, readErr := os.ReadDir(filepath.Join(dataRoot, "nodes"))
+	if errors.Is(readErr, os.ErrNotExist) {
+		return references, nil
+	}
+	if readErr != nil {
+		return nil, readErr
+	}
+	for _, entry := range entries {
+		if transaction, transactionErr := store.ReadTransaction(entry.Name()); transactionErr == nil {
+			return nil, fmt.Errorf("node %s has pending transaction %s", entry.Name(), transaction.OperationID)
+		} else if !errors.Is(transactionErr, os.ErrNotExist) {
+			return nil, transactionErr
+		}
+		node, nodeErr := store.ReadNode(entry.Name())
+		if nodeErr != nil {
+			return nil, fmt.Errorf("read node %s before image prune: %w", entry.Name(), nodeErr)
+		}
+		if !validImageDigest(node.Image.Digest) {
+			return nil, fmt.Errorf("node %s has an invalid image digest", entry.Name())
+		}
+		references[node.Image.Digest] = struct{}{}
+	}
+	return references, nil
 }

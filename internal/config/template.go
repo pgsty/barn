@@ -35,19 +35,6 @@ func ValidTemplate(name string) bool {
 	return exists
 }
 
-// Template renders a built-in lab as a Pigsty-compatible inventory. The
-// optional cidr rebases the /24 while keeping each node's last octet.
-func Template(name, cidr string) ([]byte, error) {
-	return TemplateWithImage(name, cidr, "")
-}
-
-// TemplateWithImage renders a built-in lab and, when imageOverride is set,
-// writes the selected image into all.vars. A blank override materializes the
-// embedded-catalog default alongside the other specification defaults.
-func TemplateWithImage(name, cidr, imageOverride string) ([]byte, error) {
-	return TemplateWithOptions(name, cidr, TemplateOptions{Image: imageOverride})
-}
-
 type TemplateOptions struct {
 	Resources ResourceOverrides
 	Image     string

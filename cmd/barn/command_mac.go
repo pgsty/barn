@@ -308,8 +308,18 @@ macOS virtual machines to run at a time on one Mac.`,
 	if !macSupported() {
 		mac.Hidden = true
 	}
-	mac.AddGroup(&cobra.Group{ID: "mac-life", Title: "Machines:"}, &cobra.Group{ID: "mac-access", Title: "Access:"}, &cobra.Group{ID: "mac-host", Title: "Host:"})
+	mac.AddGroup(
+		&cobra.Group{ID: "mac-life", Title: "Machines:"},
+		&cobra.Group{ID: "mac-access", Title: "Access:"},
+		&cobra.Group{ID: "mac-host", Title: "Host:"},
+	)
+	addMacLifecycleCommands(mac, list, stderr)
+	addMacAccessCommands(mac, stdout, stderr)
+	addMacHostCommands(mac, stdout, stderr)
+	return mac
+}
 
+func addMacLifecycleCommands(mac *cobra.Command, list func(*cobra.Command, []string) error, stderr io.Writer) {
 	ls := &cobra.Command{Use: "ls", Aliases: []string{"list", "status", "st"}, Short: "Show every machine, its state and address", Args: cobra.NoArgs, RunE: list, GroupID: "mac-life",
 		Long: `Show every machine: its state, address, SSH readiness, macOS version and
 resources. It reads local records and asks each running machine, and never
@@ -440,72 +450,6 @@ at once, like holding a power button; unsaved work in the guest is lost.`,
 	noFileCompletions(restart, "no-wait", "open")
 	mac.AddCommand(restart)
 
-	open := &cobra.Command{
-		Use: "open [name]", Short: "Show a machine's desktop, starting it if needed", GroupID: "mac-access", Args: cobra.MaximumNArgs(1), ValidArgsFunction: macCompletion(false),
-		Long: `Show the machine's desktop window, starting the machine first when it is
-stopped. Closing the window keeps the machine running in the background; the
-clipboard is shared while the window is focused.`,
-		Example: "  barn mac open\n  barn mac open dev",
-	}
-	open.RunE = func(cmd *cobra.Command, args []string) error {
-		name, err := macName(args)
-		if err != nil {
-			return err
-		}
-		return macRun(stderr, "Opening "+name, func(c macCommandContext) (commandOutcome, error) {
-			outcome, err := c.manager.Open(cmd.Context(), name)
-			return macLifecycleOutcome(outcome, stderr), err
-		})(cmd, args)
-	}
-	mac.AddCommand(open)
-
-	for _, verb := range []string{"ssh", "exec"} {
-		verb := verb
-		use, short := "ssh [name] [-- command...]", "Open a shell in a machine, or run a command"
-		example := "  barn mac ssh\n  barn mac ssh dev\n  barn mac ssh dev -- 'sw_vers; id'"
-		if verb == "exec" {
-			use, short = "exec [name] -- command...", "Run a command in a machine and pass its exit status through"
-			example = "  barn mac exec -- sw_vers\n  barn mac exec dev -- xcodebuild -version\n  barn --json mac exec -- sh -c 'exit 3'"
-		}
-		command := &cobra.Command{
-			Use: use, Short: short, Example: example, GroupID: "mac-access", Args: cobra.ArbitraryArgs, ValidArgsFunction: remoteCompletion(macCompletion(false)),
-			Long: `Connect with the machine's own key and pinned host key. Everything before --
-must be empty or one known machine name, apart from Barn flags. A remote
-command requires --, and its first argument must not be empty.
-For exec, pass the program and its arguments separately to preserve argument
-boundaries, including later empty values. Use sh -c explicitly for shell
-expressions. A single command string remains supported as shell shorthand
-for compatibility. exec requires a command.
-ssh passes the command line to the remote shell like plain ssh. Without a
-command, ssh opens an interactive session.`,
-		}
-		command.RunE = func(cmd *cobra.Command, args []string) error {
-			head, remote, err := splitRemoteArguments(remoteArguments(cmd, args), "barn mac "+verb, "name", verb == "exec")
-			if err != nil {
-				return newUsageError(err)
-			}
-			name, err := macName(head)
-			if err != nil {
-				return err
-			}
-			if len(head) > 0 {
-				store, err := macStore()
-				if err != nil {
-					return newRuntimeError(err)
-				}
-				if _, err := store.LoadMachine(name); errors.Is(err, os.ErrNotExist) {
-					return newUsageError(failure.WithNext(fmt.Errorf("unknown machine %q", name), "barn mac ls"))
-				} else if err != nil {
-					return newRuntimeError(err)
-				}
-			}
-			return macRun(stderr, "", func(c macCommandContext) (commandOutcome, error) {
-				return runMacSSH(cmd.Context(), c.manager, verb, name, remote, stdout, stderr)
-			})(cmd, args)
-		}
-		mac.AddCommand(command)
-	}
-
 	var configureOptions macvm.ConfigureOptions
 	configure := &cobra.Command{
 		Use: "configure <name>", Short: "Change a machine's CPUs, memory, shared folders, clipboard or network", GroupID: "mac-life",
@@ -600,6 +544,73 @@ unused bases.`,
 	destroy.Flags().BoolVar(&destroyForce, "yes", false, "same as --force")
 	noFileCompletions(destroy, "force", "yes")
 	mac.AddCommand(destroy)
+}
+
+func addMacAccessCommands(mac *cobra.Command, stdout, stderr io.Writer) {
+	open := &cobra.Command{
+		Use: "open [name]", Short: "Show a machine's desktop, starting it if needed", GroupID: "mac-access", Args: cobra.MaximumNArgs(1), ValidArgsFunction: macCompletion(false),
+		Long: `Show the machine's desktop window, starting the machine first when it is
+stopped. Closing the window keeps the machine running in the background; the
+clipboard is shared while the window is focused.`,
+		Example: "  barn mac open\n  barn mac open dev",
+	}
+	open.RunE = func(cmd *cobra.Command, args []string) error {
+		name, err := macName(args)
+		if err != nil {
+			return err
+		}
+		return macRun(stderr, "Opening "+name, func(c macCommandContext) (commandOutcome, error) {
+			outcome, err := c.manager.Open(cmd.Context(), name)
+			return macLifecycleOutcome(outcome, stderr), err
+		})(cmd, args)
+	}
+	mac.AddCommand(open)
+
+	for _, verb := range []string{"ssh", "exec"} {
+		use, short := "ssh [name] [-- command...]", "Open a shell in a machine, or run a command"
+		example := "  barn mac ssh\n  barn mac ssh dev\n  barn mac ssh dev -- 'sw_vers; id'"
+		if verb == "exec" {
+			use, short = "exec [name] -- command...", "Run a command in a machine and pass its exit status through"
+			example = "  barn mac exec -- sw_vers\n  barn mac exec dev -- xcodebuild -version\n  barn --json mac exec -- sh -c 'exit 3'"
+		}
+		command := &cobra.Command{
+			Use: use, Short: short, Example: example, GroupID: "mac-access", Args: cobra.ArbitraryArgs, ValidArgsFunction: remoteCompletion(macCompletion(false)),
+			Long: `Connect with the machine's own key and pinned host key. Everything before --
+must be empty or one known machine name, apart from Barn flags. A remote
+command requires --, and its first argument must not be empty.
+For exec, pass the program and its arguments separately to preserve argument
+boundaries, including later empty values. Use sh -c explicitly for shell
+expressions. A single command string remains supported as shell shorthand
+for compatibility. exec requires a command.
+ssh passes the command line to the remote shell like plain ssh. Without a
+command, ssh opens an interactive session.`,
+		}
+		command.RunE = func(cmd *cobra.Command, args []string) error {
+			head, remote, err := splitRemoteArguments(remoteArguments(cmd, args), "barn mac "+verb, "name", verb == "exec")
+			if err != nil {
+				return newUsageError(err)
+			}
+			name, err := macName(head)
+			if err != nil {
+				return err
+			}
+			if len(head) > 0 {
+				store, err := macStore()
+				if err != nil {
+					return newRuntimeError(err)
+				}
+				if _, err := store.LoadMachine(name); errors.Is(err, os.ErrNotExist) {
+					return newUsageError(failure.WithNext(fmt.Errorf("unknown machine %q", name), "barn mac ls"))
+				} else if err != nil {
+					return newRuntimeError(err)
+				}
+			}
+			return macRun(stderr, "", func(c macCommandContext) (commandOutcome, error) {
+				return runMacSSH(cmd.Context(), c.manager, verb, name, remote, stdout, stderr)
+			})(cmd, args)
+		}
+		mac.AddCommand(command)
+	}
 
 	var copyPassword bool
 	password := &cobra.Command{
@@ -709,7 +720,9 @@ host is published by address only.`,
 	logs.Flags().IntVarP(&lines, "lines", "n", 100, "number of recent lines")
 	noFileCompletions(logs, "lines")
 	mac.AddCommand(logs)
+}
 
+func addMacHostCommands(mac *cobra.Command, stdout, stderr io.Writer) {
 	var setupOptions macvm.SetupOptions
 	var setupYes bool
 	setup := &cobra.Command{
@@ -746,7 +759,7 @@ machine is a copy-on-write clone of one base.`,
 			images, err := c.manager.Store.ImageList()
 			return macImagesOutcome(images), err
 		})})
-	var updateOptions = macvm.SetupOptions{Update: true}
+	updateOptions := macvm.SetupOptions{Update: true}
 	var updateYes bool
 	update := &cobra.Command{Use: "update", Short: "Prepare the newest macOS 27 from Apple as the default base", Args: cobra.NoArgs,
 		Long: `Ask Apple for the newest macOS 27 restore image, download it after you confirm,
@@ -792,8 +805,6 @@ folders, network and SSH. It changes nothing and starts nothing.`,
 			}
 			return outcome, nil
 		})})
-
-	return mac
 }
 
 // macConfirmError keeps a declined confirmation a cancellation and a missing

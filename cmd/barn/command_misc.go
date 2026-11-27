@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
 	"strings"
+	"time"
 
+	"github.com/pgsty/barn/internal/doctor"
 	"github.com/pgsty/barn/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -29,6 +33,68 @@ func runVersionCommand() commandOutcome {
 			return err
 		},
 	}
+}
+
+// doctorCheckLabel is the word a person reads, chosen to match the consequence
+// rather than the raw severity. A network finding is real, but it never changes
+// the exit status, and printing "error" next to a successful exit is the kind of
+// contradiction that teaches people to stop reading the output.
+func doctorCheckLabel(check doctor.Check) string {
+	if check.Class == doctor.ClassNetwork && check.Status == doctor.Error {
+		return "blocked"
+	}
+	return string(check.Status)
+}
+
+func runDoctor(parent context.Context, stderr io.Writer) (commandOutcome, error) {
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+	defer cancel()
+	progressItem := startOperationProgress(ctx, stderr, "Checking host capabilities", "doctor")
+	report := (doctor.Probe{Progress: progressItem.Report}).Run(ctx)
+	var reportErr error
+	if report.HasErrors() {
+		reportErr = errors.New("host compute capability is not ready")
+	}
+	if ctx.Err() != nil {
+		reportErr = ctx.Err()
+	}
+	progressItem.Stop(reportErr)
+	if errors.Is(parent.Err(), context.Canceled) {
+		return commandOutcome{}, ErrCancelled
+	}
+	renderText := func(stdout, _ io.Writer) error {
+		if !lifecycleProgressFrozen(stdout) {
+			rows := make([][]string, 0, len(report.Checks))
+			for _, check := range report.Checks {
+				rows = append(rows, []string{check.Name, doctorCheckLabel(check), check.Evidence})
+			}
+			printTable(stdout, []string{"ITEM", "STATE", "MESSAGE"}, rows, 1)
+		}
+		for _, check := range report.Checks {
+			if check.Status != doctor.OK && check.Evidence != "" {
+				textField(stdout, 5, "detail", check.Name+": "+check.Evidence)
+			}
+			if check.Fix != "" {
+				textField(stdout, 5, "fix", check.Name+": "+check.Fix)
+			}
+		}
+		if report.HasErrors() {
+			printResultSummary(stdout, "doctor", "failed", "this host cannot run Barn guests until the errors above are resolved")
+		} else if !lifecycleProgressFrozen(stdout) {
+			printResultSummary(stdout, "doctor", "ready", "host compute capability is ready")
+		}
+		if !report.NetworkReady() {
+			warningf(stdout, "the Barn network is not ready; run barn setup to prepare it")
+		}
+		return nil
+	}
+	if ctx.Err() != nil {
+		return commandOutcome{}, newCommandError(exitRuntime, ctx.Err()).withPayload(report).withText(renderText)
+	}
+	if report.HasErrors() {
+		return commandOutcome{}, newCommandError(exitCapability, errors.New("host compute capability is not ready")).withPayload(report).withText(renderText).quiet()
+	}
+	return commandOutcome{payload: report, text: renderText}, nil
 }
 
 func newCompletionCommand(root *cobra.Command, stdout, stderr io.Writer) *cobra.Command {

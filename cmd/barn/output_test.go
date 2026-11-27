@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/spec"
 	"go.yaml.in/yaml/v4"
 )
@@ -510,12 +511,12 @@ func TestExecuteSSHProcessCapturesStructuredRemoteResult(t *testing.T) {
 }
 
 func TestBoundedCaptureReportsTruncation(t *testing.T) {
-	capture := boundedCapture{limit: 4}
+	capture := execx.NewLimitedBuffer(4)
 	if written, err := capture.Write([]byte("abcdef")); err != nil || written != 6 {
 		t.Fatalf("write=%d err=%v", written, err)
 	}
-	if capture.String() != "abcd" || !capture.truncated {
-		t.Fatalf("capture=%q truncated=%t", capture.String(), capture.truncated)
+	if capture.String() != "abcd" || !capture.Truncated() {
+		t.Fatalf("capture=%q truncated=%t", capture.String(), capture.Truncated())
 	}
 }
 

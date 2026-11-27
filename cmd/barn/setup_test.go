@@ -34,7 +34,7 @@ func (runner *setupSequenceRunner) Run(context.Context, string, ...string) (exec
 func TestResolveSetupSelectionDefaultsToMeta(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	selection, err := resolveSetupSelection("", "", "", directory)
+	selection, err := resolveSetupSelectionInputs("", "", "", vmInputs{}, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestResolveSetupSelectionDefaultsToMeta(t *testing.T) {
 func TestResolveSetupSelectionGeneratesPrivateProfileOnce(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	selection, err := resolveSetupSelection("meta", "", "", directory)
+	selection, err := resolveSetupSelectionInputs("meta", "", "", vmInputs{}, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestResolveSetupSelectionGeneratesPrivateProfileOnce(t *testing.T) {
 	if err := os.WriteFile(selection.ConfigPath, selection.ConfigData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	repeated, err := resolveSetupSelection("meta", "", "", directory)
+	repeated, err := resolveSetupSelectionInputs("meta", "", "", vmInputs{}, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestResolveSetupSelectionGeneratesPrivateProfileOnce(t *testing.T) {
 func TestResolveSetupSelectionAppliesImageToGeneratedProfile(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	selection, err := resolveSetupSelectionWithOverrides("full", "", "", "el9", "", directory)
+	selection, err := resolveSetupSelectionInputs("full", "", "", vmInputs{Image: "el9"}, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,14 +101,14 @@ func TestResolveSetupSelectionRejectsImageForExistingInventory(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 	path := filepath.Join(directory, "pigsty.yml")
-	data, err := config.Template("meta", "")
+	data, err := config.TemplateWithOptions("meta", "", config.TemplateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolveSetupSelectionWithOverrides("", path, "", "el9", "", directory); err == nil || !strings.Contains(err.Error(), "apply only to a generated lab template") {
+	if _, err := resolveSetupSelectionInputs("", path, "", vmInputs{Image: "el9"}, directory); err == nil || !strings.Contains(err.Error(), "apply only to a generated lab template") {
 		t.Fatalf("existing inventory accepted image override: %v", err)
 	}
 }
@@ -116,14 +116,14 @@ func TestResolveSetupSelectionRejectsImageForExistingInventory(t *testing.T) {
 func TestResolveSetupSelectionPreservesDifferentExistingConfig(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	meta, err := resolveSetupSelection("meta", "", "", directory)
+	meta, err := resolveSetupSelectionInputs("meta", "", "", vmInputs{}, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(meta.ConfigPath, meta.ConfigData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolveSetupSelection("full", "", "", directory); err == nil {
+	if _, err := resolveSetupSelectionInputs("full", "", "", vmInputs{}, directory); err == nil {
 		t.Fatal("setup accepted a template over a different existing configuration")
 	}
 	data, err := os.ReadFile(meta.ConfigPath)
@@ -137,7 +137,7 @@ func TestResolveSetupSelectionPreservesDifferentExistingConfig(t *testing.T) {
 
 func TestGeneratedSetupProfileCanRebaseBeforePublish(t *testing.T) {
 	t.Parallel()
-	selection, err := resolveSetupSelection("full", "", "", t.TempDir())
+	selection, err := resolveSetupSelectionInputs("full", "", "", vmInputs{}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestGeneratedSetupProfileCanRebaseBeforePublish(t *testing.T) {
 
 func TestSetupFileCannotBeSilentlyRebased(t *testing.T) {
 	t.Parallel()
-	if _, err := resolveSetupSelection("", "/tmp/barn.yaml", "172.31.251.0/24", t.TempDir()); err == nil {
+	if _, err := resolveSetupSelectionInputs("", "/tmp/barn.yaml", "172.31.251.0/24", vmInputs{}, t.TempDir()); err == nil {
 		t.Fatal("-f accepted --cidr")
 	}
 }
@@ -346,13 +346,13 @@ func TestSetupSudoSessionAsksAtMostOnce(t *testing.T) {
 	}
 	runner := &recordingSetupRunner{}
 	var stderr bytes.Buffer
-	session := &sudoSession{base: runner, stderr: &stderr, scope: "setup run"}
-	defer session.close()
+	session := newSudoSession(runner, &stderr, "setup run")
+	defer session.Close()
 	ctx := context.TODO()
-	if err := session.ensure(ctx, "install the network"); err != nil {
+	if err := session.Ensure(ctx, "install the network"); err != nil {
 		t.Fatal(err)
 	}
-	if err := session.ensure(ctx, "install the hosts helper"); err != nil {
+	if err := session.Ensure(ctx, "install the hosts helper"); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.calls) != 1 || runner.calls[0] != "/usr/bin/sudo -n -v" {
@@ -386,9 +386,9 @@ func TestSetupSudoSessionAcceptsPasswordlessCommandPolicy(t *testing.T) {
 		t.Skip("interactive stdin would open a real sudo prompt")
 	}
 	runner := &passwordlessSetupRunner{}
-	session := &sudoSession{base: runner, stderr: &bytes.Buffer{}}
-	defer session.close()
-	if err := session.ensure(context.TODO(), "install the network"); err != nil {
+	session := newSudoSession(runner, &bytes.Buffer{}, "")
+	defer session.Close()
+	if err := session.Ensure(context.TODO(), "install the network"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"/usr/bin/sudo -n -v", "/usr/bin/sudo -n -- /usr/bin/true"}
@@ -412,7 +412,7 @@ func TestSetupCommandFailureSeparatesChangedFromUncertain(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &setupSequenceRunner{failAt: test.failAt}
-			sudo := &sudoSession{base: runner, stderr: &bytes.Buffer{}}
+			sudo := newSudoSession(runner, &bytes.Buffer{}, "")
 			changed, uncertain, err := runSetupCommands(context.TODO(), commands, runner, sudo, &bytes.Buffer{})
 			if err == nil || changed != test.wantChanged || !uncertain {
 				t.Fatalf("changed=%t uncertain=%t err=%v", changed, uncertain, err)
@@ -423,9 +423,9 @@ func TestSetupCommandFailureSeparatesChangedFromUncertain(t *testing.T) {
 
 func TestSudoRunnerPreservesOnlyNamedProxyEnvironment(t *testing.T) {
 	runner := &recordingSetupRunner{}
-	wrapped := sudoRunner{
-		base:                runner,
-		preserveEnvironment: []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"},
+	wrapped := setuphost.SudoRunner{
+		Base:                runner,
+		PreserveEnvironment: []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"},
 	}
 	if _, err := wrapped.Run(context.TODO(), "/usr/bin/apt-get", "update"); err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestSetupPlanShowsProxyNamesWithoutValues(t *testing.T) {
 	}
 	// Distinctive fragments: a random temp-dir name must not match them.
 	t.Setenv("HTTPS_PROXY", "http://proxyuser:proxysecret@198.51.100.7:39443")
-	selection, err := resolveSetupSelection("meta", "", "", t.TempDir())
+	selection, err := resolveSetupSelectionInputs("meta", "", "", vmInputs{}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestSetupPlanShowsProxyNamesWithoutValues(t *testing.T) {
 }
 
 func TestSetupPlanNamesLinuxBridgeWithoutVmnet(t *testing.T) {
-	selection, err := resolveSetupSelection("meta", "", "", t.TempDir())
+	selection, err := resolveSetupSelectionInputs("meta", "", "", vmInputs{}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
