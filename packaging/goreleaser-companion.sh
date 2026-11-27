@@ -83,7 +83,9 @@ generated=${stage}/companion_digest_release.go
 } >"${generated}"
 chmod 0600 "${generated}"
 
-virtual=${repo}/internal/hostconfig/companion_digest_release_generated.go
+# Go resolves overlay keys against its working directory, which may reach the
+# checkout through a symlink. The generated backing file uses the physical path.
+virtual=internal/hostconfig/companion_digest_release_generated.go
 jq -n --arg virtual "${virtual}" --arg generated "${generated}" \
   '{Replace: {($virtual): $generated}}' >"${stage}/overlay.json"
 chmod 0600 "${stage}/overlay.json"
