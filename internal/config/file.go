@@ -18,174 +18,100 @@ import (
 	"github.com/pgsty/barn/internal/naming"
 	"github.com/pgsty/barn/internal/network/subnet"
 	"github.com/pgsty/barn/internal/spec"
-	"go.yaml.in/yaml/v4"
 )
 
-type Size int64
+const (
+	maxVirtualCPUs = 256
+	// minMemory is the smallest guest memory Barn boots.
+	minMemory = 512 << 20
+)
 
-func (s *Size) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-		return errors.New("size must be a quoted or plain string with an explicit unit")
-	}
-	value, err := ParseSize(node.Value)
-	if err != nil {
-		return err
-	}
-	*s = Size(value)
-	return nil
-}
-
-const maxVirtualCPUs = 256
-
-func (s Size) MarshalYAML() (any, error) {
-	value := int64(s)
+// FormatSize renders a byte size using the largest exact binary unit.
+func FormatSize(value int64) string {
 	for _, unit := range []struct {
 		name string
 		size int64
 	}{{"TiB", 1 << 40}, {"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10}} {
 		if value >= unit.size && value%unit.size == 0 {
-			return strconv.FormatInt(value/unit.size, 10) + unit.name, nil
+			return strconv.FormatInt(value/unit.size, 10) + unit.name
 		}
 	}
-	return strconv.FormatInt(value, 10) + "B", nil
+	return strconv.FormatInt(value, 10) + "B"
 }
-
-type Duration time.Duration
-
-func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-		return errors.New("duration must be a string")
-	}
-	value, err := time.ParseDuration(node.Value)
-	if err != nil || value <= 0 {
-		return fmt.Errorf("invalid positive duration %q", node.Value)
-	}
-	*d = Duration(value)
-	return nil
-}
-
-func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
 type NetworkConfig struct {
-	Mode        string `yaml:"mode"`
-	CIDR        string `yaml:"cidr,omitempty"`
-	HostAddress string `yaml:"host_address,omitempty"`
-	DHCPEnd     string `yaml:"dhcp_end,omitempty"`
+	Mode        string
+	CIDR        string
+	HostAddress string
+	DHCPEnd     string
 }
 
 type DefaultsConfig struct {
-	Image    string `yaml:"image,omitempty"`
-	CPUs     int    `yaml:"cpus,omitempty"`
-	Memory   Size   `yaml:"memory,omitempty"`
-	RootDisk Size   `yaml:"root_disk,omitempty"`
+	Image    string
+	CPUs     int
+	Memory   int64
+	RootDisk int64
 }
 
 type SSHConfig struct {
-	User        string   `yaml:"user,omitempty"`
-	WaitTimeout Duration `yaml:"wait_timeout,omitempty"`
+	User        string
+	WaitTimeout time.Duration
 }
 
 type DiskConfig struct {
-	Name       string `yaml:"name"`
-	Size       Size   `yaml:"size"`
-	Mount      string `yaml:"mount"`
-	Filesystem string `yaml:"filesystem,omitempty"`
-	Persistent bool   `yaml:"persistent,omitempty"`
+	Name       string
+	Size       int64
+	Mount      string
+	Filesystem string
+	Persistent bool
 }
 
 type ShareConfig struct {
-	Host     string `yaml:"host"`
-	Guest    string `yaml:"guest"`
-	Readonly *bool  `yaml:"readonly,omitempty"`
+	Host     string
+	Guest    string
+	Readonly *bool
 }
 
 func shareReadonly(share ShareConfig) bool { return share.Readonly == nil || *share.Readonly }
 
-func shareReadonlyYAML(readonly bool) *bool {
-	if readonly {
-		return nil
-	}
-	value := false
-	return &value
-}
-
 type NodeConfig struct {
-	Name        string        `yaml:"name"`
-	Control     bool          `yaml:"control,omitempty"`
-	Address     string        `yaml:"address,omitempty"`
-	HostAliases []string      `yaml:"host_aliases,omitempty"`
-	Image       string        `yaml:"image,omitempty"`
-	ImageArch   string        `yaml:"-" json:"-"`
-	ImageRaw    string        `yaml:"-" json:"-"`
-	CPUs        int           `yaml:"cpus,omitempty"`
-	Memory      Size          `yaml:"memory,omitempty"`
-	RootDisk    Size          `yaml:"root_disk,omitempty"`
-	Disks       []DiskConfig  `yaml:"disks,omitempty"`
-	Shares      []ShareConfig `yaml:"shares,omitempty"`
+	Name        string
+	Control     bool
+	Address     string
+	HostAliases []string
+	Image       string
+	ImageArch   string
+	ImageRaw    string
+	CPUs        int
+	Memory      int64
+	RootDisk    int64
+	Disks       []DiskConfig
+	Shares      []ShareConfig
 }
 
 type File struct {
-	Resources     []ResourceResolution `yaml:"-"`
+	Resources     []ResourceResolution
 	directory     string
 	archFromImage bool
-	Version       int                `yaml:"version"`
-	Name          string             `yaml:"name"`
-	Arch          string             `yaml:"arch,omitempty"`
-	Network       NetworkConfig      `yaml:"network"`
-	Defaults      DefaultsConfig     `yaml:"defaults,omitempty"`
-	SSH           SSHConfig          `yaml:"ssh,omitempty"`
-	Nodes         []NodeConfig       `yaml:"nodes"`
-	Hosts         []hostconfig.Entry `yaml:"-"`
+	Version       int
+	Name          string
+	Arch          string
+	Network       NetworkConfig
+	Defaults      DefaultsConfig
+	SSH           SSHConfig
+	Nodes         []NodeConfig
+	Hosts         []hostconfig.Entry
 }
 
 var (
-	sshUser        = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	dnsName        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
-	diskName       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
-	reservedMounts = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn"}
+	sshUser  = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	dnsName  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
+	diskName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 )
 
-func safeDiskMount(value string) bool {
-	cleaned, ok := normalizeGuestPath(value)
-	if !ok {
-		return false
-	}
-	for _, root := range reservedMounts {
-		if guestPathOverlap(cleaned, root) {
-			return false
-		}
-	}
-	return true
-}
-
-// unsafeGuestPathReason explains why safeDiskMount rejected a guest path.
-func unsafeGuestPathReason(value string) string {
-	if cleaned, ok := normalizeGuestPath(value); ok {
-		value = cleaned
-	}
-	for _, root := range reservedMounts {
-		if guestPathOverlap(value, root) {
-			return "overlaps the reserved system path " + root
-		}
-	}
-	return "must be an absolute path other than / and must not contain control characters"
-}
-
-func normalizeGuestPath(value string) (string, bool) {
-	if !pathpkg.IsAbs(value) {
-		return "", false
-	}
-	for _, character := range value {
-		if character < 0x20 || character == 0x7f {
-			return "", false
-		}
-	}
-	cleaned := pathpkg.Clean(value)
-	if cleaned == "/" {
-		return "", false
-	}
-	return cleaned, true
-}
+func safeDiskMount(value string) bool                { return spec.SafeDiskMount(value) }
+func unsafeGuestPathReason(value string) string      { return spec.UnsafeGuestPathReason(value) }
+func normalizeGuestPath(value string) (string, bool) { return spec.NormalizeGuestPath(value) }
 
 // label names a node the way the inventory does: by its host key.
 func (node NodeConfig) label() string {
@@ -194,9 +120,6 @@ func (node NodeConfig) label() string {
 	}
 	return fmt.Sprintf("host %s (%s)", node.Address, node.Name)
 }
-
-// minMemory is the smallest guest memory Barn boots.
-const minMemory = 512 << 20
 
 func safeShareHost(value string) bool {
 	return filepath.IsAbs(value) && filepath.Clean(value) == value && value != "/" && !strings.ContainsAny(value, "\x00\r\n")
@@ -238,16 +161,16 @@ func (f *File) defaults() {
 		f.Defaults.CPUs = 1
 	}
 	if f.Defaults.Memory == 0 {
-		f.Defaults.Memory = Size(2 * spec.GiB)
+		f.Defaults.Memory = 2 * spec.GiB
 	}
 	if f.Defaults.RootDisk == 0 {
-		f.Defaults.RootDisk = Size(64 * spec.GiB)
+		f.Defaults.RootDisk = 64 * spec.GiB
 	}
 	if f.SSH.User == "" {
 		f.SSH.User = "dba"
 	}
 	if f.SSH.WaitTimeout == 0 {
-		f.SSH.WaitTimeout = Duration(180 * time.Second)
+		f.SSH.WaitTimeout = 180 * time.Second
 	}
 	if f.Network.Mode == "private" {
 		if f.Network.CIDR == "" {
@@ -358,10 +281,20 @@ func (f *File) Validate() error {
 	if f.Network.HostAddress != layout.HostAddress() || f.Network.DHCPEnd != layout.DHCPEnd() {
 		return fmt.Errorf("network %s requires host address %s and DHCP end %s", layout.CIDR(), layout.HostAddress(), layout.DHCPEnd())
 	}
-	names := make(map[string]string) // name -> node label
-	addresses := make(map[string]struct{})
-	allAliases := make(map[string]struct{})
-	controls := 0
+	if err := f.validateNodes(layout); err != nil {
+		return err
+	}
+	if len(f.Hosts) != 0 {
+		if _, err := f.HostEntries(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *File) validateNodes(layout subnet.Layout) error {
+	names := make(map[string]string, len(f.Nodes)) // name -> node label
+	allAliases := make(map[string]struct{}, len(f.Nodes))
 	for nodeIndex := range f.Nodes {
 		node := &f.Nodes[nodeIndex]
 		if !naming.ValidNodeName(node.Name) {
@@ -373,6 +306,8 @@ func (f *File) Validate() error {
 		names[node.Name] = node.label()
 		allAliases[node.Name] = struct{}{}
 	}
+	addresses := make(map[string]struct{}, len(f.Nodes))
+	controls := 0
 	var impliedArch, impliedOwner, impliedRaw string
 	for nodeIndex := range f.Nodes {
 		node := &f.Nodes[nodeIndex]
@@ -397,9 +332,9 @@ func (f *File) Validate() error {
 		switch {
 		case node.CPUs < 1 || node.CPUs > maxVirtualCPUs:
 			return fmt.Errorf("%s: %d vCPUs is out of range; use 1 to %d", where, node.CPUs, maxVirtualCPUs)
-		case int64(node.Memory) < minMemory:
-			return fmt.Errorf("%s: %d MiB memory is below the %d MiB minimum", where, int64(node.Memory)>>20, minMemory>>20)
-		case int64(node.RootDisk) <= 0:
+		case node.Memory < minMemory:
+			return fmt.Errorf("%s: %d MiB memory is below the %d MiB minimum", where, node.Memory>>20, minMemory>>20)
+		case node.RootDisk <= 0:
 			return fmt.Errorf("%s: root disk size must be positive", where)
 		}
 		if !layout.IsStatic(node.Address) {
@@ -409,82 +344,15 @@ func (f *File) Validate() error {
 			return fmt.Errorf("%s: address %s is used by another node", where, node.Address)
 		}
 		addresses[node.Address] = struct{}{}
-		aliasSeen := make(map[string]struct{})
-		for _, alias := range node.HostAliases {
-			if !dnsName.MatchString(alias) || strings.Contains(alias, "..") {
-				return fmt.Errorf("%s: invalid host alias %q: use lowercase DNS labels separated by dots", where, alias)
-			}
-			if _, exists := aliasSeen[alias]; exists {
-				return fmt.Errorf("%s: duplicate host alias %q", where, alias)
-			}
-			if _, exists := allAliases[alias]; exists {
-				return fmt.Errorf("%s: host alias %q is already a node name or another node's alias", where, alias)
-			}
-			aliasSeen[alias] = struct{}{}
-			allAliases[alias] = struct{}{}
+		if err := validateNodeAliases(node, where, allAliases); err != nil {
+			return err
 		}
-		diskNames := make(map[string]struct{})
-		mounts := make(map[string]struct{})
-		for diskIndex := range node.Disks {
-			disk := &node.Disks[diskIndex]
-			cleaned, ok := normalizeGuestPath(disk.Mount)
-			if !ok {
-				return fmt.Errorf("%s: disk mount %q %s", where, disk.Mount, unsafeGuestPathReason(disk.Mount))
-			}
-			disk.Mount = cleaned
-			switch {
-			case !diskName.MatchString(disk.Name):
-				return fmt.Errorf("%s: invalid disk name %q", where, disk.Name)
-			case disk.Size <= 0:
-				return fmt.Errorf("%s: disk %s size must be positive", where, disk.Mount)
-			case !safeDiskMount(disk.Mount):
-				return fmt.Errorf("%s: disk mount %q %s", where, disk.Mount, unsafeGuestPathReason(disk.Mount))
-			case !spec.ValidFilesystem(disk.Filesystem):
-				return fmt.Errorf("%s: disk %s fs %q must be auto, xfs, or ext4", where, disk.Mount, disk.Filesystem)
-			}
-			if _, exists := diskNames[disk.Name]; exists {
-				return fmt.Errorf("%s: duplicate disk name %q", where, disk.Name)
-			}
-			if _, exists := mounts[disk.Mount]; exists {
-				return fmt.Errorf("%s: duplicate disk mount %q", where, disk.Mount)
-			}
-			diskNames[disk.Name] = struct{}{}
-			mounts[disk.Mount] = struct{}{}
+		mounts, err := validateNodeDisks(node, where)
+		if err != nil {
+			return err
 		}
-		shareGuests := make([]string, 0, len(node.Shares))
-		sshDirectory := pathpkg.Join("/home", f.SSH.User, ".ssh")
-		for shareIndex := range node.Shares {
-			share := &node.Shares[shareIndex]
-			host, err := fsutil.UserPath(share.Host, f.directory)
-			if err != nil || !safeShareHost(host) {
-				return fmt.Errorf("%s: share host %q must name a directory other than / on a single line", where, share.Host)
-			}
-			share.Host = host
-			cleanedGuest, ok := normalizeGuestPath(share.Guest)
-			if !ok {
-				return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
-			}
-			share.Guest = cleanedGuest
-			if !safeShareGuest(share.Guest) {
-				return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
-			}
-			if guestPathOverlap(share.Guest, sshDirectory) {
-				return fmt.Errorf("%s: share guest %q overlaps the SSH directory %q", where, share.Guest, sshDirectory)
-			}
-			for _, previous := range shareGuests {
-				if guestPathOverlap(previous, share.Guest) {
-					return fmt.Errorf("%s: share guests %q and %q overlap", where, previous, share.Guest)
-				}
-			}
-			for mount := range mounts {
-				if guestPathOverlap(mount, share.Guest) {
-					return fmt.Errorf("%s: share guest %q overlaps disk mount %q", where, share.Guest, mount)
-				}
-			}
-			shareGuests = append(shareGuests, share.Guest)
-		}
-		if len(node.Shares) == 0 {
-			node.Shares = nil
+		if err := f.validateNodeShares(node, where, mounts); err != nil {
+			return err
 		}
 	}
 	if impliedArch != "" && !f.archFromImage && f.Arch != "native" && f.Arch != impliedArch {
@@ -496,10 +364,94 @@ func (f *File) Validate() error {
 	if controls == 0 {
 		f.Nodes[0].Control = true
 	}
-	if len(f.Hosts) != 0 {
-		if _, err := f.HostEntries(); err != nil {
-			return err
+	return nil
+}
+
+func validateNodeAliases(node *NodeConfig, where string, allAliases map[string]struct{}) error {
+	seen := make(map[string]struct{}, len(node.HostAliases))
+	for _, alias := range node.HostAliases {
+		if !dnsName.MatchString(alias) || strings.Contains(alias, "..") {
+			return fmt.Errorf("%s: invalid host alias %q: use lowercase DNS labels separated by dots", where, alias)
 		}
+		if _, exists := seen[alias]; exists {
+			return fmt.Errorf("%s: duplicate host alias %q", where, alias)
+		}
+		if _, exists := allAliases[alias]; exists {
+			return fmt.Errorf("%s: host alias %q is already a node name or another node's alias", where, alias)
+		}
+		seen[alias] = struct{}{}
+		allAliases[alias] = struct{}{}
+	}
+	return nil
+}
+
+func validateNodeDisks(node *NodeConfig, where string) (map[string]struct{}, error) {
+	diskNames := make(map[string]struct{}, len(node.Disks))
+	mounts := make(map[string]struct{}, len(node.Disks))
+	for diskIndex := range node.Disks {
+		disk := &node.Disks[diskIndex]
+		cleaned, ok := normalizeGuestPath(disk.Mount)
+		if !ok {
+			return nil, fmt.Errorf("%s: disk mount %q %s", where, disk.Mount, unsafeGuestPathReason(disk.Mount))
+		}
+		disk.Mount = cleaned
+		switch {
+		case !diskName.MatchString(disk.Name):
+			return nil, fmt.Errorf("%s: invalid disk name %q", where, disk.Name)
+		case disk.Size <= 0:
+			return nil, fmt.Errorf("%s: disk %s size must be positive", where, disk.Mount)
+		case !safeDiskMount(disk.Mount):
+			return nil, fmt.Errorf("%s: disk mount %q %s", where, disk.Mount, unsafeGuestPathReason(disk.Mount))
+		case !spec.ValidFilesystem(disk.Filesystem):
+			return nil, fmt.Errorf("%s: disk %s fs %q must be auto, xfs, or ext4", where, disk.Mount, disk.Filesystem)
+		}
+		if _, exists := diskNames[disk.Name]; exists {
+			return nil, fmt.Errorf("%s: duplicate disk name %q", where, disk.Name)
+		}
+		if _, exists := mounts[disk.Mount]; exists {
+			return nil, fmt.Errorf("%s: duplicate disk mount %q", where, disk.Mount)
+		}
+		diskNames[disk.Name] = struct{}{}
+		mounts[disk.Mount] = struct{}{}
+	}
+	return mounts, nil
+}
+
+func (f *File) validateNodeShares(node *NodeConfig, where string, mounts map[string]struct{}) error {
+	shareGuests := make([]string, 0, len(node.Shares))
+	sshDirectory := pathpkg.Join("/home", f.SSH.User, ".ssh")
+	for shareIndex := range node.Shares {
+		share := &node.Shares[shareIndex]
+		host, err := fsutil.UserPath(share.Host, f.directory)
+		if err != nil || !safeShareHost(host) {
+			return fmt.Errorf("%s: share host %q must name a directory other than / on a single line", where, share.Host)
+		}
+		share.Host = host
+		cleanedGuest, ok := normalizeGuestPath(share.Guest)
+		if !ok {
+			return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
+		}
+		share.Guest = cleanedGuest
+		if !safeShareGuest(share.Guest) {
+			return fmt.Errorf("%s: share guest %q %s", where, share.Guest, unsafeGuestPathReason(share.Guest))
+		}
+		if guestPathOverlap(share.Guest, sshDirectory) {
+			return fmt.Errorf("%s: share guest %q overlaps the SSH directory %q", where, share.Guest, sshDirectory)
+		}
+		for _, previous := range shareGuests {
+			if guestPathOverlap(previous, share.Guest) {
+				return fmt.Errorf("%s: share guests %q and %q overlap", where, previous, share.Guest)
+			}
+		}
+		for mount := range mounts {
+			if guestPathOverlap(mount, share.Guest) {
+				return fmt.Errorf("%s: share guest %q overlaps disk mount %q", where, share.Guest, mount)
+			}
+		}
+		shareGuests = append(shareGuests, share.Guest)
+	}
+	if len(node.Shares) == 0 {
+		node.Shares = nil
 	}
 	return nil
 }
@@ -542,7 +494,7 @@ func (f File) Resolve() (spec.Resolved, error) {
 		resolved.Private = &spec.PrivateNetwork{CIDR: f.Network.CIDR, HostAddress: f.Network.HostAddress, DHCPEnd: f.Network.DHCPEnd}
 	}
 	for _, source := range f.Nodes {
-		node := spec.Node{Name: source.Name, Control: source.Control, Address: source.Address, Aliases: append([]string(nil), source.HostAliases...), CPUs: source.CPUs, Memory: int64(source.Memory), RootDisk: int64(source.RootDisk)}
+		node := spec.Node{Name: source.Name, Control: source.Control, Address: source.Address, Aliases: append([]string(nil), source.HostAliases...), CPUs: source.CPUs, Memory: source.Memory, RootDisk: source.RootDisk}
 		if source.Image != f.Defaults.Image {
 			node.Image = source.Image
 		}
@@ -551,7 +503,7 @@ func (f File) Resolve() (spec.Resolved, error) {
 			if filesystem == "auto" {
 				filesystem = ""
 			}
-			node.Disks = append(node.Disks, spec.Disk{Name: sourceDisk.Name, Size: int64(sourceDisk.Size), Mount: sourceDisk.Mount, Filesystem: filesystem, Persistent: sourceDisk.Persistent})
+			node.Disks = append(node.Disks, spec.Disk{Name: sourceDisk.Name, Size: sourceDisk.Size, Mount: sourceDisk.Mount, Filesystem: filesystem, Persistent: sourceDisk.Persistent})
 		}
 		for _, sourceShare := range source.Shares {
 			node.Shares = append(node.Shares, spec.Share{Host: sourceShare.Host, Guest: sourceShare.Guest, Readonly: shareReadonly(sourceShare)})

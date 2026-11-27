@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
 	"reflect"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -222,11 +222,7 @@ func varsOf(node *yaml.Node, origin string) (map[string]*yaml.Node, error) {
 // unknownVMKeyError keeps the vm_* namespace strict while pointing at the
 // likely intended variable.
 func unknownVMKeyError(key *yaml.Node, origin string) error {
-	known := make([]string, 0, len(knownVMKeys))
-	for name := range knownVMKeys {
-		known = append(known, name)
-	}
-	sort.Strings(known)
+	known := slices.Sorted(maps.Keys(knownVMKeys))
 	hint := "valid vm_* variables: " + strings.Join(known, ", ")
 	if closest := naming.Closest(key.Value, known); closest != "" {
 		hint = fmt.Sprintf("did you mean %s?", closest)
@@ -530,7 +526,7 @@ func (host inventoryHost) lookupDisks() ([]DiskConfig, bool, error) {
 			}
 			persistent = flag
 		}
-		disks = append(disks, DiskConfig{Name: name, Size: Size(size), Mount: path, Filesystem: filesystem, Persistent: persistent})
+		disks = append(disks, DiskConfig{Name: name, Size: size, Mount: path, Filesystem: filesystem, Persistent: persistent})
 	}
 	return disks, true, nil
 }
@@ -564,7 +560,9 @@ func (host inventoryHost) lookupShares() ([]ShareConfig, bool, error) {
 			if !ok {
 				return nil, true, fmt.Errorf("host %s share %s readonly must be a boolean", host.address, guestPath)
 			}
-			share.Readonly = shareReadonlyYAML(flag)
+			if !flag {
+				share.Readonly = &flag
+			}
 		}
 		shares = append(shares, share)
 	}
@@ -752,11 +750,7 @@ func inventoryCIDR(hosts []inventoryHost) (subnet.Layout, error) {
 		}
 	}
 	if len(prefixes) != 1 {
-		list := make([]string, 0, len(prefixes))
-		for prefix := range prefixes {
-			list = append(list, prefix)
-		}
-		sort.Strings(list)
+		list := slices.Sorted(maps.Keys(prefixes))
 		return subnet.Layout{}, fmt.Errorf("all managed hosts must share one /24; inventory spans %s", strings.Join(list, ", "))
 	}
 	for prefix, host := range prefixes {
@@ -806,69 +800,15 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 	if len(options) > 0 {
 		inputs = options[0]
 	}
-	if len(data) > maxInventoryBytes {
-		return File{}, errors.New("inventory exceeds the 4 MiB limit")
-	}
-	document, err := inventoryDocument(data)
+	managed, globalVars, err := parseInventoryDocument(data)
 	if err != nil {
 		return File{}, err
 	}
-	if len(document.Content) != 1 {
-		return File{}, errors.New("inventory must be exactly one YAML document")
-	}
-	root := document.Content[0]
-	if !isMapping(root) {
-		return File{}, errors.New("inventory root must be a mapping with an all: group")
-	}
-	all, err := mappingLookup(root, "all")
-	if err != nil {
-		return File{}, err
-	}
-	if all == nil {
-		return File{}, errors.New("inventory has no all: group")
-	}
-	globalVarsNode, err := mappingLookup(all, "vars")
-	if err != nil {
-		return File{}, fmt.Errorf("all: %w", err)
-	}
-	globalVars, err := varsOf(globalVarsNode, "all.vars")
-	if err != nil {
-		return File{}, err
-	}
-	hosts := make([]inventoryHost, 0)
-	index := make(map[string]int)
-	inherited := []varSource{}
-	if len(globalVars) != 0 {
-		inherited = append(inherited, varSource{origin: "all.vars", depth: 0, vars: globalVars})
-	}
-	if err := collectHosts(all, "all", 0, inherited, &hosts, index, make(map[*yaml.Node]bool)); err != nil {
-		return File{}, err
-	}
-	if len(hosts) == 0 {
-		return File{}, errors.New("inventory defines no hosts")
-	}
-
 	adminIP := ""
 	if node, present := globalVars["admin_ip"]; present {
 		if err := node.Decode(&adminIP); err != nil {
 			return File{}, errors.New("all.vars admin_ip must be a string")
 		}
-	}
-
-	managed := make([]inventoryHost, 0, len(hosts))
-	for _, host := range hosts {
-		host = dedupeVarSources(host)
-		skip, _, err := host.lookupBool("vm_skip")
-		if err != nil {
-			return File{}, err
-		}
-		if skip {
-			continue
-		}
-		managed = append(managed, host)
-	}
-	if len(managed) == 0 {
-		return File{}, errors.New("inventory has no managed hosts; every host sets vm_skip: true")
 	}
 	layout, err := inventoryCIDR(managed)
 	if err != nil {
@@ -888,153 +828,32 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 		Hosts:     hostEntries,
 	}
 
-	sshUser := ""
-	sshUserOwner := ""
-	vmArch := ""
-	vmArchOwner := ""
+	var sshUser, sshUserOwner, vmArch, vmArchOwner string
 	vmArchHosts := 0
 	controlIndex := -1
 	for _, host := range managed {
-		name, err := host.nodeName()
+		parsed, err := parseInventoryHost(host, inputs)
 		if err != nil {
 			return File{}, err
 		}
-		node := NodeConfig{Name: name, Address: host.address}
-
-		imageAlias := defaultImage
-		if value, found, err := host.lookupString("vm_image"); err != nil {
-			return File{}, err
-		} else if found {
-			imageAlias = value
-		}
-		versionSelector, versionFound, err := host.lookupVersionSelector("vm_version")
-		if err != nil {
-			return File{}, err
-		}
-		var resolvedImage image.ResolvedReference
-		if versionFound {
-			resolvedImage, err = image.ResolveVersionReference(imageAlias, versionSelector)
-		} else {
-			resolvedImage, err = image.ResolveReference(imageAlias)
-		}
-		if err != nil {
-			return File{}, fmt.Errorf("host %s vm_image/vm_version: %w", host.address, err)
-		}
-		node.Image = resolvedImage.Reference
-		if resolvedImage.Arch != "" {
-			node.ImageArch = resolvedImage.Arch
-			node.ImageRaw = strings.TrimSpace(imageAlias)
-		}
-
-		if value, found, err := host.lookupString("vm_arch"); err != nil {
-			return File{}, err
-		} else if found {
-			value, err = platform.NormalizeArch(value)
-			if err != nil {
-				return File{}, fmt.Errorf("host %s vm_arch: %w", host.address, err)
-			}
+		if parsed.vmArch != "" {
 			vmArchHosts++
 			if vmArchHosts == 1 {
-				vmArch, vmArchOwner = value, host.address
-			} else if vmArch != value {
+				vmArch, vmArchOwner = parsed.vmArch, host.address
+			} else if vmArch != parsed.vmArch {
 				return File{}, fmt.Errorf("hosts %s and %s declare different vm_arch values; barn uses one guest architecture per deployment", vmArchOwner, host.address)
 			}
 		}
-
-		scale := int64(1)
-		if value, found, err := host.lookupInt("vm_scale", 1, maxVirtualCPUs); err != nil {
-			return File{}, err
-		} else if found {
-			scale = value
-		}
-
-		baseCPU := int64(defaultCPU)
-		if value, found, err := host.lookupInt("vm_cpu", 1, maxVirtualCPUs); err != nil {
-			return File{}, err
-		} else if found {
-			baseCPU = value
-		}
-
-		baseMemory := int64(defaultMemMiB << 20)
-		if value, found, err := host.lookupSize("vm_mem", 1<<20, minMemory); err != nil {
-			return File{}, err
-		} else if found {
-			baseMemory = value
-		}
-
-		node.RootDisk = Size(defaultDiskGiB * spec.GiB)
-		if value, found, err := host.lookupSize("vm_disk", spec.GiB, 0); err != nil {
-			return File{}, err
-		} else if found {
-			node.RootDisk = Size(value)
-		}
-
-		resources := ResourceResolution{Node: name, CPU: baseCPU, Memory: baseMemory, Scale: scale, Disk: int64(node.RootDisk), Sources: make(map[string]string)}
-		for _, field := range []string{"cpu", "mem", "scale", "disk", "image", "arch"} {
-			_, origin, found, lookupErr := host.lookup("vm_" + field)
-			if lookupErr != nil {
-				return File{}, lookupErr
-			}
-			if !found {
-				origin = "default"
-			}
-			resources.Sources[field] = origin
-		}
-		if node.ImageArch != "" && (resources.Sources["arch"] == "default" || vmArch == "native") {
-			resources.Sources["arch"] = resources.Sources["image"]
-		}
-		overrides := ResourceOverrides{}
-		if len(inputs.Nodes) == 0 || slices.Contains(inputs.Nodes, name) {
-			overrides = inputs.Resources
-		}
-		resources, err = ResolveResources(resources, overrides)
-		if err != nil {
-			return File{}, err
-		}
-		node.CPUs, node.Memory, node.RootDisk = int(resources.EffectiveCPU), Size(resources.EffectiveMemory), Size(resources.Disk)
-		file.Resources = append(file.Resources, resources)
-
-		if disks, found, err := host.lookupDisks(); err != nil {
-			return File{}, err
-		} else if found {
-			node.Disks = disks
-		} else {
-			node.Disks = []DiskConfig{{Name: "data", Size: Size(defaultDataGiB * spec.GiB), Mount: "/data", Filesystem: "auto"}}
-		}
-
-		if aliases, found, err := host.lookupStringList("vm_alias"); err != nil {
-			return File{}, err
-		} else if found {
-			node.HostAliases = aliases
-		}
-
-		if shares, found, err := host.lookupShares(); err != nil {
-			return File{}, err
-		} else if found {
-			node.Shares = shares
-		}
-
-		user := defaultSSHUser
-		if value, found, err := host.lookupString("node_admin_username"); err != nil {
-			return File{}, err
-		} else if found && value != "" {
-			user = value
-		}
 		if sshUser == "" {
-			sshUser, sshUserOwner = user, host.address
-		} else if sshUser != user {
+			sshUser, sshUserOwner = parsed.sshUser, host.address
+		} else if sshUser != parsed.sshUser {
 			return File{}, fmt.Errorf("hosts %s and %s declare different node_admin_username values; barn uses one login user per deployment", sshUserOwner, host.address)
 		}
-		if value, found, err := host.lookupInt("node_admin_uid", 0, 1<<31-1); err != nil {
-			return File{}, err
-		} else if found && user == defaultSSHUser && value != defaultAdminUID {
-			return File{}, fmt.Errorf("host %s sets node_admin_uid=%d; barn provisions %s with the fixed UID %d", host.address, value, defaultSSHUser, defaultAdminUID)
-		}
-
 		if host.address == adminIP {
 			controlIndex = len(file.Nodes)
 		}
-		file.Nodes = append(file.Nodes, node)
+		file.Resources = append(file.Resources, parsed.resources)
+		file.Nodes = append(file.Nodes, parsed.node)
 	}
 	if controlIndex < 0 {
 		controlIndex = 0
@@ -1047,11 +866,204 @@ func parseInventory(data []byte, directory string, options ...InventoryOptions) 
 		}
 		file.Arch = vmArch
 	}
-
 	if err := file.Validate(); err != nil {
 		return File{}, err
 	}
 	return file, nil
+}
+
+func parseInventoryDocument(data []byte) ([]inventoryHost, map[string]*yaml.Node, error) {
+	if len(data) > maxInventoryBytes {
+		return nil, nil, errors.New("inventory exceeds the 4 MiB limit")
+	}
+	document, err := inventoryDocument(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(document.Content) != 1 {
+		return nil, nil, errors.New("inventory must be exactly one YAML document")
+	}
+	root := document.Content[0]
+	if !isMapping(root) {
+		return nil, nil, errors.New("inventory root must be a mapping with an all: group")
+	}
+	all, err := mappingLookup(root, "all")
+	if err != nil {
+		return nil, nil, err
+	}
+	if all == nil {
+		return nil, nil, errors.New("inventory has no all: group")
+	}
+	globalVarsNode, err := mappingLookup(all, "vars")
+	if err != nil {
+		return nil, nil, fmt.Errorf("all: %w", err)
+	}
+	globalVars, err := varsOf(globalVarsNode, "all.vars")
+	if err != nil {
+		return nil, nil, err
+	}
+	hosts := make([]inventoryHost, 0)
+	index := make(map[string]int)
+	var inherited []varSource
+	if len(globalVars) != 0 {
+		inherited = append(inherited, varSource{origin: "all.vars", depth: 0, vars: globalVars})
+	}
+	if err := collectHosts(all, "all", 0, inherited, &hosts, index, make(map[*yaml.Node]bool)); err != nil {
+		return nil, nil, err
+	}
+	if len(hosts) == 0 {
+		return nil, nil, errors.New("inventory defines no hosts")
+	}
+	managed := make([]inventoryHost, 0, len(hosts))
+	for _, host := range hosts {
+		host = dedupeVarSources(host)
+		skip, _, err := host.lookupBool("vm_skip")
+		if err != nil {
+			return nil, nil, err
+		}
+		if !skip {
+			managed = append(managed, host)
+		}
+	}
+	if len(managed) == 0 {
+		return nil, nil, errors.New("inventory has no managed hosts; every host sets vm_skip: true")
+	}
+	return managed, globalVars, nil
+}
+
+type parsedInventoryHost struct {
+	node      NodeConfig
+	resources ResourceResolution
+	vmArch    string
+	sshUser   string
+}
+
+func parseInventoryHost(host inventoryHost, inputs InventoryOptions) (parsedInventoryHost, error) {
+	name, err := host.nodeName()
+	if err != nil {
+		return parsedInventoryHost{}, err
+	}
+	node := NodeConfig{Name: name, Address: host.address}
+
+	imageAlias := defaultImage
+	if value, found, err := host.lookupString("vm_image"); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found {
+		imageAlias = value
+	}
+	versionSelector, versionFound, err := host.lookupVersionSelector("vm_version")
+	if err != nil {
+		return parsedInventoryHost{}, err
+	}
+	var resolvedImage image.ResolvedReference
+	if versionFound {
+		resolvedImage, err = image.ResolveVersionReference(imageAlias, versionSelector)
+	} else {
+		resolvedImage, err = image.ResolveReference(imageAlias)
+	}
+	if err != nil {
+		return parsedInventoryHost{}, fmt.Errorf("host %s vm_image/vm_version: %w", host.address, err)
+	}
+	node.Image = resolvedImage.Reference
+	if resolvedImage.Arch != "" {
+		node.ImageArch = resolvedImage.Arch
+		node.ImageRaw = strings.TrimSpace(imageAlias)
+	}
+
+	vmArch := ""
+	if value, found, err := host.lookupString("vm_arch"); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found {
+		value, err = platform.NormalizeArch(value)
+		if err != nil {
+			return parsedInventoryHost{}, fmt.Errorf("host %s vm_arch: %w", host.address, err)
+		}
+		vmArch = value
+	}
+
+	resources, err := resolveInventoryResources(host, name, node.ImageArch, vmArch, inputs)
+	if err != nil {
+		return parsedInventoryHost{}, err
+	}
+	node.CPUs, node.Memory, node.RootDisk = int(resources.EffectiveCPU), resources.EffectiveMemory, resources.Disk
+
+	if disks, found, err := host.lookupDisks(); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found {
+		node.Disks = disks
+	} else {
+		node.Disks = []DiskConfig{{Name: "data", Size: defaultDataGiB * spec.GiB, Mount: "/data", Filesystem: "auto"}}
+	}
+	if aliases, found, err := host.lookupStringList("vm_alias"); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found {
+		node.HostAliases = aliases
+	}
+	if shares, found, err := host.lookupShares(); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found {
+		node.Shares = shares
+	}
+
+	user := defaultSSHUser
+	if value, found, err := host.lookupString("node_admin_username"); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found && value != "" {
+		user = value
+	}
+	if value, found, err := host.lookupInt("node_admin_uid", 0, 1<<31-1); err != nil {
+		return parsedInventoryHost{}, err
+	} else if found && user == defaultSSHUser && value != defaultAdminUID {
+		return parsedInventoryHost{}, fmt.Errorf("host %s sets node_admin_uid=%d; barn provisions %s with the fixed UID %d", host.address, value, defaultSSHUser, defaultAdminUID)
+	}
+	return parsedInventoryHost{node: node, resources: resources, vmArch: vmArch, sshUser: user}, nil
+}
+
+func resolveInventoryResources(host inventoryHost, name, imageArch, vmArch string, inputs InventoryOptions) (ResourceResolution, error) {
+	scale := int64(1)
+	if value, found, err := host.lookupInt("vm_scale", 1, maxVirtualCPUs); err != nil {
+		return ResourceResolution{}, err
+	} else if found {
+		scale = value
+	}
+	baseCPU := int64(defaultCPU)
+	if value, found, err := host.lookupInt("vm_cpu", 1, maxVirtualCPUs); err != nil {
+		return ResourceResolution{}, err
+	} else if found {
+		baseCPU = value
+	}
+	baseMemory := int64(defaultMemMiB << 20)
+	if value, found, err := host.lookupSize("vm_mem", 1<<20, minMemory); err != nil {
+		return ResourceResolution{}, err
+	} else if found {
+		baseMemory = value
+	}
+	rootDisk := int64(defaultDiskGiB * spec.GiB)
+	if value, found, err := host.lookupSize("vm_disk", spec.GiB, 0); err != nil {
+		return ResourceResolution{}, err
+	} else if found {
+		rootDisk = value
+	}
+
+	resources := ResourceResolution{Node: name, CPU: baseCPU, Memory: baseMemory, Scale: scale, Disk: rootDisk, Sources: make(map[string]string, 6)}
+	for _, field := range []string{"cpu", "mem", "scale", "disk", "image", "arch"} {
+		_, origin, found, err := host.lookup("vm_" + field)
+		if err != nil {
+			return ResourceResolution{}, err
+		}
+		if !found {
+			origin = "default"
+		}
+		resources.Sources[field] = origin
+	}
+	if imageArch != "" && (resources.Sources["arch"] == "default" || vmArch == "native") {
+		resources.Sources["arch"] = resources.Sources["image"]
+	}
+	var overrides ResourceOverrides
+	if len(inputs.Nodes) == 0 || slices.Contains(inputs.Nodes, name) {
+		overrides = inputs.Resources
+	}
+	return ResolveResources(resources, overrides)
 }
 
 // DetectFormat classifies raw configuration bytes without fully parsing them.

@@ -106,8 +106,8 @@ func TemplateWithOptions(name, cidr string, options TemplateOptions) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	memory, _ := Size(resources.Memory).MarshalYAML()
-	disk, _ := Size(resources.Disk).MarshalYAML()
+	memory := FormatSize(resources.Memory)
+	disk := FormatSize(resources.Disk)
 	fmt.Fprintf(&output, "    vm_image: %s\n    vm_arch: %s\n", selectedImage, selectedArch)
 	fmt.Fprintf(&output, "    vm_cpu: %d\n    vm_mem: %s\n    vm_scale: %d\n    vm_disk: %s\n", resources.CPU, memory, resources.Scale, disk)
 

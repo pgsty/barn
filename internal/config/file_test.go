@@ -1,91 +1,46 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"io"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/pgsty/barn/internal/spec"
-	"go.yaml.in/yaml/v4"
 )
 
-func TestYAMLCustomScalarsRoundTrip(t *testing.T) {
+func TestFormatSize(t *testing.T) {
 	t.Parallel()
-	type settings struct {
-		Memory      Size     `yaml:"memory"`
-		WaitTimeout Duration `yaml:"wait_timeout"`
+	cases := []struct {
+		bytes int64
+		want  string
+	}{
+		{2 * spec.GiB, "2GiB"},
+		{64 * spec.GiB, "64GiB"},
+		{512 << 20, "512MiB"},
+		{1 << 40, "1TiB"},
+		{1536, "1536B"},
 	}
-	want := settings{Memory: Size(2 * spec.GiB), WaitTimeout: Duration(90 * time.Second)}
-	data, err := yaml.Marshal(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(data); got != "memory: 2GiB\nwait_timeout: 1m30s\n" {
-		t.Fatalf("custom scalar output = %q", got)
-	}
-	var got settings
-	if err := yaml.Unmarshal(data, &got); err != nil || got != want {
-		t.Fatalf("round trip = %+v, %v; want %+v", got, err, want)
-	}
-	for _, input := range []string{"memory: 2048\n", "wait_timeout: 90\n", "wait_timeout: -1s\n"} {
-		if err := yaml.Unmarshal([]byte(input), &got); err == nil {
-			t.Errorf("invalid custom scalar accepted: %q", input)
+	for _, tc := range cases {
+		if got := FormatSize(tc.bytes); got != tc.want {
+			t.Errorf("FormatSize(%d) = %q, want %q", tc.bytes, got, tc.want)
 		}
 	}
 }
 
-// decodeTestFile mirrors the strict single-document decoding the retired
-// declarative loader performed, so File.Validate/Resolve rules stay covered
-// without resurrecting a production YAML entry point.
-func decodeTestFile(input string) (File, error) {
-	decoder := yaml.NewDecoder(strings.NewReader(input))
-	decoder.KnownFields(true)
-	var file File
-	if err := decoder.Decode(&file); err != nil {
-		return File{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return File{}, errors.New("configuration contains multiple YAML documents")
-	}
-	if err := file.Validate(); err != nil {
-		return File{}, err
-	}
-	return file, nil
-}
-
-func TestStrictYAMLResolve(t *testing.T) {
+func TestResolveDefaultsAndOverrides(t *testing.T) {
 	t.Parallel()
-	input := `version: 1
-name: full
-network:
-  mode: private
-defaults:
-  image: u24
-  cpus: 1
-  memory: 2GiB
-  root_disk: 64GiB
-ssh:
-  user: dba
-nodes:
-  - name: meta
-    control: true
-    address: 10.10.10.10
-    cpus: 2
-    memory: 4GiB
-    disks:
-      - name: data
-        size: 128GiB
-        mount: /data
-  - name: node-1
-    address: 10.10.10.11
-`
-	file, err := decodeTestFile(input)
-	if err != nil {
-		t.Fatal(err)
+	file := File{
+		Version:  1,
+		Name:     "full",
+		Network:  NetworkConfig{Mode: "private"},
+		Defaults: DefaultsConfig{Image: "u24", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 64 * spec.GiB},
+		SSH:      SSHConfig{User: "dba"},
+		Nodes: []NodeConfig{
+			{
+				Name: "meta", Control: true, Address: "10.10.10.10", CPUs: 2, Memory: 4 * spec.GiB,
+				Disks: []DiskConfig{{Name: "data", Size: 128 * spec.GiB, Mount: "/data"}},
+			},
+			{Name: "node-1", Address: "10.10.10.11"},
+		},
 	}
 	resolved, err := file.Resolve()
 	if err != nil {
@@ -98,24 +53,30 @@ nodes:
 
 func TestExplicitGuestArchitectureResolves(t *testing.T) {
 	t.Parallel()
-	file, err := decodeTestFile("version: 1\nname: arch\narch: arm64\nnetwork: {mode: private}\nnodes: [{name: meta, address: 10.10.10.10}]\n")
-	if err != nil {
-		t.Fatal(err)
+	file := File{
+		Version: 1, Name: "arch", Arch: "arm64",
+		Network: NetworkConfig{Mode: "private"},
+		Nodes:   []NodeConfig{{Name: "meta", Address: "10.10.10.10"}},
 	}
 	resolved, err := file.Resolve()
 	if err != nil || resolved.Arch != "arm64" {
 		t.Fatalf("resolved arch = %q, %v", resolved.Arch, err)
 	}
-	if _, err := decodeTestFile("version: 1\nname: arch\narch: s390x\nnetwork: {mode: private}\nnodes: [{name: meta, address: 10.10.10.10}]\n"); err == nil {
+	bad := file
+	bad.Arch = "s390x"
+	if err := bad.Validate(); err == nil {
 		t.Fatal("unsupported architecture accepted")
 	}
 }
 
 func TestChannelReferenceStaysStableInResolvedSpec(t *testing.T) {
 	t.Parallel()
-	file, err := decodeTestFile("version: 1\nname: channel\nnetwork: {mode: private}\ndefaults: {image: debian13:testing}\nnodes: [{name: meta, address: 10.10.10.10}]\n")
-	if err != nil {
-		t.Fatal(err)
+	file := File{
+		Version:  1,
+		Name:     "channel",
+		Network:  NetworkConfig{Mode: "private"},
+		Defaults: DefaultsConfig{Image: "debian13:testing"},
+		Nodes:    []NodeConfig{{Name: "meta", Address: "10.10.10.10"}},
 	}
 	resolved, err := file.Resolve()
 	if err != nil || resolved.Image != "d13:testing" {
@@ -123,43 +84,27 @@ func TestChannelReferenceStaysStableInResolvedSpec(t *testing.T) {
 	}
 }
 
-func TestStrictYAMLRejectsUnknownAndMultipleDocuments(t *testing.T) {
-	t.Parallel()
-	base := "version: 1\nname: quick\nnetwork: {mode: private}\nnodes: [{name: meta, address: 10.10.10.10}]\n"
-	if _, err := decodeTestFile(base + "unknown: true\n"); err == nil {
-		t.Fatal("unknown field accepted")
-	}
-	if _, err := decodeTestFile(base + "---\n" + base); err == nil {
-		t.Fatal("multiple documents accepted")
-	}
-}
-
 func TestPrivateAddressValidation(t *testing.T) {
 	t.Parallel()
-	for _, input := range []string{
-		"version: 1\nname: bad\nnetwork: {mode: private}\nnodes: [{name: meta, address: 10.10.10.8}]\n",
-		"version: 1\nname: bad\nnetwork: {mode: user}\nnodes: [{name: meta}]\n",
+	for _, file := range []File{
+		{Version: 1, Name: "bad", Network: NetworkConfig{Mode: "private"}, Nodes: []NodeConfig{{Name: "meta", Address: "10.10.10.8"}}},
+		{Version: 1, Name: "bad", Network: NetworkConfig{Mode: "user"}, Nodes: []NodeConfig{{Name: "meta"}}},
 	} {
-		if _, err := decodeTestFile(input); err == nil {
-			t.Errorf("invalid config accepted:\n%s", input)
+		if err := file.Validate(); err == nil {
+			t.Errorf("invalid config accepted: %#v", file)
 		}
 	}
 }
 
 func TestCustomPrivateNetworkResolvesLayout(t *testing.T) {
 	t.Parallel()
-	input := `version: 1
-name: custom
-network:
-  mode: private
-  cidr: 172.31.251.0/24
-nodes:
-  - {name: meta, address: 172.31.251.10}
-  - {name: node-1, address: 172.31.251.11}
-`
-	file, err := decodeTestFile(input)
-	if err != nil {
-		t.Fatal(err)
+	file := File{
+		Version: 1, Name: "custom",
+		Network: NetworkConfig{Mode: "private", CIDR: "172.31.251.0/24"},
+		Nodes: []NodeConfig{
+			{Name: "meta", Address: "172.31.251.10"},
+			{Name: "node-1", Address: "172.31.251.11"},
+		},
 	}
 	resolved, err := file.Resolve()
 	if err != nil {
@@ -172,13 +117,13 @@ nodes:
 
 func TestCustomPrivateNetworkRequiresCoordinatedLayout(t *testing.T) {
 	t.Parallel()
-	for _, input := range []string{
-		"version: 1\nname: bad\nnetwork: {mode: private, cidr: 8.8.8.0/24}\nnodes: [{name: meta, address: 8.8.8.10}]\n",
-		"version: 1\nname: bad\nnetwork: {mode: private, cidr: 172.31.251.0/24, host_address: 172.31.251.2}\nnodes: [{name: meta, address: 172.31.251.10}]\n",
-		"version: 1\nname: bad\nnetwork: {mode: private, cidr: 172.31.251.0/24}\nnodes: [{name: meta, address: 10.10.10.10}]\n",
+	for _, file := range []File{
+		{Version: 1, Name: "bad", Network: NetworkConfig{Mode: "private", CIDR: "8.8.8.0/24"}, Nodes: []NodeConfig{{Name: "meta", Address: "8.8.8.10"}}},
+		{Version: 1, Name: "bad", Network: NetworkConfig{Mode: "private", CIDR: "172.31.251.0/24", HostAddress: "172.31.251.2"}, Nodes: []NodeConfig{{Name: "meta", Address: "172.31.251.10"}}},
+		{Version: 1, Name: "bad", Network: NetworkConfig{Mode: "private", CIDR: "172.31.251.0/24"}, Nodes: []NodeConfig{{Name: "meta", Address: "10.10.10.10"}}},
 	} {
-		if _, err := decodeTestFile(input); err == nil {
-			t.Fatalf("accepted unsafe custom layout:\n%s", input)
+		if err := file.Validate(); err == nil {
+			t.Fatalf("accepted unsafe custom layout: %#v", file)
 		}
 	}
 }
@@ -186,8 +131,11 @@ func TestCustomPrivateNetworkRequiresCoordinatedLayout(t *testing.T) {
 func TestDiskMountTraversalAndSystemPathsAreRejected(t *testing.T) {
 	t.Parallel()
 	for _, mount := range []string{"/", "/data/../etc", "relative", "/proc/data", "/etc", "/usr/lib/barn", "/var/lib/barn/data"} {
-		input := "version: 1\nname: quick\nnetwork: {mode: private}\nnodes:\n  - name: meta\n    address: 10.10.10.10\n    disks:\n      - {name: data, size: 1GiB, mount: " + fmt.Sprintf("%q", mount) + "}\n"
-		if _, err := decodeTestFile(input); err == nil {
+		file := File{
+			Version: 1, Name: "quick", Network: NetworkConfig{Mode: "private"},
+			Nodes: []NodeConfig{{Name: "meta", Address: "10.10.10.10", Disks: []DiskConfig{{Name: "data", Size: spec.GiB, Mount: mount}}}},
+		}
+		if err := file.Validate(); err == nil {
 			t.Errorf("unsafe disk mount %q accepted", mount)
 		}
 	}
@@ -195,19 +143,16 @@ func TestDiskMountTraversalAndSystemPathsAreRejected(t *testing.T) {
 
 func TestShareResolveDefaultsReadonly(t *testing.T) {
 	t.Parallel()
-	input := `version: 1
-name: quick
-network: {mode: private}
-nodes:
-  - name: meta
-    address: 10.10.10.10
-    shares:
-      - {host: /srv/pigsty-ro, guest: /src-ro}
-      - {host: /srv/pigsty-rw, guest: /src-rw, readonly: false}
-`
-	file, err := decodeTestFile(input)
-	if err != nil {
-		t.Fatal(err)
+	readWrite := false
+	file := File{
+		Version: 1, Name: "quick", Network: NetworkConfig{Mode: "private"},
+		Nodes: []NodeConfig{{
+			Name: "meta", Address: "10.10.10.10",
+			Shares: []ShareConfig{
+				{Host: "/srv/pigsty-ro", Guest: "/src-ro"},
+				{Host: "/srv/pigsty-rw", Guest: "/src-rw", Readonly: &readWrite},
+			},
+		}},
 	}
 	resolved, err := file.Resolve()
 	if err != nil {
@@ -221,9 +166,9 @@ nodes:
 
 func TestEmptyShareListNormalizesToNil(t *testing.T) {
 	t.Parallel()
-	file, err := decodeTestFile("version: 1\nname: quick\nnetwork: {mode: private}\nnodes: [{name: meta, address: 10.10.10.10, shares: []}]\n")
-	if err != nil {
-		t.Fatal(err)
+	file := File{
+		Version: 1, Name: "quick", Network: NetworkConfig{Mode: "private"},
+		Nodes: []NodeConfig{{Name: "meta", Address: "10.10.10.10", Shares: []ShareConfig{}}},
 	}
 	resolved, err := file.Resolve()
 	if err != nil {
@@ -282,8 +227,8 @@ func TestShareOverlapValidationAllowsManySources(t *testing.T) {
 	tests := []File{
 		base([]ShareConfig{{Host: "/srv/a", Guest: "/src"}, {Host: "/srv/b", Guest: "/src"}}, nil),
 		base([]ShareConfig{{Host: "/srv/a", Guest: "/src"}, {Host: "/srv/b", Guest: "/src/nested"}}, nil),
-		base([]ShareConfig{{Host: "/srv/a", Guest: "/data/src"}}, []DiskConfig{{Name: "data", Size: Size(spec.GiB), Mount: "/data"}}),
-		base([]ShareConfig{{Host: "/srv/a", Guest: "/data"}}, []DiskConfig{{Name: "data", Size: Size(spec.GiB), Mount: "/data/nested"}}),
+		base([]ShareConfig{{Host: "/srv/a", Guest: "/data/src"}}, []DiskConfig{{Name: "data", Size: spec.GiB, Mount: "/data"}}),
+		base([]ShareConfig{{Host: "/srv/a", Guest: "/data"}}, []DiskConfig{{Name: "data", Size: spec.GiB, Mount: "/data/nested"}}),
 	}
 	for index, file := range tests {
 		if err := file.Validate(); err == nil {
@@ -357,13 +302,5 @@ func TestCrossNodeOverlappingHostAllowsReadWriteShares(t *testing.T) {
 	}
 	if err := reversed.Validate(); err != nil {
 		t.Fatalf("cross-node RW/RO overlap: %v", err)
-	}
-}
-
-func TestStrictYAMLRejectsUnknownShareField(t *testing.T) {
-	t.Parallel()
-	input := "version: 1\nname: quick\nnetwork: {mode: private}\nnodes:\n  - name: meta\n    address: 10.10.10.10\n    shares:\n      - {host: /srv/pigsty, guest: /src, writable: true}\n"
-	if _, err := decodeTestFile(input); err == nil {
-		t.Fatal("unknown share field accepted")
 	}
 }

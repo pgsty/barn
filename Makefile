@@ -47,8 +47,7 @@ vet:
 staticcheck:
 	staticcheck ./...
 
-# The production-only diagnostic, `deadcode ./...`, is expected to report only
-# YAML MarshalYAML/UnmarshalYAML hooks invoked through reflection. The enforced
+# The production-only diagnostic (`deadcode ./...`) and the enforced
 # four-target test-linked intersection below must remain completely empty.
 deadcode:
 	@set -eu; \
