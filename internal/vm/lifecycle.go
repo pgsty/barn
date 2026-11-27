@@ -155,7 +155,7 @@ func readPID(path string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > 32 {
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 32 {
 		return 0, errors.New("QEMU pidfile is unsafe")
 	}
 	data, err := os.ReadFile(path)

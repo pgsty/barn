@@ -6,35 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/state"
-	"golang.org/x/sys/unix"
 )
-
-func availableBytes(pathname string) (uint64, string, error) {
-	probe := pathname
-	for {
-		info, err := os.Lstat(probe)
-		if err == nil {
-			if !info.IsDir() {
-				probe = filepath.Dir(probe)
-			}
-			break
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return 0, "", err
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			return 0, "", err
-		}
-		probe = parent
-	}
-	var statistics unix.Statfs_t
-	if err := unix.Statfs(probe, &statistics); err != nil {
-		return 0, "", err
-	}
-	return uint64(statistics.Bavail) * uint64(statistics.Bsize), probe, nil
-}
 
 func (p Probe) deploymentChecks() []Check {
 	dataRoot, err := state.ResolveDataRoot()
@@ -63,7 +37,7 @@ func (p Probe) deploymentChecks() []Check {
 				checks = append(checks, Check{Name: "transaction/" + definition.Name, Status: Error, Evidence: pathErr.Error()})
 			} else if info, journalErr := os.Lstat(filepath.Join(nodeDir, "private-prepare.json")); journalErr == nil {
 				check := Check{Name: "transaction/" + definition.Name, Status: Warn, Evidence: "an interrupted create of this node is pending", Fix: "run barn up; it finishes or rolls back the interrupted create"}
-				if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+				if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 					journal := filepath.Join(nodeDir, "private-prepare.json")
 					check = Check{Name: check.Name, Status: Error, Evidence: journal + " is not a regular mode-0600 file", Fix: "inspect " + journal + "; Barn will not read it until it is a regular file with mode 0600"}
 				}
@@ -73,7 +47,7 @@ func (p Probe) deploymentChecks() []Check {
 			}
 		}
 	}
-	available, filesystemPath, spaceErr := availableBytes(dataRoot)
+	available, filesystemPath, spaceErr := fsutil.AvailableBytes(dataRoot)
 	if spaceErr != nil {
 		checks = append(checks, Check{Name: "data-root", Status: Error, Evidence: fmt.Sprintf("%s: %v", dataRoot, spaceErr)})
 	} else {

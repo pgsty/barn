@@ -6,8 +6,6 @@ package provision
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
 	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/naming"
@@ -64,7 +63,7 @@ func LoadScript(path string) (Script, error) {
 	if err != nil {
 		return Script{}, fmt.Errorf("inspect provision script: %w", err)
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+	if !before.Mode().IsRegular() {
 		return Script{}, errors.New("provision script must be a regular non-symlink file")
 	}
 	if before.Size() <= 0 {
@@ -112,10 +111,9 @@ func LoadScript(path string) (Script, error) {
 	if !os.SameFile(opened, after) || after.Size() != int64(len(content)) || after.ModTime() != opened.ModTime() {
 		return Script{}, errors.New("provision script changed while being read")
 	}
-	digest := sha256.Sum256(content)
 	return Script{
 		Name: filepath.Base(absolute), Path: absolute, Size: int64(len(content)),
-		SHA256: hex.EncodeToString(digest[:]), Content: content,
+		SHA256: fsutil.SHA256Bytes(content), Content: content,
 	}, nil
 }
 
@@ -189,8 +187,7 @@ func (e Executor) Execute(ctx context.Context, script Script, targets []Target, 
 	if len(script.Content) == 0 || len(script.Content) > MaxScriptBytes || script.Size != int64(len(script.Content)) {
 		return Report{}, errors.New("provision script snapshot is invalid")
 	}
-	digest := sha256.Sum256(script.Content)
-	if script.SHA256 != hex.EncodeToString(digest[:]) {
+	if script.SHA256 != fsutil.SHA256Bytes(script.Content) {
 		return Report{}, errors.New("provision script snapshot is invalid")
 	}
 	if len(targets) == 0 {
@@ -309,7 +306,7 @@ func (r SSHRunner) Run(ctx context.Context, target Target, script Script, sudo b
 	if limit <= 0 {
 		limit = defaultOutputCap
 	}
-	stdout, stderr := newLimitedBuffer(limit), newLimitedBuffer(limit)
+	stdout, stderr := execx.NewLimitedBuffer(limit), execx.NewLimitedBuffer(limit)
 	command := exec.CommandContext(ctx, r.SSHPath, args...)
 	command.Stdin = bytes.NewReader(script.Content)
 	command.Stdout = stdout
@@ -333,8 +330,8 @@ func (r SSHRunner) Run(ctx context.Context, target Target, script Script, sudo b
 	}
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
-	result.StdoutTruncated = stdout.truncated
-	result.StderrTruncated = stderr.truncated
+	result.StdoutTruncated = stdout.Truncated()
+	result.StderrTruncated = stderr.Truncated()
 	if err == nil {
 		result.Success = true
 		result.ExitCode = 0
@@ -350,27 +347,4 @@ func (r SSHRunner) Run(ctx context.Context, target Target, script Script, sudo b
 		result.Error = fmt.Sprintf("SSH provision process failed: %v", err)
 	}
 	return result
-}
-
-type limitedBuffer struct {
-	buffer    bytes.Buffer
-	remaining int
-	truncated bool
-}
-
-func newLimitedBuffer(limit int) *limitedBuffer { return &limitedBuffer{remaining: limit} }
-
-func (b *limitedBuffer) String() string { return b.buffer.String() }
-
-func (b *limitedBuffer) Write(value []byte) (int, error) {
-	original := len(value)
-	if len(value) > b.remaining {
-		value = value[:b.remaining]
-		b.truncated = true
-	}
-	if len(value) > 0 {
-		_, _ = b.buffer.Write(value)
-		b.remaining -= len(value)
-	}
-	return original, nil
 }

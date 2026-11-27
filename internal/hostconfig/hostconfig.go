@@ -351,7 +351,7 @@ func secureRead(path string, limit int64) ([]byte, os.FileInfo, error) {
 		return nil, nil, errors.New("hosts path must be absolute")
 	}
 	before, err := os.Lstat(path)
-	if err != nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() > limit {
+	if err != nil || !before.Mode().IsRegular() || before.Size() > limit {
 		return nil, nil, fmt.Errorf("hosts path is not a bounded regular non-symlink file: %s", path)
 	}
 	handle, err := os.Open(path)
@@ -458,7 +458,7 @@ func validateInstalledHelper(path string) error {
 		return errors.New("privileged hosts helper path must be canonical and absolute")
 	}
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("privileged hosts helper is missing or unsafe: %s", path)
 	}
 	uid, gid, links, err := statOwnership(info)
@@ -528,7 +528,7 @@ func CompanionHelperDigest(path string) (string, error) {
 		return "", errors.New("companion hosts helper path must be canonical and absolute")
 	}
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o111 == 0 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return "", fmt.Errorf("companion hosts helper is missing or unsafe: %s", path)
 	}
 	data, _, err := secureRead(path, 64<<20)

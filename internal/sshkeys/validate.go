@@ -114,7 +114,7 @@ func validateSSHOwner(info os.FileInfo, requireSingleLink bool) error {
 
 func validateSSHArtifact(directory *os.File, pathname string, minimumSize int64) error {
 	before, err := os.Lstat(pathname)
-	if err != nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Mode().Perm() != 0o600 || before.Size() < minimumSize {
+	if err != nil || !before.Mode().IsRegular() || before.Mode().Perm() != 0o600 || before.Size() < minimumSize {
 		return fmt.Errorf("SSH artifact is missing or unsafe: %s", pathname)
 	}
 	if err := validateSSHOwner(before, true); err != nil {

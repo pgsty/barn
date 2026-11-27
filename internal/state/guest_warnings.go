@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/naming"
 )
 
@@ -77,7 +78,7 @@ func (s Store) WriteGuestWarnings(node NodeState, warnings []GuestWarning) error
 	if err := s.EnsureRoot(); err != nil {
 		return err
 	}
-	if err := ensureDir(filepath.Dir(path), 0700); err != nil {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	return writeJSON(path, guestWarningCache{node.VMUUID, node.Generation, node.SpecHash, warnings})

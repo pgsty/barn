@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/execx"
 )
 
 func TestSSHProgressArrivesBeforeProcessExitAndPreservesCapture(t *testing.T) {
@@ -53,7 +54,7 @@ func TestSSHProgressArrivesBeforeProcessExitAndPreservesCapture(t *testing.T) {
 }
 
 func TestProgressRetainsNewestLineAfterCaptureLimit(t *testing.T) {
-	output := newLimitedBuffer(32)
+	output := execx.NewLimitedBuffer(32)
 	var latest string
 	live := &progressOutput{output: output, publish: func(line string) { latest = line }}
 	if _, err := live.Write([]byte(strings.Repeat("x", 1<<20))); err != nil {
@@ -66,8 +67,8 @@ func TestProgressRetainsNewestLineAfterCaptureLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	live.flush()
-	if latest != "now ready" || output.String() != strings.Repeat("x", 32) || !output.truncated {
-		t.Fatalf("latest=%q capture=%q truncated=%t", latest, output.String(), output.truncated)
+	if latest != "now ready" || output.String() != strings.Repeat("x", 32) || !output.Truncated() {
+		t.Fatalf("latest=%q capture=%q truncated=%t", latest, output.String(), output.Truncated())
 	}
 }
 

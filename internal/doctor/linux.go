@@ -38,7 +38,7 @@ func unixMode(info os.FileInfo) uint32 {
 
 func helperCheck(pathname string, family linuxnet.Family) Check {
 	info, err := os.Lstat(pathname)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !info.Mode().IsRegular() {
 		return Check{Name: "bridge-helper", Status: Error, Evidence: pathname + " is missing or not a regular file", Fix: "reinstall the distribution QEMU packages; Barn uses only the distribution's qemu-bridge-helper"}
 	}
 	statistics, ok := info.Sys().(*syscall.Stat_t)

@@ -214,8 +214,8 @@ func (r OSRunner) runIO(ctx context.Context, binary string, files []*os.File, st
 	if limit <= 0 {
 		limit = defaultOutputLimit
 	}
-	stdout := newLimitedBuffer(limit)
-	stderr := newLimitedBuffer(limit)
+	stdout := NewLimitedBuffer(limit)
+	stderr := NewLimitedBuffer(limit)
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.ExtraFiles = files
 	cmd.Stdin = stdin
@@ -286,24 +286,29 @@ func Display(binary string, args ...string) string {
 	return strings.Join(parts, " ")
 }
 
-type limitedBuffer struct {
+// LimitedBuffer captures up to a fixed byte budget while silently discarding
+// overflow so child processes never block on full pipes.
+type LimitedBuffer struct {
 	buf       bytes.Buffer
 	remaining int
+	truncated bool
 }
 
-func newLimitedBuffer(limit int) *limitedBuffer { return &limitedBuffer{remaining: limit} }
+func NewLimitedBuffer(limit int) *LimitedBuffer { return &LimitedBuffer{remaining: limit} }
 
-func (b *limitedBuffer) Write(p []byte) (int, error) {
+func (b *LimitedBuffer) Write(p []byte) (int, error) {
 	original := len(p)
-	if b.remaining > 0 {
-		keep := len(p)
-		if keep > b.remaining {
-			keep = b.remaining
-		}
-		_, _ = b.buf.Write(p[:keep])
-		b.remaining -= keep
+	if len(p) > b.remaining {
+		p = p[:b.remaining]
+		b.truncated = true
+	}
+	if len(p) > 0 {
+		_, _ = b.buf.Write(p)
+		b.remaining -= len(p)
 	}
 	return original, nil
 }
 
-func (b *limitedBuffer) Bytes() []byte { return b.buf.Bytes() }
+func (b *LimitedBuffer) Bytes() []byte   { return b.buf.Bytes() }
+func (b *LimitedBuffer) String() string  { return b.buf.String() }
+func (b *LimitedBuffer) Truncated() bool { return b.truncated }

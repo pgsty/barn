@@ -3,12 +3,8 @@
 package state
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -152,26 +148,12 @@ type Store struct {
 	Root string
 }
 
-func ensureDir(path string, mode os.FileMode) error {
-	if err := os.MkdirAll(path, mode); err != nil {
-		return err
-	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("required path is not a real directory: %s", path)
-	}
-	if info.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("required directory is group/world writable: %s mode=%o", path, info.Mode().Perm())
-	}
-	return os.Chmod(path, mode)
-}
-
 // EnsureRoot creates the data root itself (0700) when absent.
 func (s Store) EnsureRoot() error {
 	if s.Root == "" || !filepath.IsAbs(s.Root) {
 		return errors.New("state store root must be absolute")
 	}
-	return ensureDir(s.Root, 0o700)
+	return fsutil.EnsurePrivateDir(s.Root, 0o700)
 }
 
 // NodeDir returns <root>/nodes/<name> after validating the node name.
@@ -191,45 +173,21 @@ func (s Store) EnsureNodeDir(name string) (string, error) {
 	if err := s.EnsureRoot(); err != nil {
 		return "", err
 	}
-	if err := ensureDir(filepath.Dir(directory), 0o700); err != nil {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(directory), 0o700); err != nil {
 		return "", err
 	}
-	if err := ensureDir(directory, 0o700); err != nil {
+	if err := fsutil.EnsurePrivateDir(directory, 0o700); err != nil {
 		return "", err
 	}
 	return directory, nil
 }
 
 func strictRead(path string, destination any) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("state must be a regular non-symlink file: %s", path)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("state contains trailing JSON data")
-	}
-	return nil
+	return fsutil.ReadStrictJSON(path, 0, destination)
 }
 
 func writeJSON(path string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.AtomicWrite(path, append(data, '\n'), 0o600)
+	return fsutil.WriteJSONAtomic(path, value, 0o600)
 }
 
 func (s Store) deploymentPath() string { return filepath.Join(s.Root, "state.json") }

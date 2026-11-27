@@ -177,7 +177,7 @@ func readOptionalRegular(pathname string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	stat, statOK := info.Sys().(*syscall.Stat_t)
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxConfigBytes || !statOK || int(stat.Uid) != os.Geteuid() || stat.Nlink != 1 {
+	if !info.Mode().IsRegular() || info.Size() > maxConfigBytes || !statOK || int(stat.Uid) != os.Geteuid() || stat.Nlink != 1 {
 		return nil, false, errors.New("SSH config target is not a bounded regular non-symlink file")
 	}
 	handle, err := os.Open(pathname)

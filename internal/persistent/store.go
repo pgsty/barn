@@ -5,11 +5,8 @@
 package persistent
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -100,7 +97,7 @@ func owned(info os.FileInfo, mode os.FileMode, directory bool) bool {
 	if directory {
 		return info.IsDir() && info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm() == mode
 	}
-	return info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm() == mode && stat.Nlink == 1
+	return info.Mode().IsRegular() && info.Mode().Perm() == mode && stat.Nlink == 1
 }
 
 func validateDirectory(path string) error {
@@ -150,25 +147,20 @@ func ValidateSource(root, source string) error {
 	return validateCanonicalWithin(root, source)
 }
 
-func decodeMarker(path string) (Record, error) {
+func decodeOwnedJSON(path, label string, target any) error {
 	if err := validateFile(path, 16<<10); err != nil {
-		return Record{}, err
+		return err
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Record{}, err
+	if err := fsutil.ReadStrictJSON(path, 16<<10, target); err != nil {
+		return fmt.Errorf("decode %s: %w", label, err)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
+	return nil
+}
+
+func decodeMarker(path string) (Record, error) {
 	var record Record
-	if err := decoder.Decode(&record); err != nil {
-		return Record{}, fmt.Errorf("decode persistent disk ownership marker: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return Record{}, errors.New("persistent disk ownership marker contains trailing JSON")
-	}
-	return record, nil
+	err := decodeOwnedJSON(path, "persistent disk ownership marker", &record)
+	return record, err
 }
 
 func decodePending(path string) (pendingRecord, error) {
@@ -177,24 +169,9 @@ func decodePending(path string) (pendingRecord, error) {
 	} else if err != nil {
 		return pendingRecord{}, err
 	}
-	if err := validateFile(path, 16<<10); err != nil {
-		return pendingRecord{}, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return pendingRecord{}, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var pending pendingRecord
-	if err := decoder.Decode(&pending); err != nil {
-		return pendingRecord{}, fmt.Errorf("decode persistent disk pending marker: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return pendingRecord{}, errors.New("persistent disk pending marker contains trailing JSON")
-	}
-	return pending, nil
+	err := decodeOwnedJSON(path, "persistent disk pending marker", &pending)
+	return pending, err
 }
 
 func recordIdentity(record Record) Identity {
@@ -254,11 +231,7 @@ func validateRecordIdentity(root string, record Record) error {
 }
 
 func pendingMarkerData(pending pendingRecord) ([]byte, error) {
-	data, err := json.MarshalIndent(pending, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(data, '\n'), nil
+	return fsutil.MarshalJSONIndent(pending)
 }
 
 // recoverPending reconciles the only two durable boundaries between moving a
@@ -328,11 +301,7 @@ func recoverPending(root, directory, nodeDir string) (bool, error) {
 		if err := validateRecord(root, pending.Record); err != nil {
 			return false, err
 		}
-		data, err := json.MarshalIndent(pending.Record, "", "  ")
-		if err != nil {
-			return false, err
-		}
-		if err := fsutil.AtomicWrite(markerPath, append(data, '\n'), 0o600); err != nil {
+		if err := fsutil.WriteJSONAtomic(markerPath, pending.Record, 0o600); err != nil {
 			return false, err
 		}
 		if err := os.Remove(pendingPath); err != nil {
@@ -371,7 +340,7 @@ const finderMetadataName = ".DS_Store"
 
 func validateFinderMetadata(path string) error {
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("finder metadata is not a regular non-symlink file: %s", path)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
@@ -637,11 +606,7 @@ func Preserve(root string, identity Identity, source string) (Record, error) {
 	if err := fsutil.SyncDir(filepath.Dir(source)); err != nil {
 		return Record{}, err
 	}
-	data, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return Record{}, err
-	}
-	if err := fsutil.AtomicWrite(marker, append(data, '\n'), 0o600); err != nil {
+	if err := fsutil.WriteJSONAtomic(marker, record, 0o600); err != nil {
 		return Record{}, err
 	}
 	if err := validateRecord(root, record); err != nil {

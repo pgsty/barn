@@ -172,7 +172,7 @@ func downloadSocketVMNetRelease(ctx context.Context, release darwinnet.Release, 
 	if verifyErr := verify(target, arch); verifyErr == nil {
 		return result, nil
 	} else if info, statErr := os.Lstat(target); statErr == nil {
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		if !info.Mode().IsRegular() {
 			return result, fmt.Errorf("cached socket_vmnet archive is unsafe: %w", verifyErr)
 		}
 		if removeErr := os.Remove(target); removeErr != nil {
@@ -265,27 +265,6 @@ func publishVerifiedCopy(source, cacheDirectory, target, arch string, verify fun
 	}
 	keep = true
 	return nil
-}
-
-// progressBody reports byte progress while the response body is copied.
-type progressBody struct {
-	reader  io.Reader
-	report  activity.Reporter
-	event   activity.Event
-	written int64
-	last    time.Time
-}
-
-func (body *progressBody) Read(data []byte) (int, error) {
-	read, err := body.reader.Read(data)
-	body.written += int64(read)
-	if now := time.Now(); now.Sub(body.last) >= 100*time.Millisecond || err == io.EOF {
-		body.last = now
-		event := body.event
-		event.CurrentBytes = body.written
-		body.report.Report(event)
-	}
-	return read, err
 }
 
 func fetchBoundedArchive(ctx context.Context, client HTTPDoer, fetchURL string, release darwinnet.Release, cacheDirectory, target, arch string, progress activity.Reporter, verify func(string, string) error) (DownloadResult, error) {
@@ -399,14 +378,15 @@ func fetchBoundedArchiveAttempt(ctx context.Context, client HTTPDoer, fetchURL s
 	if err := temporary.Chmod(0o600); err != nil {
 		return result, err
 	}
-	body := &progressBody{
-		reader: io.LimitReader(response.Body, maxSocketVMNetArchive+1),
-		report: progress,
-		event: activity.Event{
+	body := activity.NewProgressReader(
+		io.LimitReader(response.Body, maxSocketVMNetArchive+1),
+		progress,
+		activity.Event{
 			Phase: "download", Message: "Downloading socket_vmnet v" + release.Version,
 			Source: parsed.Host, TotalBytes: max(response.ContentLength, 0), StartedAt: time.Now(),
 		},
-	}
+		100*time.Millisecond,
+	)
 	written, err := io.Copy(temporary, body)
 	if err != nil {
 		return result, fmt.Errorf("download socket_vmnet from %s: %w", parsed.Host, err)
