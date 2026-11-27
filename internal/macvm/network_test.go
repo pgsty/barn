@@ -20,8 +20,24 @@ default 192.168.0.1 UGScg en15
 10.10.10.10 aa:bb:cc:dd:ee:ff UHLWI bridge100
 `
 
+func parseTestDarwinRoutes(output string) ([]netip.Prefix, error) {
+	table, err := ParseDarwinRouteTable(output)
+	if err != nil {
+		return nil, err
+	}
+	routes := make([]netip.Prefix, 0, len(table))
+	seen := map[netip.Prefix]bool{}
+	for _, route := range table {
+		if !seen[route.Prefix] {
+			routes = append(routes, route.Prefix)
+			seen[route.Prefix] = true
+		}
+	}
+	return routes, nil
+}
+
 func TestSubnetSelectionAvoidsLANVPNAndLinux(t *testing.T) {
-	routes, err := ParseDarwinRoutes(liveRoutesFixture)
+	routes, err := parseTestDarwinRoutes(liveRoutesFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +120,7 @@ func TestDarwinRouteParserRetainsDuplicateDestinationsAndHeaderLayout(t *testing
 }
 
 func TestSplitDefaultVPNRoutesAreConflicts(t *testing.T) {
-	routes, err := ParseDarwinRoutes("0/1 10.5.0.1 UGSc utun3\n128.0/1 10.5.0.1 UGSc utun3\n")
+	routes, err := parseTestDarwinRoutes("0/1 10.5.0.1 UGSc utun3\n128.0/1 10.5.0.1 UGSc utun3\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +133,7 @@ func TestSplitDefaultVPNRoutesAreConflicts(t *testing.T) {
 }
 
 func TestRouteParsingFailsClosedOnMalformedIPv4(t *testing.T) {
-	if _, err := ParseDarwinRoutes("10.10.300 link#3 UCS en0\n"); err == nil {
+	if _, err := ParseDarwinRouteTable("10.10.300 link#3 UCS en0\n"); err == nil {
 		t.Fatal("silently ignored a malformed route")
 	}
 	p, err := parseRouteDestination("10.10")

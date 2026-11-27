@@ -12,8 +12,8 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/lock"
-	"golang.org/x/sys/unix"
 )
 
 // SetupOptions prepare a base: the unbooted macOS restore every machine is
@@ -66,18 +66,11 @@ type setupPlan struct {
 const macRestoreBytes int64 = 40 << 30
 
 func availableBytes(path string) (int64, error) {
-	for {
-		var stat unix.Statfs_t
-		err := unix.Statfs(path, &stat)
-		if err == nil {
-			return int64(stat.Bavail) * int64(stat.Bsize), nil
-		}
-		parent := filepath.Dir(path)
-		if !errors.Is(err, unix.ENOENT) || parent == path {
-			return 0, err
-		}
-		path = parent
+	free, _, err := fsutil.AvailableBytes(path)
+	if err != nil {
+		return 0, err
 	}
+	return int64(free), nil
 }
 
 // preflightSetup validates read-only: it selects a reusable base, or names

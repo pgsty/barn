@@ -42,8 +42,8 @@ func TestMacFragmentCoexistsWithTheLinuxFragment(t *testing.T) {
 	if strings.Contains(string(config), "# barn:include") || !strings.Contains(string(config), "# barn-mac:include") {
 		t.Fatalf("config after Linux removal:\n%s", config)
 	}
-	if installed, err := MacInstalled(home, "/data/mac"); err != nil || !installed {
-		t.Fatalf("installed=%v err=%v", installed, err)
+	if fragment, err := os.ReadFile(filepath.Join(home, ".ssh", MacFragment+"_config")); err != nil || !strings.Contains(string(fragment), "# barn-mac:root /data/mac") {
+		t.Fatalf("mac fragment missing after Linux removal: %q err=%v", fragment, err)
 	}
 	if _, err := RemoveMac(home, "/data/mac", false); err != nil {
 		t.Fatal(err)

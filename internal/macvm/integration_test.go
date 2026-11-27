@@ -10,6 +10,11 @@ import (
 	"github.com/pgsty/barn/internal/sshconfig"
 )
 
+func macFragmentInstalled(home, root string) bool {
+	data, err := os.ReadFile(filepath.Join(home, ".ssh", sshconfig.MacFragment+"_config"))
+	return err == nil && strings.Contains(string(data), "# barn-mac:root "+root)
+}
+
 func TestSSHConfigCoversInitializedMachinesOnly(t *testing.T) {
 	m, _ := testManager(t)
 	dev := testMachine(t, m, "dev", "10.10.30.0/24", true)
@@ -32,8 +37,8 @@ func TestSSHConfigCoversInitializedMachinesOnly(t *testing.T) {
 	if warning := m.refreshSSHConfig(); warning != "" {
 		t.Fatal(warning)
 	}
-	if installed, err := sshconfig.MacInstalled(m.SSHHome, m.Store.Root); err != nil || !installed {
-		t.Fatalf("installed=%v err=%v", installed, err)
+	if !macFragmentInstalled(m.SSHHome, m.Store.Root) {
+		t.Fatalf("mac fragment was not installed for %s", m.Store.Root)
 	}
 	// Another Barn home never takes over the fragment implicitly.
 	other, _ := testManager(t)
@@ -69,14 +74,14 @@ func TestSSHConfigRemovalLastsUntilInstall(t *testing.T) {
 	if warning := m.refreshSSHConfig(); warning != "" {
 		t.Fatal(warning)
 	}
-	if installed, err := sshconfig.MacInstalled(m.SSHHome, m.Store.Root); err != nil || installed {
-		t.Fatalf("a refresh reinstalled removed entries: installed=%v err=%v", installed, err)
+	if macFragmentInstalled(m.SSHHome, m.Store.Root) {
+		t.Fatal("a refresh reinstalled removed entries")
 	}
 	if _, err := m.InstallSSHConfig(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if installed, err := sshconfig.MacInstalled(m.SSHHome, m.Store.Root); err != nil || !installed {
-		t.Fatalf("install after removal: installed=%v err=%v", installed, err)
+	if !macFragmentInstalled(m.SSHHome, m.Store.Root) {
+		t.Fatal("install after removal did not reinstall fragment")
 	}
 }
 
@@ -93,7 +98,7 @@ func TestSSHConfigInstallWithoutReadyMachinesKeepsOtherHomes(t *testing.T) {
 	if err != nil || result.Action != "pending" {
 		t.Fatalf("install with no ready machine: %+v %v", result, err)
 	}
-	if installed, err := sshconfig.MacInstalled(other.SSHHome, other.Store.Root); err != nil || !installed {
-		t.Fatalf("the other home's entries were removed: installed=%v err=%v", installed, err)
+	if !macFragmentInstalled(other.SSHHome, other.Store.Root) {
+		t.Fatal("the other home's entries were removed")
 	}
 }

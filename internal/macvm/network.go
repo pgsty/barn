@@ -112,25 +112,6 @@ func CheckSubnet(value string, occupied []netip.Prefix) error {
 	return nil
 }
 
-// ParseDarwinRoutes parses netstat -rn -f inet destinations, including Darwin's
-// abbreviated network notation. Header lines and the default route are ignored.
-// Broad VPN split-default routes (0/1, 128/1) are deliberately retained.
-func ParseDarwinRoutes(output string) ([]netip.Prefix, error) {
-	table, err := ParseDarwinRouteTable(output)
-	if err != nil {
-		return nil, err
-	}
-	var routes []netip.Prefix
-	seen := map[netip.Prefix]bool{}
-	for _, route := range table {
-		if !seen[route.Prefix] {
-			routes = append(routes, route.Prefix)
-			seen[route.Prefix] = true
-		}
-	}
-	return routes, nil
-}
-
 // DarwinRoute keeps the interface so diagnostics can name who owns a subnet.
 type DarwinRoute struct {
 	Prefix    netip.Prefix

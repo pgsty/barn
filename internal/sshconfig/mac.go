@@ -156,13 +156,3 @@ func userHostNames(home string) (map[string]bool, error) {
 func RemoveMac(home, root string, takeover bool) (Result, error) {
 	return remove(home, MacFragment, macMarks, macOwner(root, takeover))
 }
-
-// MacInstalled reports whether the Mac fragment of root is installed. It
-// only reads; a missing ~/.ssh is simply not installed.
-func MacInstalled(home, root string) (bool, error) {
-	data, exists, err := readOptionalRegular(filepath.Join(home, ".ssh", MacFragment+"_config"))
-	if err != nil || !exists {
-		return false, err
-	}
-	return markerOwned(data, macMarks) && macOwner(root, false)(data) == nil, nil
-}
