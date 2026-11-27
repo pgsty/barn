@@ -79,14 +79,3 @@ func ResolveReference(value string) (ResolvedReference, error) {
 	ref.Image = canonical
 	return ResolvedReference{Reference: ref.String(), Arch: arch}, nil
 }
-
-// CanonicalReference normalizes a built-in alias while preserving its stable
-// channel or explicit version selector. Unknown custom-repository names remain
-// intact for runtime catalog resolution.
-func CanonicalReference(value string) (string, error) {
-	resolved, err := ResolveReference(value)
-	if err != nil {
-		return "", err
-	}
-	return resolved.Reference, nil
-}

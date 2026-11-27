@@ -1,12 +1,9 @@
 package image
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,22 +70,12 @@ func (s Store) readLocalAliases() (LocalAliases, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return LocalAliases{Schema: LocalAliasesSchema, Aliases: make(map[string]LocalAlias)}, nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || info.Size() > maxLocalAliasesBytes {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > maxLocalAliasesBytes {
 		return LocalAliases{}, errors.New("local image alias registry is unsafe")
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return LocalAliases{}, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var value LocalAliases
-	if err := decoder.Decode(&value); err != nil {
+	if err := fsutil.ReadStrictJSON(path, maxLocalAliasesBytes, &value); err != nil {
 		return LocalAliases{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return LocalAliases{}, errors.New("local image alias registry has trailing JSON data")
 	}
 	if err := validateLocalAliases(value); err != nil {
 		return LocalAliases{}, err
@@ -147,14 +134,14 @@ func (s Store) RegisterLocalAlias(ctx context.Context, name, pathname string, me
 		return entry, path, metadata, err
 	}
 	registry.Aliases[name] = value
-	data, err := json.MarshalIndent(registry, "", "  ")
+	data, err := fsutil.MarshalJSONIndent(registry)
 	if err != nil {
 		return Entry{}, "", Metadata{}, err
 	}
-	if len(data)+1 > maxLocalAliasesBytes {
+	if len(data) > maxLocalAliasesBytes {
 		return Entry{}, "", Metadata{}, fmt.Errorf("local image alias registry exceeds %d bytes; existing aliases were preserved", maxLocalAliasesBytes)
 	}
-	if err := fsutil.AtomicWrite(s.localAliasesPath(), append(data, '\n'), 0o600); err != nil {
+	if err := fsutil.AtomicWrite(s.localAliasesPath(), data, 0o600); err != nil {
 		return Entry{}, "", Metadata{}, err
 	}
 	return localEntry(value), path, metadata, nil

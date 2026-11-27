@@ -1,7 +1,8 @@
 package image
 
 import (
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -12,108 +13,54 @@ type AliasTarget struct {
 	Arch  string
 }
 
-var builtinAliases = map[string]AliasTarget{
-	// CentOS Linux 7 (amd64-only)
-	"c7":       {Image: "el7"},
-	"centos7":  {Image: "el7"},
-	"centos79": {Image: "el7"},
-	"el7x":     {Image: "el7", Arch: "amd64"},
-	"el7i":     {Image: "el7", Arch: "amd64"},
-	"c7x":      {Image: "el7", Arch: "amd64"},
-	"c7i":      {Image: "el7", Arch: "amd64"},
-
-	// Rocky Linux 8
-	"rocky8": {Image: "el8"},
-	"el8a":   {Image: "el8", Arch: "arm64"},
-	"el8x":   {Image: "el8", Arch: "amd64"},
-	"el8i":   {Image: "el8", Arch: "amd64"},
-
-	// Rocky Linux 9
-	"rocky9": {Image: "el9"},
-	"el9a":   {Image: "el9", Arch: "arm64"},
-	"el9x":   {Image: "el9", Arch: "amd64"},
-	"el9i":   {Image: "el9", Arch: "amd64"},
-
-	// Rocky Linux 10 (current EL family target for e / el / rocky)
-	"e":       {Image: "el10"},
-	"el":      {Image: "el10"},
-	"rocky":   {Image: "el10"},
-	"rocky10": {Image: "el10"},
-	"el10a":   {Image: "el10", Arch: "arm64"},
-	"el10x":   {Image: "el10", Arch: "amd64"},
-	"el10i":   {Image: "el10", Arch: "amd64"},
-	"ea":      {Image: "el10", Arch: "arm64"},
-	"ex":      {Image: "el10", Arch: "amd64"},
-	"ei":      {Image: "el10", Arch: "amd64"},
-	"ela":     {Image: "el10", Arch: "arm64"},
-	"elx":     {Image: "el10", Arch: "amd64"},
-	"eli":     {Image: "el10", Arch: "amd64"},
-
-	// Debian 12
-	"debian12": {Image: "d12"},
-	"bookworm": {Image: "d12"},
-	"d12a":     {Image: "d12", Arch: "arm64"},
-	"d12x":     {Image: "d12", Arch: "amd64"},
-	"d12i":     {Image: "d12", Arch: "amd64"},
-
-	// Debian 13 (current Debian family target for d / debian)
-	"d":        {Image: "d13"},
-	"debian":   {Image: "d13"},
-	"debian13": {Image: "d13"},
-	"trixie":   {Image: "d13"},
-	"d13a":     {Image: "d13", Arch: "arm64"},
-	"d13x":     {Image: "d13", Arch: "amd64"},
-	"d13i":     {Image: "d13", Arch: "amd64"},
-	"da":       {Image: "d13", Arch: "arm64"},
-	"dx":       {Image: "d13", Arch: "amd64"},
-	"di":       {Image: "d13", Arch: "amd64"},
-
-	// Ubuntu 22.04 LTS
-	"ubuntu22":   {Image: "u22"},
-	"ubuntu2204": {Image: "u22"},
-	"jammy":      {Image: "u22"},
-	"u22a":       {Image: "u22", Arch: "arm64"},
-	"u22x":       {Image: "u22", Arch: "amd64"},
-	"u22i":       {Image: "u22", Arch: "amd64"},
-
-	// Ubuntu 24.04 LTS
-	"ubuntu24":   {Image: "u24"},
-	"ubuntu2404": {Image: "u24"},
-	"noble":      {Image: "u24"},
-	"u24a":       {Image: "u24", Arch: "arm64"},
-	"u24x":       {Image: "u24", Arch: "amd64"},
-	"u24i":       {Image: "u24", Arch: "amd64"},
-
-	// Ubuntu 26.04 LTS (current Ubuntu family target for u / ubuntu)
-	"u":          {Image: "u26"},
-	"ubuntu":     {Image: "u26"},
-	"ubuntu26":   {Image: "u26"},
-	"ubuntu2604": {Image: "u26"},
-	"resolute":   {Image: "u26"},
-	"u26a":       {Image: "u26", Arch: "arm64"},
-	"u26x":       {Image: "u26", Arch: "amd64"},
-	"u26i":       {Image: "u26", Arch: "amd64"},
-	"ua":         {Image: "u26", Arch: "arm64"},
-	"ux":         {Image: "u26", Arch: "amd64"},
-	"ui":         {Image: "u26", Arch: "amd64"},
+type aliasFamily struct {
+	canonical string
+	bare      []string
+	archBases []string // suffixes x/i -> amd64, plus a -> arm64 unless amd64Only
+	floating  []string // short family bases that follow future catalog family moves
+	amd64Only bool
 }
 
-// floatingShortArchAliases binds short family + arch shorthands (ea, ela, da,
-// ua, etc.) to their base family alias so a future signed catalog that moves
-// e/el/d/u to a newer family automatically moves ea/da/ua with it.
-var floatingShortArchAliases = map[string]AliasTarget{
-	"ea":  {Image: "e", Arch: "arm64"},
-	"ex":  {Image: "e", Arch: "amd64"},
-	"ei":  {Image: "e", Arch: "amd64"},
-	"ela": {Image: "el", Arch: "arm64"},
-	"elx": {Image: "el", Arch: "amd64"},
-	"eli": {Image: "el", Arch: "amd64"},
-	"da":  {Image: "d", Arch: "arm64"},
-	"dx":  {Image: "d", Arch: "amd64"},
-	"di":  {Image: "d", Arch: "amd64"},
-	"ua":  {Image: "u", Arch: "arm64"},
-	"ux":  {Image: "u", Arch: "amd64"},
-	"ui":  {Image: "u", Arch: "amd64"},
+var aliasFamilies = []aliasFamily{
+	{canonical: "el7", bare: []string{"c7", "centos7", "centos79"}, archBases: []string{"el7", "c7"}, amd64Only: true},
+	{canonical: "el8", bare: []string{"rocky8"}, archBases: []string{"el8"}},
+	{canonical: "el9", bare: []string{"rocky9"}, archBases: []string{"el9"}},
+	{canonical: "el10", bare: []string{"e", "el", "rocky", "rocky10"}, archBases: []string{"el10", "e", "el"}, floating: []string{"e", "el"}},
+	{canonical: "d12", bare: []string{"debian12", "bookworm"}, archBases: []string{"d12"}},
+	{canonical: "d13", bare: []string{"d", "debian", "debian13", "trixie"}, archBases: []string{"d13", "d"}, floating: []string{"d"}},
+	{canonical: "u22", bare: []string{"ubuntu22", "ubuntu2204", "jammy"}, archBases: []string{"u22"}},
+	{canonical: "u24", bare: []string{"ubuntu24", "ubuntu2404", "noble"}, archBases: []string{"u24"}},
+	{canonical: "u26", bare: []string{"u", "ubuntu", "ubuntu26", "ubuntu2604", "resolute"}, archBases: []string{"u26", "u"}, floating: []string{"u"}},
+}
+
+var (
+	builtinAliases = make(map[string]AliasTarget, 72)
+	// floatingShortArchAliases binds short family + arch shorthands (ea, ela, da,
+	// ua, etc.) to their base family alias so a future signed catalog that moves
+	// e/el/d/u to a newer family automatically moves ea/da/ua with it.
+	floatingShortArchAliases = make(map[string]AliasTarget, 16)
+)
+
+func init() {
+	archSuffixes := []struct{ suffix, arch string }{{"a", "arm64"}, {"x", "amd64"}, {"i", "amd64"}}
+	for _, family := range aliasFamilies {
+		for _, name := range family.bare {
+			builtinAliases[name] = AliasTarget{Image: family.canonical}
+		}
+		for _, base := range family.archBases {
+			for _, item := range archSuffixes {
+				if family.amd64Only && item.arch != "amd64" {
+					continue
+				}
+				builtinAliases[base+item.suffix] = AliasTarget{Image: family.canonical, Arch: item.arch}
+			}
+		}
+		for _, base := range family.floating {
+			for _, item := range archSuffixes {
+				floatingShortArchAliases[base+item.suffix] = AliasTarget{Image: base, Arch: item.arch}
+			}
+		}
+	}
 }
 
 func (c Catalog) isSupersededCatalogAlias(imageName, alias string) bool {
@@ -178,12 +125,7 @@ func (c Catalog) CompletionNames() []string {
 		}
 		add(alias)
 	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func recordHasArch(record CatalogImage, arch string) bool {

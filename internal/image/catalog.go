@@ -1,19 +1,19 @@
 package image
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"maps"
 	"net/url"
 	"path"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
 )
 
 const (
@@ -85,25 +85,7 @@ const localAliasPrefix = "local-"
 // sortedKeys walks a map in a stable order. Catalog validation, ranking, and
 // listing all use it so identical input always yields identical output.
 func sortedKeys[V any](values map[string]V) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func strictDecode(data []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("image catalog contains trailing JSON data")
-	}
-	return nil
+	return slices.Sorted(maps.Keys(values))
 }
 
 func strictCatalog(data []byte) (Catalog, error) {
@@ -120,7 +102,7 @@ func strictCatalog(data []byte) (Catalog, error) {
 		return Catalog{}, fmt.Errorf("unsupported image catalog schema %d; this Barn reads schema %d", header.Schema, ManifestSchema)
 	}
 	var catalog Catalog
-	if err := strictDecode(data, &catalog); err != nil {
+	if err := fsutil.DecodeStrictJSON(data, &catalog); err != nil {
 		return Catalog{}, fmt.Errorf("decode strict image catalog schema %d: %w", ManifestSchema, err)
 	}
 	if err := catalog.Validate(); err != nil {
@@ -185,11 +167,7 @@ func (c Catalog) Validate() error {
 	}
 	// Validation walks the catalog in sorted order so one invalid catalog always
 	// produces the same first error instead of a map-order lottery.
-	imageNames := make([]string, 0, len(c.Images))
-	for name := range c.Images {
-		imageNames = append(imageNames, name)
-	}
-	sort.Strings(imageNames)
+	imageNames := sortedKeys(c.Images)
 	allNames := make(map[string]struct{})
 	for _, name := range imageNames {
 		if !catalogName.MatchString(name) || reservedLocalNamespace(name) {
@@ -412,11 +390,11 @@ func resolveVersion(versions map[string]CatalogVersion, selector string) (string
 	// Map iteration order must never reach the result. Rank by numeric value and
 	// break every remaining tie on the catalog key itself, so one catalog and one
 	// selector always resolve to the same release, or always to the same error.
-	sort.Slice(matches, func(first, second int) bool {
-		if comparison := compareNumericVersions(matches[first].parts, matches[second].parts); comparison != 0 {
-			return comparison > 0
+	slices.SortFunc(matches, func(first, second candidate) int {
+		if comparison := compareNumericVersions(second.parts, first.parts); comparison != 0 {
+			return comparison
 		}
-		return matches[first].name < matches[second].name
+		return strings.Compare(first.name, second.name)
 	})
 	if len(matches) > 1 && compareNumericVersions(matches[0].parts, matches[1].parts) == 0 {
 		return "", fmt.Errorf("numeric prefix %q is ambiguous between semantically equal versions %q and %q", selector, matches[0].name, matches[1].name)

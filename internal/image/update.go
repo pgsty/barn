@@ -156,7 +156,7 @@ func scanCachedImages(dataRoot string) (map[cachedImageKey][]string, error) {
 			if fileStatErr != nil {
 				return nil, fileStatErr
 			}
-			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			if !info.Mode().IsRegular() {
 				return nil, fmt.Errorf("managed image cache entry is not a regular non-symlink file: %s", fullPath)
 			}
 			key := cachedImageKey{alias: family, arch: arch}
@@ -334,7 +334,7 @@ func dryRunTargetCached(dataRoot string, entry Entry) (string, bool) {
 		return "", false
 	}
 	info, err := os.Lstat(cachePath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o222 != 0 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o222 != 0 {
 		return "", false
 	}
 	if entry.ArtifactSize > 0 && info.Size() != entry.ArtifactSize {

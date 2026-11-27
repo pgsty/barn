@@ -192,7 +192,7 @@ func (s Store) repairCachePermissions(ctx context.Context, entry Entry) error {
 	if opened.Size() > MaxArtifactSize {
 		return errors.New("cached image size exceeds supported byte counter range")
 	}
-	size, err := copyWithProgress(hash, handle, opened.Size()+1, s.Progress, activity.Event{Phase: "image-verify", Message: "Checking cache permissions and image bytes", TotalBytes: opened.Size()})
+	size, err := activity.CopyWithProgress(hash, handle, opened.Size()+1, s.Progress, activity.Event{Phase: "image-verify", Message: "Checking cache permissions and image bytes", TotalBytes: opened.Size()})
 	if err != nil {
 		return err
 	}

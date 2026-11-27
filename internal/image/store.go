@@ -64,28 +64,6 @@ type Store struct {
 	Progress   activity.Reporter
 }
 
-const byteProgressInterval = 250 * time.Millisecond
-
-type reportingReader struct {
-	reader   io.Reader
-	reporter activity.Reporter
-	event    activity.Event
-	current  int64
-	last     time.Time
-}
-
-func (reader *reportingReader) Read(buffer []byte) (int, error) {
-	read, err := reader.reader.Read(buffer)
-	reader.current += int64(read)
-	now := time.Now()
-	if read > 0 && (reader.last.IsZero() || now.Sub(reader.last) >= byteProgressInterval) {
-		reader.event.CurrentBytes = reader.current
-		reader.reporter.Report(reader.event)
-		reader.last = now
-	}
-	return read, err
-}
-
 func displayActivitySource(source string) string {
 	parsed, err := url.Parse(source)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
@@ -95,22 +73,6 @@ func displayActivitySource(source string) string {
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return parsed.String()
-}
-
-func copyWithProgress(destination io.Writer, source io.Reader, limit int64, reporter activity.Reporter, event activity.Event) (int64, error) {
-	event.StartBytes = event.CurrentBytes
-	if event.StartedAt.IsZero() {
-		event.StartedAt = time.Now()
-	}
-	reporter.Report(event)
-	// event.CurrentBytes seeds the counter so a resumed transfer reports absolute
-	// progress against TotalBytes rather than restarting the bar at zero.
-	tracked := &reportingReader{reader: io.LimitReader(source, limit), reporter: reporter, event: event, current: event.CurrentBytes, last: time.Now()}
-	written, err := io.Copy(destination, tracked)
-	event.CurrentBytes = tracked.current
-	event.Done = err == nil
-	reporter.Report(event)
-	return written, err
 }
 
 // errSourceGone marks a source that answered "this artifact is not here". It is
@@ -153,14 +115,7 @@ func (s Store) lockPath() string { return filepath.Join(s.DataRoot, "locks", "im
 func (s Store) imagesRoot() string { return filepath.Join(s.DataRoot, "images") }
 
 func ensurePrivateDir(pathname string) error {
-	if err := os.MkdirAll(pathname, 0o700); err != nil {
-		return err
-	}
-	info, err := os.Lstat(pathname)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("barn path is unsafe: %s", pathname)
-	}
-	return os.Chmod(pathname, 0o700)
+	return fsutil.EnsurePrivateDir(pathname, 0o700)
 }
 
 func (s Store) validate() error {
@@ -228,7 +183,7 @@ func digestFileWithProgress(pathname string, reporter activity.Reporter, event a
 	}()
 	hash := sha256.New()
 	event.TotalBytes = info.Size()
-	written, err := copyWithProgress(hash, handle, info.Size()+1, reporter, event)
+	written, err := activity.CopyWithProgress(hash, handle, info.Size()+1, reporter, event)
 	if err != nil {
 		return "", written, err
 	}
@@ -595,7 +550,7 @@ func (s Store) stageHTTP(ctx context.Context, source, directory string, entry En
 		total = resumeFrom + response.ContentLength
 	}
 	body := &stallReader{reader: response.Body, timer: watchdog, timeout: imageStallTimeout}
-	received, err := copyWithProgress(handle, body, limit+1-resumeFrom, s.Progress, activity.Event{
+	received, err := activity.CopyWithProgress(handle, body, limit+1-resumeFrom, s.Progress, activity.Event{
 		Phase:        "image-download",
 		Message:      fmt.Sprintf("Downloading image %s %s (%s)", entry.Alias, entry.Release, entry.Arch),
 		Source:       displaySource,

@@ -581,6 +581,43 @@ func TestSignedRepositoryRefusesUnsignedDowngradeWithoutExplicitOverride(t *test
 	}
 }
 
+func TestManifestRegistryBeyondOneMiBStaysReadableAndWritable(t *testing.T) {
+	t.Parallel()
+	manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data")}
+	if err := os.MkdirAll(manager.root(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state, err := embeddedState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := manager.readRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data []byte
+	for index := 0; len(data) <= 1<<20; index++ {
+		for batch := 0; batch < 256; batch++ {
+			registry.Repositories[fmt.Sprintf("repo-%064x", index*256+batch)] = state
+		}
+		if data, err = json.MarshalIndent(registry, "", "  "); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(manager.statePath(), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.writeState(state); err != nil {
+		t.Fatalf("registry over 1 MiB blocked the next write: %v", err)
+	}
+	if got, err := manager.readState(); err != nil || got.Active != state.Active {
+		t.Fatalf("registry over 1 MiB hid the default repository state: %#v, %v", got, err)
+	}
+}
+
 func TestManifestRegistryRejectsRetiredSingleRepositoryState(t *testing.T) {
 	manager := ManifestManager{DataRoot: filepath.Join(t.TempDir(), "data")}
 	if err := os.MkdirAll(manager.root(), 0o700); err != nil {

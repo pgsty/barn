@@ -90,8 +90,7 @@ func (m ManifestManager) validate() error {
 }
 
 func manifestDigest(data []byte) string {
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
+	return fsutil.SHA256Bytes(data)
 }
 
 func versionSignaturePath(manifestPath, keyID string) string {
@@ -187,14 +186,9 @@ func (m ManifestManager) unsignedSourceMatchesRepository(provenance string) bool
 }
 
 func (m ManifestManager) readRegistry() (ManifestRegistry, error) {
-	info, err := os.Lstat(m.statePath())
-	if err != nil {
-		return ManifestRegistry{}, err
-	}
-	if !info.Mode().IsRegular() {
-		return ManifestRegistry{}, errors.New("manifest state must be a regular non-symlink file")
-	}
-	data, err := os.ReadFile(m.statePath())
+	// writeState publishes the registry without a size cap, one entry per
+	// repository, so reads stay unbounded to accept everything it wrote.
+	data, _, err := fsutil.ReadBoundedRegular(m.statePath(), 0)
 	if err != nil {
 		return ManifestRegistry{}, err
 	}
@@ -207,15 +201,9 @@ func (m ManifestManager) readRegistry() (ManifestRegistry, error) {
 	if header.Schema != ManifestRegistrySchema {
 		return ManifestRegistry{}, fmt.Errorf("unsupported manifest registry schema %d", header.Schema)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var registry ManifestRegistry
-	if err := decoder.Decode(&registry); err != nil {
-		return ManifestRegistry{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return ManifestRegistry{}, errors.New("manifest registry has trailing JSON")
+	if err := fsutil.DecodeStrictJSON(data, &registry); err != nil {
+		return ManifestRegistry{}, fmt.Errorf("decode manifest registry: %w", err)
 	}
 	if registry.Repositories == nil {
 		return ManifestRegistry{}, errors.New("manifest registry repositories are missing")
@@ -259,11 +247,7 @@ func (m ManifestManager) writeState(state ManifestState) error {
 		return err
 	}
 	registry.Repositories[key] = state
-	data, err := json.MarshalIndent(registry, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.AtomicWrite(m.statePath(), append(data, '\n'), 0o600)
+	return fsutil.WriteJSONAtomic(m.statePath(), registry, 0o600)
 }
 
 func embeddedState() (ManifestState, error) {

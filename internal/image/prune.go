@@ -149,7 +149,7 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 		active = candidate.path
 		reportItem(candidate.path, "checking", "checking cache entry", false)
 		info, statErr := os.Lstat(candidate.path)
-		if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		if statErr != nil || !info.Mode().IsRegular() {
 			return report, fmt.Errorf("managed image cache entry is not a regular non-symlink file: %s", candidate.path)
 		}
 		if candidate.kind == "staging" || candidate.kind == "quarantine" {

@@ -37,8 +37,8 @@ func TestCatalogResolvesDefaultChannelExactVersionAndAlias(t *testing.T) {
 	if err != nil || exact.Alias != "u24" || exact.Channel != "" || exact.SHA256 != defaultEntry.SHA256 {
 		t.Fatalf("exact entry = %#v, %v", exact, err)
 	}
-	if got, err := CanonicalReference("Ubuntu:stable"); err != nil || got != "u26:stable" {
-		t.Fatalf("canonical reference = %q, %v", got, err)
+	if resolved, err := ResolveReference("Ubuntu:stable"); err != nil || resolved.Reference != "u26:stable" || resolved.Arch != "" {
+		t.Fatalf("ResolveReference(Ubuntu:stable) = %#v, %v", resolved, err)
 	}
 	if resolved, err := ResolveReference("el10a:stable"); err != nil || resolved.Reference != "el10:stable" || resolved.Arch != "arm64" {
 		t.Fatalf("ResolveReference(el10a:stable) = %#v, %v", resolved, err)

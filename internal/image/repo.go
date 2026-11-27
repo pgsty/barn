@@ -3,7 +3,6 @@ package image
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -258,7 +257,7 @@ func ScanRepository(root string) (RepoScanReport, error) {
 		name := entry.Name()
 		pathname := filepath.Join(imagesRoot, name)
 		info, statErr := os.Lstat(pathname)
-		if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !repositoryFilename.MatchString(name) {
+		if statErr != nil || !info.Mode().IsRegular() || !repositoryFilename.MatchString(name) {
 			report.Unsafe = append(report.Unsafe, name)
 			continue
 		}
@@ -353,7 +352,7 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (_ Catalog, _
 				}
 				report(filename, "hashing", "computing SHA-256", false)
 				before, err := os.Lstat(pathname)
-				if err != nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() <= 0 || before.Size() > MaxArtifactSize {
+				if err != nil || !before.Mode().IsRegular() || before.Size() <= 0 || before.Size() > MaxArtifactSize {
 					return Catalog{}, nil, scan, fmt.Errorf("unsafe repository artifact %s", pathname)
 				}
 				digest, size, err := digestFileWithProgress(pathname, b.Progress, activity.Event{Phase: "image-verify", Message: "computing SHA-256"})
@@ -392,11 +391,11 @@ func (b RepoBuilder) materialize(ctx context.Context, root string) (_ Catalog, _
 	if err := catalog.Validate(); err != nil {
 		return Catalog{}, nil, scan, err
 	}
-	data, err := json.MarshalIndent(catalog, "", "  ")
+	data, err := fsutil.MarshalJSONIndent(catalog)
 	if err != nil {
 		return Catalog{}, nil, scan, err
 	}
-	return catalog, append(data, '\n'), scan, nil
+	return catalog, data, scan, nil
 }
 
 // Resolve user-selected directory aliases once, before publishing catalog.json.
