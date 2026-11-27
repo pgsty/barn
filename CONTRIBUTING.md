@@ -126,11 +126,6 @@ the same verified payload. See the [Mac release handbook](https://barn.pgsty.com
 `tests/mac-release-test.py` exercises payload boundaries as part of
 `make install-test`.
 
-`make release-dev VERSION=0.2.1-dev.1 SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)`
-builds and verifies the older unsigned development-archive path. The packaging
-workflow runs it alongside the GoReleaser snapshot; neither path publishes
-anything.
-
 `packaging/image-pipeline/build-official.py --list` shows the fixed ten-image
 candidate matrix. A build requires explicit source, package-cache, and output
 directories; it refuses to replace an existing bundle. After all architecture

@@ -22,11 +22,6 @@ barn_archive_payload_paths() {
   printf '%s\n' bin/barn bin/barn-hosts-helper
 }
 
-barn_development_archive_payload_paths() {
-  printf '%s\n' BUILD_INFO.json
-  barn_archive_payload_paths "$1"
-}
-
 barn_linux_package_payload_paths() {
   local repo=$1
   local common

@@ -4,7 +4,7 @@
 	module-check shell-check maintenance-check test race vet staticcheck deadcode errcheck vuln check license-check \
 	image-pipeline-test image-pipeline-native-test install-test \
 	catalog-export catalog-keygen catalog-sign catalog-verify catalog-check \
-	release-check release-snapshot release-local gr-check gr-snapshot gr-local release-dev
+	release-check release-snapshot release-local gr-check gr-snapshot gr-local
 
 SNAPSHOT_DIST ?= .goreleaser-snapshot
 
@@ -195,9 +195,3 @@ gr-check: release-check
 gr-snapshot: release-snapshot
 
 gr-local: release-local
-
-release-dev:
-	@test -n "$(VERSION)" || { echo "VERSION is required" >&2; exit 2; }
-	@test -n "$(SOURCE_DATE_EPOCH)" || { echo "SOURCE_DATE_EPOCH is required" >&2; exit 2; }
-	SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" ./packaging/build-release.sh "$(VERSION)" "dist/$(VERSION)"
-	./packaging/verify-release.sh "$(VERSION)" "$(CURDIR)/dist/$(VERSION)"

@@ -114,14 +114,6 @@ jobs:
             make release-snapshot
           fi
 
-      - name: Build and verify the development release path
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="0.0.0-ci.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
-          source_epoch=$(git show -s --format=%ct HEAD)
-          make release-dev VERSION="${version}" SOURCE_DATE_EPOCH="${source_epoch}"
-
       - name: Assemble and checksum the snapshot asset set
         shell: bash
         run: |
