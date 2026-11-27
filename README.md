@@ -289,6 +289,21 @@ See [storage and access](https://barn.pgsty.com/docs/start/storage/).
 
 Use `barn --help` or `barn <command> --help` for the options in your installed version.
 
+## Use with an AI agent
+
+Barn publishes an [agent skill](https://barn.pgsty.com/skill.md) that teaches
+Claude Code, Codex, and other coding agents to create, use, and clean up Barn
+VMs. Paste this prompt into the agent and fill in the last line:
+
+```text
+Use Barn to run virtual machines on this computer, following the Barn skill: https://barn.pgsty.com/skill.md
+Check commands and configuration against the Barn docs (https://barn.pgsty.com/docs/); use the default Ubuntu 24.04 unless I say otherwise.
+What I need: [purpose, nodes and sizes, OS and architecture, working directory, Pigsty or not, macOS VMs…]
+```
+
+To load the skill in every session, see
+[Use Barn with an AI agent](https://barn.pgsty.com/docs/start/agent/).
+
 ## Contribute
 
 ```bash
