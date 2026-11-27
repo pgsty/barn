@@ -313,7 +313,7 @@ func (s Store) Import(ctx context.Context, source, expectedDigest string) (_ str
 	}
 	// The source name is presentation, not identity: independently built images
 	// often share a basename, and the user's filename need not be a cache key.
-	entry := Entry{Alias: "local", Release: "local-" + digest[:12], CacheFile: "local/" + digest + ".qcow2", SHA256: digest, Format: "qcow2", ArtifactSize: sourceSize}
+	entry := Entry{Alias: "local", Release: "local-" + digest[:12], CacheFile: CacheFile("local", "", "", digest), SHA256: digest, Format: "qcow2", ArtifactSize: sourceSize}
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	imageLock, err := lock.Acquire(lockContext, s.lockPath(), false)

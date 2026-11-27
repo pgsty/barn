@@ -15,6 +15,7 @@ import (
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/image"
 	"github.com/pgsty/barn/internal/lock"
 	"github.com/pgsty/barn/internal/state"
 )
@@ -253,10 +254,10 @@ func validImageDigest(value string) bool {
 	return err == nil && len(decoded) == 32 && value == fmt.Sprintf("%x", decoded)
 }
 
-// NodeImageReferences collects every image digest a deployment node still
-// references, so image prune never deletes a base image in use.
-func NodeImageReferences(dataRoot string) (map[string]struct{}, error) {
-	references := make(map[string]struct{})
+// NodeImageReferences protects each node's backing filename as well as its
+// recorded digest, including bases retired from the current catalog.
+func NodeImageReferences(dataRoot string) ([]image.Entry, error) {
+	var references []image.Entry
 	store := state.Store{Root: dataRoot}
 	entries, readErr := os.ReadDir(filepath.Join(dataRoot, "nodes"))
 	if errors.Is(readErr, os.ErrNotExist) {
@@ -278,7 +279,15 @@ func NodeImageReferences(dataRoot string) (map[string]struct{}, error) {
 		if !validImageDigest(node.Image.Digest) {
 			return nil, fmt.Errorf("node %s has an invalid image digest", entry.Name())
 		}
-		references[node.Image.Digest] = struct{}{}
+		arches := []string{invocationGuestArch(node.Invocation.Binary, node.Invocation.Args)}
+		if arches[0] == "" {
+			// Older invocations may not identify the guest architecture.
+			arches = []string{"amd64", "arm64"}
+		}
+		for _, arch := range arches {
+			file := image.CacheFile(node.Image.Alias, node.Image.Release, arch, node.Image.Digest)
+			references = append(references, image.Entry{SHA256: node.Image.Digest, CacheFile: file})
+		}
 	}
 	return references, nil
 }

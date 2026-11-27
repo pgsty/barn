@@ -139,7 +139,7 @@ func runImageUpdate(parent context.Context, options imageUpdateCLIOptions, stder
 		Arch:      arch,
 		DryRun:    options.DryRun,
 		Prune:     options.Prune,
-		NodeRefs: func(context.Context) (map[string]struct{}, error) {
+		NodeRefs: func(context.Context) ([]image.Entry, error) {
 			return linuxvm.NodeImageReferences(service.DataRoot)
 		},
 	})
@@ -281,7 +281,7 @@ func runImagePrune(parent context.Context, dryRun, apply bool, repository string
 		operation += " plan"
 	}
 	progressItem = startOperationProgress(ctx, stderr, "Scanning unreferenced image cache entries", operation)
-	report, err := service.PruneAll(ctx, apply, func(context.Context) (map[string]struct{}, error) {
+	report, err := service.PruneAll(ctx, apply, func(context.Context) ([]image.Entry, error) {
 		return linuxvm.NodeImageReferences(service.DataRoot)
 	})
 	progressItem.Stop(err)

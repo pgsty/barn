@@ -12,7 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/lock"
 )
 
 func writeUpdateRepoArtifact(t *testing.T, repoRoot, relFile, content string) Artifact {
@@ -158,8 +160,8 @@ func TestUpdateImagesDryRunApplyDeprecatedRetiredMultiArchAndPrune(t *testing.T)
 	dryReport, err := service.UpdateImages(context.Background(), ImageUpdateOptions{
 		DryRun: true,
 		Prune:  true,
-		NodeRefs: func(context.Context) (map[string]struct{}, error) {
-			return map[string]struct{}{retiredD13ARM.SHA256: {}}, nil
+		NodeRefs: func(context.Context) ([]Entry, error) {
+			return []Entry{retiredD13ARM}, nil
 		},
 	})
 	if err != nil {
@@ -224,8 +226,8 @@ func TestUpdateImagesDryRunApplyDeprecatedRetiredMultiArchAndPrune(t *testing.T)
 	// 3. Repeat with --prune: catalog is current, all catalog images unchanged, unreferenced old images & staging removed while node-referenced old image stays.
 	pruned, err := service.UpdateImages(context.Background(), ImageUpdateOptions{
 		Prune: true,
-		NodeRefs: func(context.Context) (map[string]struct{}, error) {
-			return map[string]struct{}{retiredD13ARM.SHA256: {}}, nil
+		NodeRefs: func(context.Context) ([]Entry, error) {
+			return []Entry{retiredD13ARM}, nil
 		},
 	})
 	if err != nil {
@@ -300,6 +302,17 @@ func TestUpdateImagesSelectorsArchFilterAndValidation(t *testing.T) {
 		t.Fatalf("d13a selector unexpectedly downloaded amd64: %v", statErr)
 	}
 
+	// The next apply must repair this same-size file. Preview should predict
+	// that download while leaving the damaged bytes in place.
+	_, damaged := writeCachedFixture(t, store, "d13", filepath.Base(d13AMD.File), "d13-bad-amd")
+	preview, err := service.UpdateImages(t.Context(), ImageUpdateOptions{Selectors: []string{"d13i"}, DryRun: true})
+	if err != nil || len(preview.Images) != 1 || preview.Images[0].State != "planned" {
+		t.Fatalf("preview for damaged cache = %+v, %v", preview, err)
+	}
+	if data, err := os.ReadFile(damaged); err != nil || string(data) != "d13-bad-amd" {
+		t.Fatalf("preview changed damaged cache: %q, %v", data, err)
+	}
+
 	// Deduplicated aliases + --arch filter updates only amd64.
 	amdReport, err := service.UpdateImages(context.Background(), ImageUpdateOptions{Selectors: []string{"d13", "debian13"}, Arch: "amd64"})
 	if err != nil {
@@ -368,5 +381,55 @@ func TestUpdateImagesContinuesOnPartialFailure(t *testing.T) {
 	}
 	if len(report.Images) != 2 || report.Images[0].State != "updated" || report.Images[1].State != "failed" || report.Prune != nil {
 		t.Fatalf("partial report = %#v", report)
+	}
+}
+
+func TestImageUpdatePruneProtectsConcurrentRefresh(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	service := Service{DataRoot: t.TempDir(), Repository: repo, QEMUImg: "/fake/qemu-img", Runner: pruneRunner{virtualSize: 1 << 30}}
+	publish := func(revision uint64, release string) {
+		artifact := writeUpdateRepoArtifact(t, repo, "images/d13-"+release+"-arm64.qcow2", "release "+release)
+		writeCustomCatalog(t, repo, Catalog{
+			Schema: ManifestSchema, Version: revision,
+			Defaults: CatalogDefaults{Image: "d13", Channel: "stable", Arch: "native", Boot: "uefi"},
+			Images: map[string]CatalogImage{"d13": {
+				Boot: "uefi", Channels: map[string]string{"stable": release},
+				Versions: map[string]CatalogVersion{release: {Status: "supported", Variants: map[string]Artifact{"arm64": artifact}}},
+			}},
+		})
+	}
+	publish(1, "1")
+	options := ImageUpdateOptions{Selectors: []string{"d13a"}}
+	other := service
+	var secondPath string
+	service.Progress = func(event activity.Event) {
+		switch {
+		case event.Phase == "image-update" && event.State == "updated":
+			publish(2, "2")
+			next, err := other.UpdateImages(t.Context(), options)
+			if err != nil || len(next.Images) != 1 {
+				t.Fatalf("second update = %+v, %v", next, err)
+			}
+			secondPath = next.Images[0].Path
+		case event.Phase == "image-prune" && event.State == "checking":
+			manager := ManifestManager{DataRoot: service.DataRoot}
+			held, err := lock.TryAcquire(manager.lockPath(), false)
+			if err == nil {
+				_ = held.Release()
+			}
+			if !errors.Is(err, lock.ErrBusy) {
+				t.Errorf("catalog can change during prune: %v", err)
+			}
+		}
+	}
+	report, err := service.UpdateImages(t.Context(), ImageUpdateOptions{Selectors: options.Selectors, Prune: true})
+	if err != nil || len(report.Images) != 1 || report.Prune == nil || len(report.Prune.Items) != 0 {
+		t.Fatalf("first update pruned a referenced image: %+v, %v", report, err)
+	}
+	for _, path := range []string{report.Images[0].Path, secondPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

@@ -2,7 +2,6 @@ package image
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -202,30 +201,8 @@ func (s Service) SyncManifest(ctx context.Context, source string, allowDowngrade
 // UpdateCatalog fetches the configured repository's catalog once, verifies it,
 // and activates it. SyncManifest is the lower-level exact-source recovery path.
 func (s Service) UpdateCatalog(ctx context.Context) (CatalogUpdate, error) {
-	manager, err := s.manifestManager()
-	if err != nil {
-		return CatalogUpdate{}, err
-	}
-	if manager.Repository == "" {
-		return CatalogUpdate{}, errors.New("image catalog update requires a configured repository")
-	}
-	source, err := RepositoryCatalogSource(manager.Repository)
-	if err != nil {
-		return CatalogUpdate{}, err
-	}
-	result := CatalogUpdate{Repository: manager.Repository, Source: source}
-	var current ManifestState
-	if catalog, currentState, currentErr := manager.Current(); currentErr == nil {
-		result.PreviousVersion = catalog.Version
-		current = currentState
-	}
-	accepted, err := manager.Sync(ctx, source, false)
-	if err != nil {
-		return result, err
-	}
-	result.ActiveVersion = accepted.ActiveVersion
-	result.Updated = accepted.ActiveVersion != current.ActiveVersion || accepted.ActiveDigest != current.ActiveDigest
-	return result, nil
+	_, result, err := s.refreshCatalog(ctx, false)
+	return result, err
 }
 
 // ResetManifest restores the embedded bootstrap catalog.
@@ -240,47 +217,44 @@ func (s Service) ResetManifest(ctx context.Context) (ManifestState, error) {
 // PruneAll removes unreferenced images and stale staging files. The caller
 // supplies the node-referenced digests; the catalog and registered local
 // aliases are always protected.
-func (s Service) PruneAll(ctx context.Context, apply bool, nodeRefs func(context.Context) (map[string]struct{}, error)) (PruneReport, error) {
+func (s Service) PruneAll(ctx context.Context, apply bool, nodeRefs func(context.Context) ([]Entry, error)) (PruneReport, error) {
 	return s.pruneAllWithCatalog(ctx, apply, nil, nodeRefs)
 }
 
-func (s Service) pruneAllWithCatalog(ctx context.Context, apply bool, catalogOverride *Catalog, nodeRefs func(context.Context) (map[string]struct{}, error)) (PruneReport, error) {
+func (s Service) pruneAllWithCatalog(ctx context.Context, apply bool, catalogOverride *Catalog, nodeRefs func(context.Context) ([]Entry, error)) (PruneReport, error) {
 	store, err := s.store("")
 	if err != nil {
 		return PruneReport{}, err
 	}
-	resolve := func() (_ map[string]struct{}, returnErr error) {
-		references := make(map[string]struct{})
+	resolve := func() ([]Entry, error) {
 		var entries []Entry
 		if catalogOverride != nil {
 			entries = catalogOverride.Entries()
-		} else {
+		}
+		// An update may finish downloading after another process activates a
+		// new revision. Keep both its downloads and the active catalog's files.
+		if catalogOverride == nil || apply {
 			session, err := s.OpenCatalog()
 			if err != nil {
 				return nil, err
 			}
-			entries = session.Entries()
-		}
-		for _, entry := range entries {
-			references[entry.SHA256] = struct{}{}
+			entries = append(entries, session.Entries()...)
 		}
 		if nodeRefs != nil {
 			nodeReferences, refErr := nodeRefs(ctx)
 			if refErr != nil {
 				return nil, refErr
 			}
-			for digest := range nodeReferences {
-				references[digest] = struct{}{}
-			}
+			entries = append(entries, nodeReferences...)
 		}
-		locals, localErr := store.LocalEntries()
+		locals, localErr := store.readLocalAliases()
 		if localErr != nil {
 			return nil, localErr
 		}
-		for _, local := range locals {
-			references[local.Digest] = struct{}{}
+		for _, local := range locals.Aliases {
+			entries = append(entries, localEntry(local))
 		}
-		return references, nil
+		return entries, nil
 	}
 	return store.PruneWithReferenceLock(ctx, apply, filepath.Join(s.DataRoot, "locks", "allocator.lock"), resolve)
 }

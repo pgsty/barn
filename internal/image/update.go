@@ -21,7 +21,7 @@ type ImageUpdateOptions struct {
 	Arch      string
 	DryRun    bool
 	Prune     bool
-	NodeRefs  func(context.Context) (map[string]struct{}, error)
+	NodeRefs  func(context.Context) ([]Entry, error)
 }
 
 // ImageUpdateItem describes one cached or requested image evaluated by UpdateImages.
@@ -172,7 +172,7 @@ func scanCachedImages(dataRoot string) (map[cachedImageKey][]string, error) {
 	return result, nil
 }
 
-func (s Service) previewCatalog(ctx context.Context) (Catalog, CatalogUpdate, error) {
+func (s Service) refreshCatalog(ctx context.Context, dryRun bool) (Catalog, CatalogUpdate, error) {
 	manager, err := s.manifestManager()
 	if err != nil {
 		return Catalog{}, CatalogUpdate{}, err
@@ -190,13 +190,19 @@ func (s Service) previewCatalog(ctx context.Context) (Catalog, CatalogUpdate, er
 		result.PreviousVersion = catalog.Version
 		current = currentState
 	}
-	preview, state, err := manager.Preview(ctx, source)
+	var catalog Catalog
+	var state ManifestState
+	if dryRun {
+		catalog, state, err = manager.Preview(ctx, source)
+	} else {
+		catalog, state, err = manager.syncCatalog(ctx, source, false)
+	}
 	if err != nil {
 		return Catalog{}, result, err
 	}
 	result.ActiveVersion = state.ActiveVersion
 	result.Updated = state.ActiveVersion != current.ActiveVersion || state.ActiveDigest != current.ActiveDigest
-	return preview, result, nil
+	return catalog, result, nil
 }
 
 func prevalidateUpdateSelectors(selectors []string) ([]Reference, error) {
@@ -328,19 +334,28 @@ func buildUpdateTargets(catalog Catalog, cached map[cachedImageKey][]string, par
 	return targets, nil
 }
 
-func dryRunTargetCached(dataRoot string, entry Entry) (string, bool) {
-	cachePath, err := (Store{DataRoot: dataRoot}).Path(entry)
+func (s Store) dryRunTargetCached(entry Entry) (string, bool, error) {
+	cachePath, err := s.Path(entry)
 	if err != nil {
-		return "", false
+		return "", false, err
 	}
 	info, err := os.Lstat(cachePath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o222 != 0 {
-		return "", false
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o222 != 0 {
+		return "", false, nil
 	}
 	if entry.ArtifactSize > 0 && info.Size() != entry.ArtifactSize {
-		return "", false
+		return "", false, nil
 	}
-	return cachePath, true
+	digest, _, err := digestFileWithProgress(cachePath, s.Progress, activity.Event{
+		Phase: "image-verify", Message: fmt.Sprintf("Verifying cached image %s %s (%s)", entry.Alias, entry.Release, entry.Arch),
+	})
+	return cachePath, digest == entry.SHA256, err
 }
 
 func previousReleasesExcluding(releases []string, current string) []string {
@@ -369,13 +384,9 @@ func (s Service) UpdateImages(ctx context.Context, options ImageUpdateOptions) (
 
 	s.Progress.Report(activity.Event{Phase: "image-resolve", Item: "catalog", State: "checking", Message: "checking image catalog"})
 	catalogCtx, cancelCatalog := context.WithTimeout(ctx, 2*time.Minute)
-	var catalog Catalog
-	if options.DryRun {
-		catalog, report.Catalog, err = s.previewCatalog(catalogCtx)
-	} else {
-		report.Catalog, err = s.UpdateCatalog(catalogCtx)
-	}
+	catalog, update, err := s.refreshCatalog(catalogCtx, options.DryRun)
 	cancelCatalog()
+	report.Catalog = update
 	if err != nil {
 		state := "failed"
 		if errors.Is(err, context.Canceled) {
@@ -383,14 +394,6 @@ func (s Service) UpdateImages(ctx context.Context, options ImageUpdateOptions) (
 		}
 		s.Progress.Report(activity.Event{Phase: "image-resolve", Item: "catalog", State: state, Message: err.Error(), Done: true})
 		return report, err
-	}
-	if !options.DryRun {
-		session, sessionErr := s.OpenCatalog()
-		if sessionErr != nil {
-			s.Progress.Report(activity.Event{Phase: "image-resolve", Item: "catalog", State: "failed", Message: sessionErr.Error(), Done: true})
-			return report, sessionErr
-		}
-		catalog = session.catalog
 	}
 	catalogState, catalogMessage := "unchanged", fmt.Sprintf("revision %d is current", report.Catalog.ActiveVersion)
 	if report.Catalog.Updated {
@@ -421,13 +424,9 @@ func (s Service) UpdateImages(ctx context.Context, options ImageUpdateOptions) (
 		}
 	}
 
-	var store Store
+	store := Store{DataRoot: s.DataRoot, Progress: s.Progress}
 	if !options.DryRun && needsStore {
-		repository, _, repoErr := s.configuredRepository()
-		if repoErr != nil {
-			return report, repoErr
-		}
-		store, err = s.store(repository)
+		store, err = s.store(update.Repository)
 		if err != nil {
 			return report, err
 		}
@@ -466,7 +465,11 @@ func (s Service) UpdateImages(ctx context.Context, options ImageUpdateOptions) (
 			Status:           entry.Status,
 		}
 		if options.DryRun {
-			if path, ok := dryRunTargetCached(s.DataRoot, entry); ok {
+			path, cached, err := store.dryRunTargetCached(entry)
+			if err != nil {
+				return report, err
+			}
+			if cached {
 				item.State = "unchanged"
 				item.Path = path
 				item.Message = "already up to date"

@@ -316,7 +316,12 @@ func unknownSelection(err error) error {
 	return failure.New(failure.Usage, err).Because("unknown_image")
 }
 
-func cacheFile(alias, release, arch string) string {
+// CacheFile returns the managed cache filename for a catalog artifact or a
+// locally imported image. Deployed nodes retain this identity across updates.
+func CacheFile(alias, release, arch, digest string) string {
+	if reservedLocalNamespace(alias) {
+		return "local/" + digest + ".qcow2"
+	}
 	return fmt.Sprintf("%s/%s-%s-%s.qcow2", alias, alias, release, arch)
 }
 
@@ -474,7 +479,7 @@ func (c Catalog) Entry(reference, arch string) (Entry, error) {
 	}
 	return Entry{
 		Alias: canonical, Channel: channel, Release: release, Arch: arch,
-		File: artifact.File, CacheFile: cacheFile(canonical, release, arch), Upstream: artifact.Upstream,
+		File: artifact.File, CacheFile: CacheFile(canonical, release, arch, artifact.SHA256), Upstream: artifact.Upstream,
 		SHA256: artifact.SHA256, Format: artifact.Format, ArtifactSize: artifact.ArtifactSize, VirtualSize: artifact.VirtualSize,
 		SourceUser: artifact.SourceUser, Boot: boot, Status: status, Provenance: provenance,
 	}, nil

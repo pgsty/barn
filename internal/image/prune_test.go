@@ -60,7 +60,7 @@ func TestPruneDryRunAndApplyReadableImages(t *testing.T) {
 	}
 	keep, keepPath := writeCachedFixture(t, store, "u24", "u24-1-arm64.qcow2", "keep-image")
 	remove, removePath := writeCachedFixture(t, store, "u22", "u22-1-arm64.qcow2", "remove-image")
-	resolver := func() (map[string]struct{}, error) { return map[string]struct{}{keep.SHA256: {}}, nil }
+	resolver := func() ([]Entry, error) { return []Entry{keep}, nil }
 
 	dryRun, err := store.Prune(context.Background(), false, resolver)
 	if err != nil || len(dryRun.Items) != 1 || dryRun.Items[0].Digest != remove.SHA256 || dryRun.Items[0].Applied {
@@ -88,6 +88,18 @@ func TestPruneDryRunAndApplyReadableImages(t *testing.T) {
 	if _, err := os.Lstat(keepPath); err != nil {
 		t.Fatalf("referenced image removed: %v", err)
 	}
+
+	// A damaged backing file still has the filename stored in the VM's
+	// overlay, even when its bytes no longer match the recorded digest.
+	keep.SHA256 = strings.Repeat("a", 64)
+	for _, apply := range []bool{false, true} {
+		if _, err := store.Prune(t.Context(), apply, resolver); !errors.Is(err, ErrIntegrity) {
+			t.Fatalf("damaged referenced base, apply=%t: %v", apply, err)
+		}
+		if _, err := os.Stat(keepPath); err != nil {
+			t.Fatalf("lost referenced base: %v", err)
+		}
+	}
 }
 
 func TestPruneDryRunAndApplyOrphanedStagingFiles(t *testing.T) {
@@ -107,7 +119,7 @@ func TestPruneDryRunAndApplyOrphanedStagingFiles(t *testing.T) {
 		}
 	}
 	store := Store{DataRoot: dataRoot, QEMUImg: "/fake/qemu-img", Runner: pruneRunner{virtualSize: 1 << 30}}
-	resolver := func() (map[string]struct{}, error) { return map[string]struct{}{}, nil }
+	resolver := func() ([]Entry, error) { return nil, nil }
 	dryRun, err := store.Prune(context.Background(), false, resolver)
 	if err != nil || len(dryRun.Items) != 1 || dryRun.Items[0].Kind != "staging" || dryRun.Items[0].ImagePath != staging || dryRun.Items[0].Digest != "" || dryRun.Items[0].Applied {
 		t.Fatalf("staging dry-run prune = %#v, %v", dryRun, err)
@@ -127,6 +139,34 @@ func TestPruneDryRunAndApplyOrphanedStagingFiles(t *testing.T) {
 	}
 }
 
+func TestPrunePreviewLeavesExistingDirectoriesUntouched(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	service := Service{DataRoot: root, Repository: t.TempDir(), QEMUImg: "/fake/qemu-img", Runner: pruneRunner{virtualSize: 1 << 30}}
+	for _, directory := range []string{root, filepath.Join(root, "images")} {
+		if err := os.MkdirAll(directory, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.PruneAll(t.Context(), false, nil); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(directory)
+		if err != nil || info.Mode().Perm() != 0o750 {
+			t.Fatalf("preview changed directory permissions: %s, %v", directory, err)
+		}
+		files, err := os.ReadDir(directory)
+		if err != nil || len(files) != 0 {
+			t.Fatalf("preview created files in %s: %v, %v", directory, files, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "locks")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("preview created locks directory: %v", err)
+	}
+}
+
 func TestPruneDryRunAndApplyQuarantinedImages(t *testing.T) {
 	t.Parallel()
 	dataRoot := t.TempDir()
@@ -141,7 +181,7 @@ func TestPruneDryRunAndApplyQuarantinedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := Store{DataRoot: dataRoot, QEMUImg: "/fake/qemu-img", Runner: pruneRunner{virtualSize: 1 << 30}}
-	resolver := func() (map[string]struct{}, error) { return map[string]struct{}{}, nil }
+	resolver := func() ([]Entry, error) { return nil, nil }
 	dryRun, err := store.Prune(context.Background(), false, resolver)
 	if err != nil || len(dryRun.Items) != 1 || dryRun.Items[0].Kind != "quarantine" || dryRun.Items[0].Digest != "" || dryRun.Items[0].Applied {
 		t.Fatalf("quarantine dry-run prune = %#v, %v", dryRun, err)

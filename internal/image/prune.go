@@ -74,7 +74,13 @@ type pruneCandidate struct {
 	kind string
 }
 
-func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, apply bool) (_ PruneReport, returnErr error) {
+func (s Store) scanPrune(ctx context.Context, entries []Entry, apply bool) (_ PruneReport, returnErr error) {
+	referenced := make(map[string]struct{}, len(entries))
+	referencedPaths := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		referenced[entry.SHA256] = struct{}{}
+		referencedPaths[filepath.Join(s.imagesRoot(), entry.CacheFile)] = struct{}{}
+	}
 	report := PruneReport{Apply: apply, Referenced: make([]string, 0, len(referenced)), Items: []PruneItem{}}
 	for digest := range referenced {
 		report.Referenced = append(report.Referenced, digest)
@@ -191,6 +197,9 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 			reportItem(candidate.path, "kept", "image is still referenced", true)
 			continue
 		}
+		if _, inUse := referencedPaths[candidate.path]; inUse {
+			return report, fmt.Errorf("%w: referenced cache file has unexpected contents and was preserved: %s", ErrIntegrity, candidate.path)
+		}
 		item := PruneItem{Kind: candidate.kind, Digest: digest, ImagePath: candidate.path, Bytes: size}
 		if apply {
 			if removeErr := os.Remove(candidate.path); removeErr != nil {
@@ -207,35 +216,38 @@ func (s Store) scanPrune(ctx context.Context, referenced map[string]struct{}, ap
 	return report, nil
 }
 
-func (s Store) Prune(ctx context.Context, apply bool, resolveReferences func() (map[string]struct{}, error)) (_ PruneReport, returnErr error) {
+func (s Store) Prune(ctx context.Context, apply bool, resolveReferences func() ([]Entry, error)) (_ PruneReport, returnErr error) {
 	return s.prune(ctx, apply, "", resolveReferences)
 }
 
-// PruneWithReferenceLock keeps the reference snapshot lock until the scan and
-// deletion finish. Callers that update durable node image references can use
-// the same lock to prevent an image from being removed between the snapshot
-// and the filesystem operation.
-func (s Store) PruneWithReferenceLock(ctx context.Context, apply bool, referenceLockPath string, resolveReferences func() (map[string]struct{}, error)) (_ PruneReport, returnErr error) {
+// PruneWithReferenceLock keeps node references and the active catalog stable
+// from the reference snapshot through deletion.
+func (s Store) PruneWithReferenceLock(ctx context.Context, apply bool, referenceLockPath string, resolveReferences func() ([]Entry, error)) (_ PruneReport, returnErr error) {
 	return s.prune(ctx, apply, referenceLockPath, resolveReferences)
 }
 
-func (s Store) prune(ctx context.Context, apply bool, referenceLockPath string, resolveReferences func() (map[string]struct{}, error)) (_ PruneReport, returnErr error) {
+func (s Store) prune(ctx context.Context, apply bool, referenceLockPath string, resolveReferences func() ([]Entry, error)) (_ PruneReport, returnErr error) {
 	if s.DataRoot == "" || !filepath.IsAbs(s.DataRoot) || s.QEMUImg == "" || s.Runner == nil {
 		return PruneReport{}, errors.New("image prune store is incomplete")
 	}
 	if resolveReferences == nil {
 		return PruneReport{}, errors.New("image prune reference resolver is required")
 	}
-	rootInfo, err := os.Lstat(s.DataRoot)
-	if errors.Is(err, os.ErrNotExist) {
-		return PruneReport{Apply: apply, Items: []PruneItem{}}, nil
-	}
-	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o022 != 0 {
-		return PruneReport{}, errors.New("barn home directory is unsafe")
+	for _, directory := range []string{s.DataRoot, s.imagesRoot()} {
+		info, err := os.Lstat(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			return PruneReport{Apply: apply, Items: []PruneItem{}}, nil
+		}
+		if err != nil || !info.IsDir() || info.Mode().Perm()&0o022 != 0 {
+			return PruneReport{}, fmt.Errorf("unsafe image cache directory: %s", directory)
+		}
 	}
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if apply {
+		if err := ensurePrivateDir(filepath.Dir(s.lockPath())); err != nil {
+			return PruneReport{}, err
+		}
 		imageLock, err := lock.Acquire(lockContext, s.lockPath(), false)
 		if err != nil {
 			return PruneReport{}, err
@@ -253,6 +265,14 @@ func (s Store) prune(ctx context.Context, apply bool, referenceLockPath string, 
 		}
 		defer func() {
 			returnErr = lock.JoinRelease(returnErr, referenceLock, "image reference allocator lock")
+		}()
+		manager := ManifestManager{DataRoot: s.DataRoot}
+		manifestLock, err := lock.Acquire(lockContext, manager.lockPath(), true)
+		if err != nil {
+			return PruneReport{}, err
+		}
+		defer func() {
+			returnErr = lock.JoinRelease(returnErr, manifestLock, "image prune manifest lock")
 		}()
 	}
 	referenced, err := resolveReferences()

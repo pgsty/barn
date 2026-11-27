@@ -167,22 +167,6 @@ func (s Store) ResolveLocalAlias(ctx context.Context, name, arch string) (Entry,
 	return entry, path, metadata, nil
 }
 
-func (s Store) LocalEntries() ([]LocalAlias, error) {
-	if err := s.validate(); err != nil {
-		return nil, err
-	}
-	registry, err := s.readLocalAliases()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]LocalAlias, 0, len(registry.Aliases))
-	for _, alias := range registry.Aliases {
-		result = append(result, alias)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result, nil
-}
-
 // LocalAliasNames reads the private local-image registry without creating
 // cache directories or validating image bytes. It is intended for shell
 // completion, where discovery must remain fast and side-effect free.

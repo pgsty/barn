@@ -597,14 +597,24 @@ func (m ManifestManager) Preview(ctx context.Context, source string) (Catalog, M
 	return candidate.catalog, state, nil
 }
 
-func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade bool) (_ ManifestState, returnErr error) {
+func (m ManifestManager) Sync(ctx context.Context, source string, allowDowngrade bool) (ManifestState, error) {
+	_, state, err := m.syncCatalog(ctx, source, allowDowngrade)
+	return state, err
+}
+
+func (m ManifestManager) syncCatalog(ctx context.Context, source string, allowDowngrade bool) (Catalog, ManifestState, error) {
 	if err := m.validate(); err != nil {
-		return ManifestState{}, err
+		return Catalog{}, ManifestState{}, err
 	}
 	candidate, err := m.fetchAndVerify(ctx, source)
 	if err != nil {
-		return ManifestState{}, err
+		return Catalog{}, ManifestState{}, err
 	}
+	state, err := m.activate(ctx, candidate, allowDowngrade)
+	return candidate.catalog, state, err
+}
+
+func (m ManifestManager) activate(ctx context.Context, candidate verifiedCatalog, allowDowngrade bool) (_ ManifestState, returnErr error) {
 	lockContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	manifestLock, err := lock.Acquire(lockContext, m.lockPath(), false)
