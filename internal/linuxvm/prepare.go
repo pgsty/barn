@@ -2,7 +2,6 @@ package linuxvm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -171,11 +170,7 @@ func writePrepareJournal(path string, value PrepareJournal) error {
 	if err := validatePrepareJournal(path, value); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.AtomicWrite(path, append(data, '\n'), 0o600)
+	return fsutil.WriteJSONAtomic(path, value, 0o600)
 }
 
 func appendCompleted(path string, journal *PrepareJournal, artifact OwnedArtifact, now time.Time) error {

@@ -31,7 +31,6 @@ func (m *Manager) resolveBootImages(ctx context.Context, profile platform.Profil
 	}
 	applied := make(map[string]spec.Node)
 	if persisted.Schema != 0 {
-		requested = materializeExistingForwardPorts(requested, persisted.Resolved)
 		for _, node := range persisted.Resolved.Nodes {
 			applied[node.Name] = node
 		}

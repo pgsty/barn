@@ -242,7 +242,7 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 		return Backend{}, errors.New("supported qemu-bridge-helper is absent")
 	}
 	helperInfo, err := os.Lstat(helper)
-	if err != nil || !helperInfo.Mode().IsRegular() || helperInfo.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !helperInfo.Mode().IsRegular() {
 		return Backend{}, errors.New("qemu-bridge-helper is not a regular non-symlink file")
 	}
 	statistics, ok := helperInfo.Sys().(*syscall.Stat_t)
@@ -288,7 +288,7 @@ func linuxHostPreflight(ctx context.Context, expected *spec.PrivateNetwork, runn
 	backend := linuxnet.BackendNetworkd
 	if publicInfo, publicErr := os.Lstat(linuxnet.PublicStatePath); publicErr == nil {
 		backend = linuxnet.BackendNetworkManager
-		if !publicInfo.Mode().IsRegular() || publicInfo.Mode()&os.ModeSymlink != 0 {
+		if !publicInfo.Mode().IsRegular() {
 			return Backend{}, errors.New("NetworkManager public state is not a regular non-symlink file")
 		}
 		if _, err := rootOwned(linuxnet.PublicStateDir, 0o755, "directory"); err != nil {

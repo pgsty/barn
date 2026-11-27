@@ -164,88 +164,85 @@ func (m Manager) rootGuest(ctx context.Context, deployment Deployment, node stat
 	return actual, nil
 }
 
-func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, returnErr error) {
-	deployment, err := m.openDeployment(false)
-	if err != nil {
-		return "", err
-	}
-	held, err := acquireDeploymentLock(ctx, deployment.Root, false, m.Progress)
-	if err != nil {
-		return "", err
-	}
-	defer func() { returnErr = lock.JoinRelease(returnErr, held, "root resize lock") }()
-	m.Nodes, m.NoWait = []string{target.Name}, false
-	store := state.Store{Root: deployment.Root}
+type preparedRootResize struct {
+	applied   state.DeploymentState
+	journal   state.RootResize
+	backend   Backend
+	qemuImg   string
+	unchanged bool
+}
+
+func (m Manager) prepareRootResize(ctx context.Context, deployment Deployment, store state.Store, target spec.Node) (preparedRootResize, error) {
 	// Converge interrupted start/stop transitions while holding the same lock
 	// that will exclude new QEMU processes throughout the offline image edit.
 	if _, err := m.statusForLocked(ctx, deployment, ""); err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	applied, err := store.ReadDeployment()
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	before, found := resizeTargetNode(applied.Resolved, target.Name)
 	if !found || !resourceOnlyNodeChange(applied.Resolved, before, applied.Resolved, target) {
-		return "", errors.New("node definition changed before root growth; retry with the current inventory")
+		return preparedRootResize{}, errors.New("node definition changed before root growth; retry with the current inventory")
 	}
 	node, err := store.ReadNode(target.Name)
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	if node.Phase != state.Running && node.Phase != state.Stopped && node.Phase != state.Prepared {
-		return "", interruptedPhaseError(node)
+		return preparedRootResize{}, interruptedPhaseError(node)
 	}
 	nodeDir, err := deployment.NodeDir(node.Node)
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	serial, err := identity.DiskSerial(node.Node, "root")
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	if err := validateRootInvocation(node, filepath.Join(nodeDir, "root.qcow2"), serial); err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	if node.RootResize == nil && target.RootDisk == before.RootDisk {
-		return "unchanged", nil
+		return preparedRootResize{unchanged: true}, nil
 	}
 	if target.RootDisk < before.RootDisk || target.RootDisk%512 != 0 {
-		return "", errors.New("root resize only supports growth to a 512-byte-aligned absolute size")
+		return preparedRootResize{}, errors.New("root resize only supports growth to a 512-byte-aligned absolute size")
 	}
 	if node.RootResize != nil && node.RootResize.Target != target.RootDisk {
-		return "", fmt.Errorf("root growth to %d bytes is unfinished; retry the same target first", node.RootResize.Target)
+		return preparedRootResize{}, fmt.Errorf("root growth to %d bytes is unfinished; retry the same target first", node.RootResize.Target)
 	}
 	qemuImg, err := m.lookPath("qemu-img")
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	profile, err := m.nativeProfile()
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	backend, err := m.preflight(ctx, profile, resolvedNodeSelection(applied.Resolved, m.Nodes))
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	shareBinaries, err := selectedShareInvocationBinaries(store, applied.Resolved, m.Nodes)
 	if err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	if err := validatePrivateShareDeviceHelp(ctx, m.runner(), shareBinaries); err != nil {
-		return "", err
+		return preparedRootResize{}, err
 	}
 	if node.RootResize == nil {
 		node.RootResize = &state.RootResize{Original: before.RootDisk, Target: target.RootDisk, WasRunning: node.Phase == state.Running, Stage: "preflight"}
 		node.UpdatedAt = time.Now().UTC()
 		if err := store.WriteNode(node); err != nil {
-			return "", err
+			return preparedRootResize{}, err
 		}
 	}
-	journal := *node.RootResize
-	if !journal.WasRunning {
-		m.report("resize", "Temporarily starting "+node.Node+" to verify root growth; it will return to stopped")
-	}
+	return preparedRootResize{applied: applied, journal: *node.RootResize, backend: backend, qemuImg: qemuImg}, nil
+}
+
+func (m Manager) buildRootResizeActions(ctx context.Context, deployment Deployment, store state.Store, target spec.Node, prepared preparedRootResize) (rootResizeActions, func(*state.RootResize) error) {
 	save := func(value *state.RootResize) error {
 		current, err := store.ReadNode(target.Name)
 		if err != nil {
@@ -273,7 +270,7 @@ func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, re
 		if err := m.ensureSSHAddressesUnused([]spec.Node{target}); err != nil {
 			return err
 		}
-		_, err = m.startExistingLocked(ctx, deployment, current, backend, m.Nodes)
+		_, err = m.startExistingLocked(ctx, deployment, current, prepared.backend, m.Nodes)
 		return err
 	}
 	actions := rootResizeActions{
@@ -283,7 +280,7 @@ func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, re
 			if err != nil {
 				return state.RootFilesystem{}, err
 			}
-			return m.rootGuest(ctx, deployment, node, applied.Resolved.SSHUser, mode, target.RootDisk, expected)
+			return m.rootGuest(ctx, deployment, node, prepared.applied.Resolved.SSHUser, mode, target.RootDisk, expected)
 		},
 		grow: func() error {
 			node, err := store.ReadNode(target.Name)
@@ -297,16 +294,16 @@ func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, re
 			if observation.Live || observation.Authority != "dead" || node.Process.PID != 0 {
 				return errors.New("root growth requires proven QEMU process death")
 			}
-			disks := disk.Manager{QEMUImg: qemuImg, Runner: m.runner()}
+			disks := disk.Manager{QEMUImg: prepared.qemuImg, Runner: m.runner()}
 			info, err := disks.Inspect(ctx, node.RootDisk)
 			if err != nil {
 				return err
 			}
-			if info.VirtualSize < journal.Original || info.VirtualSize > journal.Target {
+			if info.VirtualSize < prepared.journal.Original || info.VirtualSize > prepared.journal.Target {
 				return errors.New("root image capacity is outside the recorded growth interval")
 			}
 			m.report("resize", "Growing stopped root image for "+node.Node)
-			_, _, err = disks.Grow(ctx, node.RootDisk, journal.Target, true)
+			_, _, err = disks.Grow(ctx, node.RootDisk, prepared.journal.Target, true)
 			return err
 		},
 		commit: func() error {
@@ -345,10 +342,36 @@ func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, re
 			return err
 		},
 	}
-	if err := runRootResize(journal, actions); err != nil {
+	return actions, save
+}
+
+func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, returnErr error) {
+	deployment, err := m.openDeployment(false)
+	if err != nil {
+		return "", err
+	}
+	held, err := acquireDeploymentLock(ctx, deployment.Root, false, m.Progress)
+	if err != nil {
+		return "", err
+	}
+	defer func() { returnErr = lock.JoinRelease(returnErr, held, "root resize lock") }()
+	m.Nodes, m.NoWait = []string{target.Name}, false
+	store := state.Store{Root: deployment.Root}
+	prepared, err := m.prepareRootResize(ctx, deployment, store, target)
+	if err != nil {
+		return "", err
+	}
+	if prepared.unchanged {
+		return "unchanged", nil
+	}
+	if !prepared.journal.WasRunning {
+		m.report("resize", "Temporarily starting "+target.Name+" to verify root growth; it will return to stopped")
+	}
+	actions, save := m.buildRootResizeActions(ctx, deployment, store, target, prepared)
+	if err := runRootResize(prepared.journal, actions); err != nil {
 		// Restore an initially stopped VM even when guest growth fails. A killed
 		// CLI skips this cleanup, but the durable power intent remains for retry.
-		if !journal.WasRunning {
+		if !prepared.journal.WasRunning {
 			recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 			_, stopErr := m.stopLocked(recoveryCtx, deployment)
 			cancel()
@@ -364,9 +387,9 @@ func (m Manager) resizeRoot(ctx context.Context, target spec.Node) (_ string, re
 				err = errors.Join(err, clearErr)
 			}
 		}
-		return "", failure.WithNext(fmt.Errorf("node %s root growth remains pending: %w", target.Name, err), "barn resize -D "+strconv.FormatInt(journal.Target, 10)+"B "+target.Name)
+		return "", failure.WithNext(fmt.Errorf("node %s root growth remains pending: %w", target.Name, err), "barn resize -D "+strconv.FormatInt(prepared.journal.Target, 10)+"B "+target.Name)
 	}
-	if journal.WasRunning {
+	if prepared.journal.WasRunning {
 		return "offline restart", nil
 	}
 	return "offline temporary boot; restored stopped", nil

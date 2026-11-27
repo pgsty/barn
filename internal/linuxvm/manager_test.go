@@ -28,22 +28,16 @@ func singlePrivateResolved() spec.Resolved {
 	}
 }
 
-func TestMaterializePrivatePortsIsDeterministicAndNonColliding(t *testing.T) {
+func TestAllocateSSHPortsIsDeterministicAndNonColliding(t *testing.T) {
 	t.Parallel()
 	resolved := singlePrivateResolved()
 	resolved.Nodes = append(resolved.Nodes, spec.Node{Name: "node-1", Address: "10.10.10.11", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB})
-	materialized, ports, err := materializePortsWithProbe(resolved, map[uint16]struct{}{2222: {}, 15432: {}}, func(string, uint16) bool { return true })
+	ports, err := allocateSSHPortsWithProbe(resolved, map[uint16]struct{}{2222: {}}, func(string, uint16) bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ports["meta"] != 12222 || ports["node-1"] != 2223 || materialized.Nodes[0].Forwards[0].Host != 25432 {
-		t.Fatalf("materialized ports=%v resolved=%#v", ports, materialized.Nodes[0].Forwards)
-	}
-	if materialized.Nodes[0].Forwards[0].RequestedHost != 15432 {
-		t.Fatalf("materialized forward request evidence = %#v", materialized.Nodes[0].Forwards[0])
-	}
-	if resolved.Nodes[0].Forwards[0].Host != 15432 {
-		t.Fatal("port materialization mutated caller-owned resolved spec")
+	if ports["meta"] != 12222 || ports["node-1"] != 2223 {
+		t.Fatalf("allocated SSH ports = %v", ports)
 	}
 }
 
@@ -64,12 +58,11 @@ func TestResolvedNodeSelectionIsDeepAndOrdered(t *testing.T) {
 	}
 }
 
-func TestMaterializeMissingNodePortsSkipsUnselectedMissingPeersAndReservesExisting(t *testing.T) {
+func TestAllocateMissingSSHPortsSkipsUnselectedMissingPeersAndReservesExisting(t *testing.T) {
 	t.Parallel()
 	resolved := singlePrivateResolved()
-	resolved.Nodes[0].Forwards = []spec.Forward{{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"}}
 	resolved.Nodes = append(resolved.Nodes,
-		spec.Node{Name: "node-1", Address: "10.10.10.11", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB, Forwards: []spec.Forward{{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"}}},
+		spec.Node{Name: "node-1", Address: "10.10.10.11", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB},
 		spec.Node{Name: "node-2", Address: "10.10.10.12", CPUs: 1, Memory: 2 * spec.GiB, RootDisk: 8 * spec.GiB},
 	)
 	store := state.Store{Root: t.TempDir()}
@@ -80,18 +73,12 @@ func TestMaterializeMissingNodePortsSkipsUnselectedMissingPeersAndReservesExisti
 	}); err != nil {
 		t.Fatal(err)
 	}
-	materialized, ports, err := materializeMissingNodePortsWithProbe(resolved, []string{"node-1"}, map[uint16]struct{}{}, store, func(string, uint16) bool { return true })
+	ports, err := allocateMissingSSHPortsWithProbe(resolved, []string{"node-1"}, map[uint16]struct{}{}, store, func(string, uint16) bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ports) != 2 || ports["meta"] != 2223 || ports["node-1"] != 12223 {
-		t.Fatalf("partial materialized ports = %v", ports)
-	}
-	if materialized.Nodes[1].Forwards[0].Host != 25432 || materialized.Nodes[1].Forwards[0].RequestedHost != 15432 {
-		t.Fatalf("partial materialized forward = %#v", materialized.Nodes[1].Forwards[0])
-	}
-	if resolved.Nodes[1].Forwards[0].Host != 15432 {
-		t.Fatal("partial port materialization mutated caller-owned spec")
+		t.Fatalf("partial allocated SSH ports = %v", ports)
 	}
 }
 

@@ -90,28 +90,3 @@ func TestBuildPrivateIntentRejectsInvalidControlAndDuplicateAddress(t *testing.T
 		t.Fatal("duplicate private address was accepted")
 	}
 }
-
-func TestMaterializeExistingForwardPorts(t *testing.T) {
-	t.Parallel()
-	desired := privateResolved()
-	desired.Nodes[0].Forwards = []spec.Forward{{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"}}
-	persisted := cloneResolved(desired)
-	persisted.Nodes[0].Forwards[0] = spec.WithMaterializedHost(persisted.Nodes[0].Forwards[0], 25432)
-
-	got := materializeExistingForwardPorts(desired, persisted)
-	if got.Nodes[0].Forwards[0].Host != 25432 {
-		t.Fatalf("materialized host port = %d", got.Nodes[0].Forwards[0].Host)
-	}
-	if desired.Nodes[0].Forwards[0].Host != 15432 {
-		t.Fatal("materialization mutated the desired input")
-	}
-	desired.Nodes[0].Forwards[0].Host = 16432
-	if got := materializeExistingForwardPorts(desired, persisted); got.Nodes[0].Forwards[0].Host != 16432 {
-		t.Fatal("changed host request reused a persisted materialized port")
-	}
-	desired.Nodes[0].Forwards[0].Host = 15432
-	desired.Nodes[0].Forwards[0].Guest = 6432
-	if got := materializeExistingForwardPorts(desired, persisted); got.Nodes[0].Forwards[0].Host != 15432 {
-		t.Fatal("unrelated guest forward reused a persisted host port")
-	}
-}

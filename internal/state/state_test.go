@@ -129,68 +129,35 @@ func TestDataDiskFilesystemStatePreservesContradictoryEvidence(t *testing.T) {
 	}
 }
 
-func TestDeploymentForwardRequestEvidenceRemainsOptional(t *testing.T) {
+// Barn no longer remaps forwards, but older state files may still carry the
+// requested_host evidence; strict decoding and the spec hash must accept them.
+func TestLegacyForwardRequestEvidenceStillDecodes(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	resolved := quickResolved(true, true)
-	resolved.Nodes[0].Forwards[0] = spec.WithMaterializedHost(resolved.Nodes[0].Forwards[0], 25432)
+	resolved.Nodes[0].Forwards[0].RequestedHost = 15432
+	resolved.Nodes[0].Forwards[0].Host = 25432
 	hash, err := spec.Hash(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
 	value := DeploymentState{Schema: DeploymentSchema, BarnVersion: "dev", SpecHash: hash, Resolved: resolved, UpdatedAt: time.Now().UTC()}
-	if err := store.WriteDeployment(value); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(store.Root, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), `"requested_host": 15432`) {
-		t.Fatalf("deployment state lost requested host evidence: %s", data)
-	}
-	got, err := store.ReadDeployment()
-	if err != nil || got.Resolved.Nodes[0].Forwards[0].RequestedHost != 15432 {
-		t.Fatalf("requested host evidence did not round trip: %#v, %v", got.Resolved.Nodes[0].Forwards[0], err)
-	}
-
-	unchanged := resolved
-	unchanged.Nodes = append([]spec.Node(nil), resolved.Nodes...)
-	unchanged.Nodes[0].Forwards = append([]spec.Forward(nil), resolved.Nodes[0].Forwards...)
-	unchanged.Nodes[0].Forwards[0].RequestedHost = 0
-	unchangedHash, err := spec.Hash(unchanged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value.Resolved, value.SpecHash = unchanged, unchangedHash
-	if err := store.WriteDeployment(value); err != nil {
-		t.Fatalf("unchanged port state without requested_host was rejected: %v", err)
-	}
-	data, err = os.ReadFile(filepath.Join(store.Root, "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "requested_host") {
-		t.Fatalf("redundant requested_host was serialized: %s", data)
-	}
-
-	invalid := resolved
-	invalid.Nodes = append([]spec.Node(nil), resolved.Nodes...)
-	invalid.Nodes[0].Forwards = append([]spec.Forward(nil), resolved.Nodes[0].Forwards...)
-	invalid.Nodes[0].Forwards[0].RequestedHost = invalid.Nodes[0].Forwards[0].Host
-	invalidHash, err := spec.Hash(invalid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value.Resolved, value.SpecHash = invalid, invalidHash
-	if err := store.WriteDeployment(value); err == nil || !strings.Contains(err.Error(), "must differ") {
-		t.Fatalf("redundant requested host evidence was accepted: %v", err)
-	}
 	if err := writeJSON(store.deploymentPath(), value); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ReadDeployment(); err == nil || !strings.Contains(err.Error(), "must differ") {
-		t.Fatalf("redundant requested host evidence was accepted while reading: %v", err)
+	data, err := os.ReadFile(store.deploymentPath())
+	if err != nil || !strings.Contains(string(data), `"requested_host": 15432`) {
+		t.Fatalf("fixture lacks legacy requested_host evidence: %v\n%s", err, data)
+	}
+	got, err := store.ReadDeployment()
+	if err != nil {
+		t.Fatalf("legacy requested_host state was rejected: %v", err)
+	}
+	if got.SpecHash != hash || got.Resolved.Nodes[0].Forwards[0].RequestedHost != 15432 || got.Resolved.Nodes[0].Forwards[0].Host != 25432 {
+		t.Fatalf("legacy forward evidence did not round trip: %#v", got.Resolved.Nodes[0].Forwards[0])
+	}
+	if rehash, err := spec.Hash(got.Resolved); err != nil || rehash != hash {
+		t.Fatalf("legacy forward spec hash changed: %s != %s (%v)", rehash, hash, err)
 	}
 }
 

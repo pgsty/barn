@@ -42,7 +42,6 @@ func resizeTargets(current, desired spec.Resolved, selected []string, store stat
 	if err != nil {
 		return spec.Resolved{}, nil, err
 	}
-	merged = materializeExistingForwardPorts(merged, current)
 	hasState := func(name string) bool {
 		_, readErr := store.ReadNode(name)
 		return readErr == nil
@@ -550,7 +549,7 @@ func (m Manager) Resize(ctx context.Context, requested spec.Resolved) (Status, e
 		return Status{}, err
 	}
 	current, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
-	if err != nil || current.Resolved.Network != "private" {
+	if err != nil {
 		return Status{}, errors.New("the deployment has no valid state")
 	}
 	selected := append([]string(nil), m.Nodes...)

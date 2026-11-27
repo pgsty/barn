@@ -216,7 +216,7 @@ func FinalizePrepared(deploymentValue Deployment, node string) error {
 		return errors.New("prepare journal and node state differ")
 	}
 	info, err := os.Lstat(journalPath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !info.Mode().IsRegular() {
 		return errors.New("prepare journal became unsafe")
 	}
 	if err := os.Remove(journalPath); err != nil {

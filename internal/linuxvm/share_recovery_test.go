@@ -111,6 +111,31 @@ func TestUpAttemptsExistingPeersAfterNewNodePrepareFailure(t *testing.T) {
 	}
 }
 
+func TestUpExistingPartialStartKeepsNodeStatus(t *testing.T) {
+	fixture, _ := preparedStartFixture(t)
+	t.Setenv("BARN_HOME", fixture.Deployment.Root)
+	if err := os.MkdirAll(filepath.Join(fixture.Deployment.Root, "locks"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeRecoveryKeys(t, fixture.Deployment.Root)
+	persisted, err := (state.Store{Root: fixture.Deployment.Root}).ReadDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := privateShareCapabilityManager(t, fixture, unavailableSharePeerRunner{})
+	manager.DialSSHAddress = func(string, string) (net.Conn, error) { return nil, errors.New("unused") }
+	status, err := manager.Up(context.Background(), cloneResolved(persisted.Resolved))
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Total != 2 {
+		t.Fatalf("expected a two-node partial start, got %T %v", err, err)
+	}
+	// The CLI failure envelope renders this status; losing it hides which
+	// nodes failed exactly when the operator needs the per-node table.
+	if len(status.Nodes) != 2 {
+		t.Fatalf("partial up lost node status: %+v", status)
+	}
+}
+
 func TestPartialResultsDoNotHideGlobalFailures(t *testing.T) {
 	partial := &PartialError{Total: 1, Failures: []NodeFailure{{Node: "meta", Stage: "prepare", Error: "missing share"}}}
 	if IsolatedPartial(errors.Join(partial, nil)) != partial {

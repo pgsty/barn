@@ -88,7 +88,7 @@ func RollbackPrepared(deploymentValue Deployment, node string, apply bool) (Roll
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil || !info.Mode().IsRegular() {
 			return result, fmt.Errorf("rollback artifact is unsafe: %s", artifact.Path)
 		}
 	}

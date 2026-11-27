@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -89,53 +88,5 @@ func TestShareTagIsStableBoundedAndCoversIntent(t *testing.T) {
 		if ShareTag(variant) == ShareTag(share) {
 			t.Errorf("share intent collision: base=%#v variant=%#v", share, variant)
 		}
-	}
-}
-
-func TestMaterializedForwardPreservesOptionalRequestEvidence(t *testing.T) {
-	t.Parallel()
-	forward := Forward{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"}
-	unchanged := WithMaterializedHost(forward, 15432)
-	data, err := json.Marshal(unchanged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if unchanged.RequestedHost != 0 || strings.Contains(string(data), "requested_host") {
-		t.Fatalf("unchanged allocation retained redundant request evidence: %#v %s", unchanged, data)
-	}
-	remapped := WithMaterializedHost(forward, 25432)
-	data, err = json.Marshal(remapped)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if remapped.Host != 25432 || remapped.RequestedHost != 15432 || !strings.Contains(string(data), `"requested_host":15432`) {
-		t.Fatalf("remapped allocation lost request evidence: %#v %s", remapped, data)
-	}
-	var decoded Forward
-	if err := json.Unmarshal([]byte(`{"bind":"127.0.0.1","host":25432,"guest":5432,"protocol":"tcp"}`), &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded.RequestedHost != 0 || RequestedHostPort(decoded) != 25432 {
-		t.Fatalf("unchanged port request = %#v", decoded)
-	}
-}
-
-func TestReuseMaterializedForwardPortsMatchesIntentOneToOne(t *testing.T) {
-	t.Parallel()
-	persisted := []Forward{
-		WithMaterializedHost(Forward{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"}, 25432),
-		WithMaterializedHost(Forward{Bind: "127.0.0.1", Host: 16432, Guest: 5432, Protocol: "tcp"}, 26432),
-	}
-	desired := []Forward{
-		{Bind: "127.0.0.1", Host: 16432, Guest: 5432, Protocol: "tcp"},
-		{Bind: "127.0.0.1", Host: 15432, Guest: 5432, Protocol: "tcp"},
-	}
-	got := ReuseMaterializedForwardPorts(desired, persisted)
-	if got[0].Host != 26432 || got[0].RequestedHost != 16432 || got[1].Host != 25432 || got[1].RequestedHost != 15432 {
-		t.Fatalf("duplicate routes were not paired by request: %#v", got)
-	}
-	changed := ReuseMaterializedForwardPorts([]Forward{{Bind: "127.0.0.1", Host: 17432, Guest: 5432, Protocol: "tcp"}}, persisted)
-	if changed[0].Host != 17432 || changed[0].RequestedHost != 0 {
-		t.Fatalf("changed request was silently remapped: %#v", changed)
 	}
 }

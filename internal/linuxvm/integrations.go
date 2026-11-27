@@ -2,7 +2,6 @@ package linuxvm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,9 +47,6 @@ func (m Manager) integrationSnapshotLocked(deploymentValue Deployment) (Deployme
 	deploymentState, err := store.ReadDeployment()
 	if err != nil {
 		return Deployment{}, state.DeploymentState{}, nil, err
-	}
-	if deploymentState.Resolved.Network != "private" {
-		return Deployment{}, state.DeploymentState{}, nil, errors.New("the deployment state is not private")
 	}
 	selected, err := committedNodeNames(store, deploymentState.Resolved, m.Nodes)
 	if err != nil {

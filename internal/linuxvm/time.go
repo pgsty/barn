@@ -62,11 +62,7 @@ func pruneClockRecords(root string, removed []string, wholeDeployment bool) erro
 	if len(records) == 0 {
 		return removeOwnedRegularWithin(root, path)
 	}
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.AtomicWrite(path, append(data, '\n'), 0o600)
+	return fsutil.WriteJSONAtomic(path, records, 0o600)
 }
 
 func readClockRecords(root string) (map[string]clockRecord, error) {
@@ -268,11 +264,7 @@ func (m Manager) Time(ctx context.Context, options timesync.Options) (_ TimeRepo
 		}
 	}
 	if changed {
-		data, err := json.MarshalIndent(records, "", "  ")
-		if err != nil {
-			return report, err
-		}
-		if err := fsutil.AtomicWrite(filepath.Join(deployment.Root, "time-sync.json"), append(data, '\n'), 0o600); err != nil {
+		if err := fsutil.WriteJSONAtomic(filepath.Join(deployment.Root, "time-sync.json"), records, 0o600); err != nil {
 			return report, fmt.Errorf("save time synchronization history: %w", err)
 		}
 	}

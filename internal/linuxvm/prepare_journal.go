@@ -1,15 +1,13 @@
 package linuxvm
 
 import (
-	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/pgsty/barn/internal/fsutil"
 	"github.com/pgsty/barn/internal/identity"
 	"github.com/pgsty/barn/internal/naming"
 )
@@ -67,22 +65,12 @@ func ReadPrepareJournal(path string) (PrepareJournal, error) {
 	if err != nil {
 		return PrepareJournal{}, err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || info.Size() > maxPrepareJournalBytes {
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > maxPrepareJournalBytes {
 		return PrepareJournal{}, errors.New("prepare journal is unsafe")
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return PrepareJournal{}, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var value PrepareJournal
-	if err := decoder.Decode(&value); err != nil {
+	if err := fsutil.ReadStrictJSON(path, maxPrepareJournalBytes, &value); err != nil {
 		return PrepareJournal{}, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return PrepareJournal{}, errors.New("prepare journal has trailing JSON data")
 	}
 	if err := validatePrepareJournal(path, value); err != nil {
 		return PrepareJournal{}, err

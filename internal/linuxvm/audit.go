@@ -59,7 +59,7 @@ func captureRuntimeProcess(ctx context.Context, runner execx.Runner, node state.
 		return process.Identity{}, errors.New("runtime process paths do not match the node directory")
 	}
 	info, err := os.Lstat(node.Runtime.PIDFile)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > 32 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 32 {
 		return process.Identity{}, errors.New("runtime pidfile is missing or unsafe")
 	}
 	data, err := os.ReadFile(node.Runtime.PIDFile)
@@ -136,7 +136,7 @@ func RuntimeIdentityAuditor(runner execx.Runner, timeout time.Duration) RuntimeA
 		}
 		pidEvidence := "pidfile absent"
 		if info, err := os.Lstat(node.Runtime.PIDFile); err == nil {
-			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 32 {
+			if !info.Mode().IsRegular() || info.Size() > 32 {
 				return Observation{}, fmt.Errorf("node %s pidfile is unsafe", node.Node)
 			}
 			data, err := os.ReadFile(node.Runtime.PIDFile)

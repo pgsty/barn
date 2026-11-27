@@ -20,52 +20,6 @@ type Forward struct {
 	Protocol      string `json:"protocol"`
 }
 
-// RequestedHostPort returns the user's preferred host port. RequestedHost is
-// set only when allocation chose a different port; otherwise Host is the request.
-func RequestedHostPort(forward Forward) uint16 {
-	if forward.RequestedHost != 0 {
-		return forward.RequestedHost
-	}
-	return forward.Host
-}
-
-// WithMaterializedHost records the original request only when allocation had
-// to choose a different port. Keeping the field optional preserves the
-// canonical JSON and hash of deployments whose preferred port was available.
-func WithMaterializedHost(forward Forward, host uint16) Forward {
-	requested := RequestedHostPort(forward)
-	forward.Host = host
-	if host == requested {
-		forward.RequestedHost = 0
-	} else {
-		forward.RequestedHost = requested
-	}
-	return forward
-}
-
-// ReuseMaterializedForwardPorts carries forward committed allocation choices
-// only when both the route identity and the original request still match. Each
-// persisted entry may satisfy at most one desired entry so duplicate routes
-// are paired one-to-one instead of all reusing the first match.
-func ReuseMaterializedForwardPorts(desired, persisted []Forward) []Forward {
-	result := append([]Forward(nil), desired...)
-	consumed := make([]bool, len(persisted))
-	for desiredIndex := range result {
-		candidate := result[desiredIndex]
-		requested := RequestedHostPort(candidate)
-		for persistedIndex, current := range persisted {
-			if consumed[persistedIndex] || candidate.Bind != current.Bind || candidate.Guest != current.Guest || candidate.Protocol != current.Protocol || requested != RequestedHostPort(current) {
-				continue
-			}
-			result[desiredIndex].Host = current.Host
-			result[desiredIndex].RequestedHost = current.RequestedHost
-			consumed[persistedIndex] = true
-			break
-		}
-	}
-	return result
-}
-
 type Disk struct {
 	Name       string `json:"name"`
 	Size       int64  `json:"size_bytes"`

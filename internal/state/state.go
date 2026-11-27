@@ -214,13 +214,6 @@ func validateDeployment(value DeploymentState) error {
 	if actualHash != value.SpecHash {
 		return errors.New("deployment resolved spec hash mismatch")
 	}
-	for _, node := range value.Resolved.Nodes {
-		for _, forward := range node.Forwards {
-			if forward.RequestedHost != 0 && forward.RequestedHost == forward.Host {
-				return fmt.Errorf("deployment resolved forward %s:%d requested_host must differ from its materialized host port", forward.Bind, forward.Host)
-			}
-		}
-	}
 	if value.Resolved.Network == "private" {
 		if value.Resolved.Private == nil {
 			return errors.New("deployment state lacks its network settings")
