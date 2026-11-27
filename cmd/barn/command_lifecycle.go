@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/spf13/cobra"
 )
 
@@ -252,7 +252,7 @@ func lifecycleSupportsParallelism(name string) bool {
 }
 
 func addLifecycleParallelFlag(command *cobra.Command) {
-	command.Flags().IntP("parallel", "p", privatevm.DefaultParallelism(), "node concurrency; 0 runs all selected nodes concurrently; defaults to logical CPUs minus two (minimum 1)")
+	command.Flags().IntP("parallel", "p", linuxvm.DefaultParallelism(), "node concurrency; 0 runs all selected nodes concurrently; defaults to logical CPUs minus two (minimum 1)")
 	noFileCompletions(command, "parallel")
 }
 

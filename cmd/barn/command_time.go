@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/fsutil"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/state"
 	"github.com/pgsty/barn/internal/timejob"
 	"github.com/pgsty/barn/internal/timesync"
@@ -20,7 +20,7 @@ import (
 )
 
 type timeRun struct {
-	privatevm.TimeReport
+	linuxvm.TimeReport
 	At    time.Time `json:"at"`
 	Error string    `json:"error,omitempty"`
 }
@@ -67,13 +67,13 @@ configuration and host time services are left to the administrator.`, Example: `
 				progressItem = startOperationProgress(ctx, stderr, "Checking guest clocks over management SSH", "time "+name)
 				defer func() { progressItem.Stop(returnErr) }()
 			}
-			manager := privatevm.Manager{Nodes: nodes, Progress: deferredProgressReporter(&progressItem)}
+			manager := linuxvm.Manager{Nodes: nodes, Progress: deferredProgressReporter(&progressItem)}
 			report, err := manager.Time(ctx, timesync.Options{Sync: name == "sync", Automatic: automatic, SkipBusy: automatic})
 			result := timeRun{TimeReport: report, At: time.Now().UTC()}
 			if err != nil {
 				boundary := newCommandError(exitRuntime, err)
 				result.Error = boundary.failure.Error
-				if privatevm.IsolatedPartial(err) == nil {
+				if linuxvm.IsolatedPartial(err) == nil {
 					result.Message = err.Error()
 				}
 			}
@@ -93,7 +93,7 @@ configuration and host time services are left to the administrator.`, Example: `
 					return newCommandError(exitRuntime, err)
 				}
 				boundary := newCommandError(exitRuntime, err)
-				if partial := privatevm.IsolatedPartial(err); partial != nil {
+				if partial := linuxvm.IsolatedPartial(err); partial != nil {
 					boundary.failure.Message = fmt.Sprintf("%d of %d node(s) failed", len(partial.Failures), partial.Total)
 				}
 				return boundary.withPayload(result).withText(outcome.text)
@@ -216,7 +216,7 @@ func readTimeRun(root string) (*timeRun, error) {
 	return &result, nil
 }
 
-func formatTimeOffset(node privatevm.TimeNode) string {
+func formatTimeOffset(node linuxvm.TimeNode) string {
 	if node.Before == nil {
 		return "-"
 	}
@@ -226,7 +226,7 @@ func formatTimeOffset(node privatevm.TimeNode) string {
 	return fmt.Sprintf("%+.3fms -> %+.3fms ±%.3fms", node.Before.OffsetMS, node.After.OffsetMS, node.After.UncertaintyMS)
 }
 
-func formatTimeNTP(node privatevm.TimeNode) string {
+func formatTimeNTP(node linuxvm.TimeNode) string {
 	if node.Before == nil {
 		return "-"
 	}
@@ -252,7 +252,7 @@ func formatTimeNTP(node privatevm.TimeNode) string {
 	return fmt.Sprintf("%s (%s)", sync, detail)
 }
 
-func formatTimeMessage(node privatevm.TimeNode) string {
+func formatTimeMessage(node linuxvm.TimeNode) string {
 	if node.Error != "" {
 		return node.Error
 	}

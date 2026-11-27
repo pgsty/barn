@@ -13,7 +13,7 @@ import (
 
 	"github.com/pgsty/barn/internal/execx"
 	"github.com/pgsty/barn/internal/failure"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 )
 
 // ErrCancelled is the one command-layer cancellation identity.
@@ -109,14 +109,14 @@ func classifyError(err error, fallback int) (code int, reason, next string) {
 	if class != "" {
 		return classExit(class), reason, next
 	}
-	var preflight *privatevm.NetworkPreflightError
-	var capability *privatevm.CapabilityError
+	var preflight *linuxvm.NetworkPreflightError
+	var capability *linuxvm.CapabilityError
 	switch {
 	case errors.Is(err, ErrCancelled) || errors.Is(err, context.Canceled):
 		return exitCancelled, "", next
 	case errors.As(err, &preflight):
 		return preflight.Report.ExitCode, "network_preflight", next
-	case privatevm.IsolatedPartial(err) != nil:
+	case linuxvm.IsolatedPartial(err) != nil:
 		return exitPartial, "", next
 	case errors.As(err, &capability):
 		return exitCapability, "", next

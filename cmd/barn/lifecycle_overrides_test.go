@@ -12,7 +12,7 @@ import (
 
 	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/image"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/qemu"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
@@ -91,7 +91,7 @@ func TestPlanUsesImageAndArchOverridesWithoutWritingInventory(t *testing.T) {
 	if code := run([]string{"plan", "-f", path, "-I", "u24", "-A", "x86_64", "--json"}, &out, &errOut); code != exitOK {
 		t.Fatalf("plan failed: %d %s %s", code, &out, &errOut)
 	}
-	var plan privatevm.LifecyclePlan
+	var plan linuxvm.LifecyclePlan
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestPlanArchitectureChangeIncludesUncreatedNodesInFollowUpScope(t *testing.
 		}
 		desired := resolved
 		desired.Arch = "amd64"
-		if _, err := (privatevm.Manager{Nodes: selected}).RecreateTargets(desired); err != nil {
+		if _, err := (linuxvm.Manager{Nodes: selected}).RecreateTargets(desired); err != nil {
 			t.Fatalf("suggested recreation scope %v is not applicable: %v", selected, err)
 		}
 	}

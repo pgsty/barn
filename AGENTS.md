@@ -10,7 +10,7 @@
 
 ## 实现与验证
 
-- CLI 在 `cmd/barn/`；Linux 生命周期在 `internal/private/`、`internal/vm/`；平台与启动参数在 `internal/platform/`、`internal/qemu/`；镜像在 `internal/image/`；原生 Mac 在 `internal/macvm/`、`native/mac-runner/`。
+- CLI 在 `cmd/barn/`；Linux 生命周期在 `internal/linuxvm/`、`internal/vm/`；平台与启动参数在 `internal/platform/`、`internal/qemu/`；镜像在 `internal/image/`；原生 Mac 在 `internal/macvm/`、`native/mac-runner/`。
 - 保持单用户单 Linux 部署、严格的 `vm_*` 清单、显式销毁和进程身份核验。`barn mac` 独立管理具名 VM；当前宿主为 macOS/Linux、amd64/arm64，客机架构以实际平台代码和目录为准。
 - 工具版本以 `packaging/toolchain.env` 为准。开发用 `make build`、`make test`；代码交付跑 `make check`，原生 Mac 改动补 `make mac-native-test`，打包改动补 `make release-snapshot`。涉及虚拟化、网络和磁盘语义时补目标平台真机验收。
 - 纯站点内容改动在伴生仓库运行 `make check`；文档中的 `main` 行为、已发布行为和未来提案必须分清。

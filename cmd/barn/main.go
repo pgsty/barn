@@ -29,12 +29,12 @@ import (
 	"github.com/pgsty/barn/internal/hostconfig"
 	"github.com/pgsty/barn/internal/identity"
 	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/linuxvm"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
 	linuxnet "github.com/pgsty/barn/internal/network/linux"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
 	"github.com/pgsty/barn/internal/network/subnet"
 	"github.com/pgsty/barn/internal/platform"
-	privatevm "github.com/pgsty/barn/internal/private"
 	"github.com/pgsty/barn/internal/provision"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/sshconfig"
@@ -635,7 +635,7 @@ func runSSH(parent context.Context, commandName string, args []string, stdout, s
 	if len(head) == 1 {
 		node = head[0]
 	}
-	manager := privatevm.Manager{BarnVersion: version.Version}
+	manager := linuxvm.Manager{BarnVersion: version.Version}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	connection, err := manager.Connection(ctx, node)
@@ -737,7 +737,7 @@ func provisionConnectionExit(err error) int {
 // deployment state document. Images stay cached; persistent disks were already
 // deleted by the forced --purge destroy.
 func purgeDeployment(ctx context.Context) error {
-	manager := privatevm.Manager{BarnVersion: version.Version}
+	manager := linuxvm.Manager{BarnVersion: version.Version}
 	if _, err := manager.PurgeKeys(ctx, true); err != nil {
 		return err
 	}
@@ -773,7 +773,7 @@ func deploymentInUse(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	audit := privatevm.RuntimeIdentityAuditor(execx.OSRunner{Timeout: 15 * time.Second, OutputLimit: 1 << 20}, time.Second)
+	audit := linuxvm.RuntimeIdentityAuditor(execx.OSRunner{Timeout: 15 * time.Second, OutputLimit: 1 << 20}, time.Second)
 	for _, entry := range entries {
 		node, readErr := store.ReadNode(entry.Name())
 		if readErr != nil {
@@ -844,13 +844,13 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}
-	deployment, err := privatevm.Open()
+	deployment, err := linuxvm.Open()
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}
 	ctx, cancel := context.WithTimeout(parent, options.Timeout)
 	defer cancel()
-	deploymentLock, err := privatevm.AcquireLock(ctx, deployment, false)
+	deploymentLock, err := linuxvm.AcquireLock(ctx, deployment, false)
 	if err != nil {
 		return commandOutcome{}, newConflictError(err)
 	}
@@ -877,7 +877,7 @@ func runProvision(parent context.Context, options provisionOptions, nodes []stri
 	selectedNames := make([]string, 0)
 	var recordEvent func(context.Context, string, string, string) error
 	if resolved.Network == "private" {
-		manager := privatevm.Manager{BarnVersion: version.Version, OperationID: operationID, Nodes: append([]string(nil), nodes...)}
+		manager := linuxvm.Manager{BarnVersion: version.Version, OperationID: operationID, Nodes: append([]string(nil), nodes...)}
 		connections, connectionErr := manager.ConnectionsLocked(ctx, deployment, deploymentLock)
 		if connectionErr != nil {
 			return commandOutcome{}, newCommandError(provisionConnectionExit(connectionErr), connectionErr)
@@ -1019,11 +1019,11 @@ func catalogOrigin(source string) string {
 	return source
 }
 
-func printPrivateStatus(out io.Writer, status privatevm.Status) {
+func printPrivateStatus(out io.Writer, status linuxvm.Status) {
 	printStatusTable(out, status, true)
 }
 
-func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
+func printStatusTable(out io.Writer, status linuxvm.Status, errors bool) {
 	if len(status.Nodes) != 0 {
 		rows := make([][]string, 0, len(status.Nodes))
 		for _, node := range status.Nodes {
@@ -1063,7 +1063,7 @@ func printStatusTable(out io.Writer, status privatevm.Status, errors bool) {
 }
 
 // Only a successful SSH readiness probe justifies a ready label.
-func allNodesReady(status privatevm.Status) bool {
+func allNodesReady(status linuxvm.Status) bool {
 	if len(status.Nodes) == 0 {
 		return false
 	}
@@ -1082,8 +1082,8 @@ func (e *persistentDeleteError) Unwrap() error { return e.err }
 
 type lifecyclePartialFailure struct {
 	commandFailure
-	Failures   []privatevm.NodeFailure `json:"failures"`
-	RolledBack []string                `json:"rolled_back,omitempty"`
+	Failures   []linuxvm.NodeFailure `json:"failures"`
+	RolledBack []string              `json:"rolled_back,omitempty"`
 }
 
 type sshConfigReconciler interface {
@@ -1122,18 +1122,18 @@ func reconcileLifecycleSSHConfig(ctx context.Context, command string, deployment
 	}
 }
 
-func fullDeploymentSSHManager(manager privatevm.Manager) privatevm.Manager {
+func fullDeploymentSSHManager(manager linuxvm.Manager) linuxvm.Manager {
 	manager.Nodes = nil
 	return manager
 }
 
 func classifyPrivateLifecycleError(err error, operationID string) error {
 	boundary := newCommandError(exitRuntime, err).withOperation(operationID)
-	var preflight *privatevm.NetworkPreflightError
+	var preflight *linuxvm.NetworkPreflightError
 	if errors.As(err, &preflight) {
 		boundary = boundary.withPayload(preflight.Report)
 	}
-	if partial := privatevm.IsolatedPartial(err); partial != nil {
+	if partial := linuxvm.IsolatedPartial(err); partial != nil {
 		boundary = boundary.withPayload(lifecyclePartialFailure{commandFailure: boundary.failure, Failures: partial.Failures, RolledBack: partial.RolledBack})
 	}
 	return boundary
@@ -1144,11 +1144,11 @@ type lifecycleResult struct {
 	retryOptions lifecycleRetryOptions
 	Source       string `json:"source,omitempty"`
 	Error        string `json:"error,omitempty"`
-	privatevm.Status
-	SSHConfig  *sshconfig.Result       `json:"ssh_config,omitempty"`
-	Warnings   []lifecycleWarning      `json:"warnings,omitempty"`
-	Failures   []privatevm.NodeFailure `json:"failures,omitempty"`
-	RolledBack []string                `json:"rolled_back,omitempty"`
+	linuxvm.Status
+	SSHConfig  *sshconfig.Result     `json:"ssh_config,omitempty"`
+	Warnings   []lifecycleWarning    `json:"warnings,omitempty"`
+	Failures   []linuxvm.NodeFailure `json:"failures,omitempty"`
+	RolledBack []string              `json:"rolled_back,omitempty"`
 }
 
 func runPrivateCommand(parent context.Context, command string, resolved spec.Resolved, nodes []string, repository, source string, options lifecycleOptions, stderr io.Writer) (commandOutcome, error) {
@@ -1177,7 +1177,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		}
 	}
 	var progressItem *progress
-	manager := privatevm.Manager{BarnVersion: version.Version, OperationID: operationID, Repository: repository, NoWait: noWait, Parallelism: options.Parallelism, RollbackFailed: rollback, Nodes: append([]string(nil), nodes...)}
+	manager := linuxvm.Manager{BarnVersion: version.Version, OperationID: operationID, Repository: repository, NoWait: noWait, Parallelism: options.Parallelism, RollbackFailed: rollback, Nodes: append([]string(nil), nodes...)}
 	report := deferredProgressReporter(&progressItem)
 	resourceNodes := make(map[string]spec.Node)
 	for _, node := range resolved.Nodes {
@@ -1201,7 +1201,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			return lifecycleNodeCommand(action, source, selected, retryOptions)
 		}
 		return commandOutcome{payload: struct {
-			privatevm.LifecyclePlan
+			linuxvm.LifecyclePlan
 			Resources []config.ResourceResolution `json:"resources"`
 		}{plan, options.ResourceInputs}, text: func(stdout, _ io.Writer) error {
 			printPlanTable(stdout, plan, resolved, options.Applied)
@@ -1268,11 +1268,11 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		}}, nil
 	}
 	timeout := 15 * time.Second
-	var operation func(context.Context) (privatevm.Status, error)
+	var operation func(context.Context) (linuxvm.Status, error)
 	switch command {
 	case "up":
 		timeout = 0
-		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Up(ctx, resolved) }
+		operation = func(ctx context.Context) (linuxvm.Status, error) { return manager.Up(ctx, resolved) }
 	case "start":
 		timeout, operation = withReadinessTimeout(10*time.Minute, resolved), manager.Start
 	case "stop":
@@ -1281,10 +1281,10 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 		timeout, operation = withReadinessTimeout(15*time.Minute, resolved), manager.Restart
 	case "reload":
 		timeout = 0
-		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Reload(ctx, resolved) }
+		operation = func(ctx context.Context) (linuxvm.Status, error) { return manager.Reload(ctx, resolved) }
 	case "resize":
 		timeout = 0
-		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.Resize(ctx, resolved) }
+		operation = func(ctx context.Context) (linuxvm.Status, error) { return manager.Resize(ctx, resolved) }
 	case "recreate":
 		// Resolve the exact replacement scope before asking: the prompt names
 		// every applied node the operation destroys, and an inventory that omits
@@ -1303,7 +1303,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			return commandOutcome{}, newUsageError(err)
 		}
 		timeout = 0
-		operation = func(ctx context.Context) (privatevm.Status, error) { return manager.RecreateResolved(ctx, resolved) }
+		operation = func(ctx context.Context) (linuxvm.Status, error) { return manager.RecreateResolved(ctx, resolved) }
 	case "status":
 		operation = manager.Status
 	case "destroy", "purge":
@@ -1333,7 +1333,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			manager.ImmediateStop = true
 		}
 		timeout = 10 * time.Minute
-		operation = func(ctx context.Context) (privatevm.Status, error) {
+		operation = func(ctx context.Context) (linuxvm.Status, error) {
 			if len(nodes) != 0 {
 				return manager.DestroyNodes(ctx)
 			}
@@ -1425,7 +1425,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 	}
 	progressItem.Stop(err)
 	if err != nil {
-		var partial *privatevm.PartialError
+		var partial *linuxvm.PartialError
 		isPartial := errors.As(err, &partial)
 		if isPartial || len(status.Nodes) != 0 && command == "status" {
 			result := lifecycleResult{Resources: options.ResourceInputs, retryOptions: retryOptions, Source: source, Error: "partial", Status: status, SSHConfig: reconciledSSHConfig, Warnings: warnings}
@@ -1437,7 +1437,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 			failure := newCommandError(exitPartial, err).withOperation(operationID)
 			// A global error joined to node failures keeps its own class and line.
 			result.Error = failure.failure.Error
-			if privatevm.IsolatedPartial(err) != nil {
+			if linuxvm.IsolatedPartial(err) != nil {
 				// The node table carries the detail; stderr keeps one line.
 				failure.failure.Message = fmt.Sprintf("%d of %d node(s) failed", len(partial.Failures), partial.Total)
 			}
@@ -1484,7 +1484,7 @@ func runPrivateCommand(parent context.Context, command string, resolved spec.Res
 // the engine may have changed node state before the signal landed, so the
 // event is appended on a context that outlives the cancellation, exactly as
 // provision does for its completion event.
-func recordCancelledLifecycle(parent context.Context, manager privatevm.Manager, command string, status privatevm.Status, err error, stderr io.Writer) {
+func recordCancelledLifecycle(parent context.Context, manager linuxvm.Manager, command string, status linuxvm.Status, err error, stderr io.Writer) {
 	message := "cancelled by signal"
 	if err != nil {
 		message += ": " + err.Error()
@@ -1559,7 +1559,7 @@ func runPurgeCommand(parent context.Context, ask bool, parallelism *int, stderr 
 			return commandOutcome{}, newCommandError(exitIntegrity, fmt.Errorf("deployment root is not a current-user directory protected from group/world writes: %s", root))
 		}
 	} else {
-		status := privatevm.Status{Message: "no deployment to purge; image cache and host network remain installed"}
+		status := linuxvm.Status{Message: "no deployment to purge; image cache and host network remain installed"}
 		result := lifecycleResult{Status: status}
 		return commandOutcome{payload: result, text: func(stdout, _ io.Writer) error {
 			printItemResult(stdout, "deployment", "unchanged", status.Message)
@@ -1574,7 +1574,7 @@ func runPurgeCommand(parent context.Context, ask bool, parallelism *int, stderr 
 	defer cancel()
 	progressItem := startLifecycleProgress(ctx, stderr, "purge")
 	defer func() { progressItem.Stop(returnErr) }()
-	manager := privatevm.Manager{BarnVersion: version.Version, Progress: progressItem.Report}
+	manager := linuxvm.Manager{BarnVersion: version.Version, Progress: progressItem.Report}
 	progressItem.Report(activity.Event{Phase: "purge", Message: "Removing retained persistent disks"})
 	deleted, deleteErr := manager.DeletePersistent(ctx)
 	if deleteErr != nil {
@@ -1587,7 +1587,7 @@ func runPurgeCommand(parent context.Context, ask bool, parallelism *int, stderr 
 
 	progressItem.Report(activity.Event{Phase: "purge", Message: "Removing the SSH client configuration"})
 	sshResult, sshErr := manager.RemoveSSHConfig("barn", "")
-	status := privatevm.Status{Message: fmt.Sprintf("purged residual deployment data and %d persistent data disk(s); image cache and host network remain installed", len(deleted))}
+	status := linuxvm.Status{Message: fmt.Sprintf("purged residual deployment data and %d persistent data disk(s); image cache and host network remain installed", len(deleted))}
 	result := lifecycleResult{Status: status, SSHConfig: &sshResult}
 	if sshErr != nil {
 		result.Warnings = append(result.Warnings, sshIntegrationWarning("remove", sshErr))
@@ -1688,7 +1688,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 			return commandOutcome{}, newCommandError(exitConflict, failure.WithNext(errors.New("no deployment state found; retained persistent disks are removed by purge"), "barn purge"))
 		case command == "destroy" && len(nodes) == 0:
 			// Like purge, destroying nothing is already done.
-			status := privatevm.Status{Message: "no deployment to destroy"}
+			status := linuxvm.Status{Message: "no deployment to destroy"}
 			return commandOutcome{payload: lifecycleResult{Status: status}, text: func(stdout, _ io.Writer) error {
 				printItemResult(stdout, "deployment", "unchanged", status.Message)
 				return nil
@@ -1731,7 +1731,7 @@ func runLifecycleCommand(ctx context.Context, command string, options lifecycleO
 	}
 	outcome, err := runPrivateCommand(ctx, command, resolvedFile, nodes, repository, source, options, stderr)
 	canPrepareHost := needsHostSetup(command, err)
-	var networkFailure *privatevm.NetworkPreflightError
+	var networkFailure *linuxvm.NetworkPreflightError
 	if !canPrepareHost && command == "up" && errors.As(err, &networkFailure) && errors.Is(persistedErr, os.ErrNotExist) && options.ConfigPath == "" {
 		candidate := recognizeDefaultSetupTemplate(setupSelection{ConfigPath: source})
 		canPrepareHost = candidate.Generated
@@ -1782,7 +1782,7 @@ func needsHostSetup(command string, err error) bool {
 	if errors.Is(err, exec.ErrNotFound) {
 		return true
 	}
-	var preflight *privatevm.NetworkPreflightError
+	var preflight *linuxvm.NetworkPreflightError
 	if !errors.As(err, &preflight) {
 		return false
 	}
@@ -1811,7 +1811,7 @@ func validateNodeSelectors(resolved spec.Resolved, nodes []string, where string)
 	seen := make(map[string]struct{}, len(nodes))
 	for _, name := range nodes {
 		if _, ok := known[name]; !ok {
-			return privatevm.UnknownNodeError(name, where, resolved.Nodes)
+			return linuxvm.UnknownNodeError(name, where, resolved.Nodes)
 		}
 		if _, duplicate := seen[name]; duplicate {
 			return fmt.Errorf("node %q is selected more than once", name)
@@ -1892,7 +1892,7 @@ func runSSHConfig(parent context.Context, options sshConfigOptions, nodes []stri
 	if resolved.Network != "private" {
 		return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 	}
-	manager := privatevm.Manager{BarnVersion: version.Version, Nodes: append([]string(nil), nodes...)}
+	manager := linuxvm.Manager{BarnVersion: version.Version, Nodes: append([]string(nil), nodes...)}
 	if options.Install {
 		result, err := manager.InstallSSHConfig(ctx, options.Name, "")
 		if err != nil {
@@ -1964,7 +1964,7 @@ func runHosts(parent context.Context, action string, apply bool, configPath stri
 			case resolved.Network != "private":
 				return commandOutcome{}, newConflictError(errors.New(invalidDeploymentNetworkMessage))
 			}
-			manager := privatevm.Manager{BarnVersion: version.Version}
+			manager := linuxvm.Manager{BarnVersion: version.Version}
 			entries, err = manager.HostEntries(ctx)
 		}
 		if err != nil {
@@ -2090,7 +2090,7 @@ func runLogs(parent context.Context, options logOptions, requestedNode string, s
 		}
 		node = "deployment"
 	}
-	path, err := (privatevm.Manager{BarnVersion: version.Version}).LogPath(requestedNode, options.Source)
+	path, err := (linuxvm.Manager{BarnVersion: version.Version}).LogPath(requestedNode, options.Source)
 	if err != nil {
 		return commandOutcome{}, newRuntimeError(err)
 	}

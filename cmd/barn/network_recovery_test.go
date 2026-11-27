@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/linuxvm"
 	netpreflight "github.com/pgsty/barn/internal/network/preflight"
 	"github.com/pgsty/barn/internal/platform"
-	privatevm "github.com/pgsty/barn/internal/private"
 )
 
 func TestUpPreparesHostForRepairableLogDirectory(t *testing.T) {
@@ -22,7 +22,7 @@ func TestUpPreparesHostForRepairableLogDirectory(t *testing.T) {
 			Fix:      "run barn up to repair it, or run: sudo chmod 0755 /var/log/barn-vmnet",
 		}},
 	}
-	failure := &privatevm.NetworkPreflightError{Report: report}
+	failure := &linuxvm.NetworkPreflightError{Report: report}
 	if !needsHostSetup("up", failure) || !setupNeedsNetworkInstall(report) || networkRepairNeedsRestart(report) {
 		t.Fatal("up/setup did not enter recovery for the owned log directory")
 	}
@@ -31,18 +31,18 @@ func TestUpPreparesHostForRepairableLogDirectory(t *testing.T) {
 	}
 	for _, code := range []string{"installation.log_directory_unsafe", "route.overlap", "vmnet.sharing_probe"} {
 		report.Findings[0].Code = code
-		if needsHostSetup("up", &privatevm.NetworkPreflightError{Report: report}) {
+		if needsHostSetup("up", &linuxvm.NetworkPreflightError{Report: report}) {
 			t.Fatalf("up tried automatic recovery for %s", code)
 		}
 	}
 }
 
 func TestLifecycleHostRecoveryIsLimitedToRepairableStartupFailures(t *testing.T) {
-	repairable := &privatevm.NetworkPreflightError{Report: netpreflight.Report{
+	repairable := &linuxvm.NetworkPreflightError{Report: netpreflight.Report{
 		CIDR: "10.10.10.0/24", Installation: netpreflight.Installation{Status: "protected", CIDR: "10.10.10.0/24"},
 		Findings: []netpreflight.Finding{{Code: "installation.not_ready", Severity: netpreflight.Error}},
 	}}
-	conflict := &privatevm.NetworkPreflightError{Report: netpreflight.Report{
+	conflict := &linuxvm.NetworkPreflightError{Report: netpreflight.Report{
 		Findings: []netpreflight.Finding{{Code: "route.overlap", Severity: netpreflight.Error}},
 	}}
 	for _, command := range []string{"up", "start", "restart", "reload"} {

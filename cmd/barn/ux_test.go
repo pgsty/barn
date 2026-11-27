@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/state"
 )
 
@@ -146,7 +146,7 @@ func TestProgressUsesCompactStateColumnAndTerminalColors(t *testing.T) {
 
 func TestStatusTableUsesNameAddressStateOrder(t *testing.T) {
 	var out bytes.Buffer
-	printStatusTable(&out, privatevm.Status{Nodes: []privatevm.NodeStatus{{
+	printStatusTable(&out, linuxvm.Status{Nodes: []linuxvm.NodeStatus{{
 		Name: "d12", Address: "10.10.10.12", State: state.Running,
 	}}}, false)
 	first := strings.Split(out.String(), "\n")[0]
@@ -212,7 +212,7 @@ func TestTablesUseDisplayColumnsAndNarrowCards(t *testing.T) {
 }
 
 func TestPartialLifecycleCountsMissingStateAndRetainsConnect(t *testing.T) {
-	result := lifecycleResult{Source: "/tmp/my lab.yml", Status: privatevm.Status{Nodes: []privatevm.NodeStatus{{Name: "meta", Ready: true, State: state.Running, Runtime: "running", Address: "10.10.10.10"}}}, Failures: []privatevm.NodeFailure{{Node: "node-1", Error: "disk full"}, {Node: "node-2", Error: "disk full"}}, Warnings: []lifecycleWarning{{Code: "ssh_config", Message: "SSH aliases unavailable", Detail: "fixture full diagnostics"}}}
+	result := lifecycleResult{Source: "/tmp/my lab.yml", Status: linuxvm.Status{Nodes: []linuxvm.NodeStatus{{Name: "meta", Ready: true, State: state.Running, Runtime: "running", Address: "10.10.10.10"}}}, Failures: []linuxvm.NodeFailure{{Node: "node-1", Error: "disk full"}, {Node: "node-2", Error: "disk full"}}, Warnings: []lifecycleWarning{{Code: "ssh_config", Message: "SSH aliases unavailable", Detail: "fixture full diagnostics"}}}
 	var out bytes.Buffer
 	printLifecycleResult(&out, "up", result, false)
 	for _, want := range []string{"1/3 nodes ready", "barn ssh meta", "barn up -f '/tmp/my lab.yml' node-1 node-2", "SSH aliases unavailable"} {
@@ -231,7 +231,7 @@ func TestPartialLifecycleCountsMissingStateAndRetainsConnect(t *testing.T) {
 
 func TestLifecycleResultListsEveryReadyNodeConnection(t *testing.T) {
 	result := lifecycleResult{
-		Status: privatevm.Status{Nodes: []privatevm.NodeStatus{
+		Status: linuxvm.Status{Nodes: []linuxvm.NodeStatus{
 			{Name: "d12", Address: "10.10.10.12", State: state.Running, Runtime: "running", Ready: true},
 			{Name: "d13", Address: "10.10.10.13", State: state.Running, Runtime: "running", Ready: true},
 		}},
@@ -253,7 +253,7 @@ func TestFrozenLifecycleProgressDoesNotRepeatCompletionSummary(t *testing.T) {
 	var out bytes.Buffer
 	contextState := &outputContext{format: outputText, stdoutTTY: true, finalProgress: true}
 	writer := &outputWriter{Writer: &out, context: contextState}
-	result := lifecycleResult{Status: privatevm.Status{Nodes: []privatevm.NodeStatus{
+	result := lifecycleResult{Status: linuxvm.Status{Nodes: []linuxvm.NodeStatus{
 		{Name: "d12", State: state.Running, Runtime: "running", Ready: true},
 	}}}
 	result.Message = "created and started 1 node(s)"
@@ -267,8 +267,8 @@ func TestFrozenCleanupRetainsRecoveryAndNotes(t *testing.T) {
 	var out bytes.Buffer
 	writer := &outputWriter{Writer: &out, context: &outputContext{format: outputText, stdoutTTY: true, finalProgress: true}}
 	result := lifecycleResult{
-		Status:   privatevm.Status{Note: "update the inventory control role"},
-		Failures: []privatevm.NodeFailure{{Node: "node-1", Stage: "stop", Error: "shutdown timed out"}},
+		Status:   linuxvm.Status{Note: "update the inventory control role"},
+		Failures: []linuxvm.NodeFailure{{Node: "node-1", Stage: "stop", Error: "shutdown timed out"}},
 	}
 	printLifecycleResult(writer, "destroy", result, false)
 	for _, want := range []string{"shutdown timed out", "barn stop node-1", "update the inventory control role"} {
@@ -285,7 +285,7 @@ func TestResizeRestartFailureSuggestsStart(t *testing.T) {
 	result := lifecycleResult{
 		Source:       "/tmp/lab.yml",
 		retryOptions: lifecycleRetryOptions{Action: "resize"},
-		Failures:     []privatevm.NodeFailure{{Node: "meta", Stage: "start", Error: "resized node meta but could not restart it"}},
+		Failures:     []linuxvm.NodeFailure{{Node: "meta", Stage: "start", Error: "resized node meta but could not restart it"}},
 	}
 	var out bytes.Buffer
 	printLifecycleResult(&out, "resize", result, false)
@@ -368,10 +368,10 @@ func TestVerboseNestedProgressPrintsOneTimingSummaryOnStderr(t *testing.T) {
 }
 
 func TestBootstrapFailureOffersInspectionInsteadOfEndlessRetry(t *testing.T) {
-	result := lifecycleResult{Source: "/tmp/my lab.yml", Status: privatevm.Status{Nodes: []privatevm.NodeStatus{
+	result := lifecycleResult{Source: "/tmp/my lab.yml", Status: linuxvm.Status{Nodes: []linuxvm.NodeStatus{
 		{Name: "meta", State: state.Running, Error: "guest bootstrap failed during data-disks"},
 		{Name: "node-1", State: state.Running, Error: "guest did not become ready"},
-	}}, Failures: []privatevm.NodeFailure{
+	}}, Failures: []linuxvm.NodeFailure{
 		{Node: "meta", Stage: "bootstrap", Error: "guest bootstrap failed during data-disks"},
 		{Node: "node-1", Stage: "readiness", Error: "guest did not become ready"},
 	}}

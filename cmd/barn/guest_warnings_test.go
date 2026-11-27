@@ -5,15 +5,15 @@ import (
 	"strings"
 	"testing"
 
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/state"
 )
 
 func TestLimitedLifecycleGroupsWarningsAndReportsRepair(t *testing.T) {
 	var out bytes.Buffer
-	status := privatevm.Status{Message: "already running"}
+	status := linuxvm.Status{Message: "already running"}
 	for _, name := range []string{"meta", "node-1"} {
-		status.Nodes = append(status.Nodes, privatevm.NodeStatus{Name: name, State: state.Running, Ready: true, Warnings: []state.GuestWarning{{Stage: "shares", Detail: "/shared: read-only"}}})
+		status.Nodes = append(status.Nodes, linuxvm.NodeStatus{Name: name, State: state.Running, Ready: true, Warnings: []state.GuestWarning{{Stage: "shares", Detail: "/shared: read-only"}}})
 	}
 	status.Nodes[0].Repairs = []string{"SSH port 2222 busy; using 12222"}
 	printLifecycleResult(&out, "up", lifecycleResult{Status: status}, false)
@@ -39,7 +39,7 @@ func TestRepairIsNotAUserCommand(t *testing.T) {
 
 func TestDiskResetIsDisclosedWithoutClaimingUnchangedOrLimited(t *testing.T) {
 	var out bytes.Buffer
-	status := privatevm.Status{Message: "already running", Nodes: []privatevm.NodeStatus{{Name: "meta", State: state.Running, Ready: true, Repairs: []string{"/data: reset to an empty ext4 filesystem; previous data discarded"}}}}
+	status := linuxvm.Status{Message: "already running", Nodes: []linuxvm.NodeStatus{{Name: "meta", State: state.Running, Ready: true, Repairs: []string{"/data: reset to an empty ext4 filesystem; previous data discarded"}}}}
 	printLifecycleResult(&out, "up", lifecycleResult{Status: status}, false)
 	if !strings.Contains(out.String(), "previous data discarded") || strings.Contains(out.String(), "unchanged") || strings.Contains(out.String(), "limitations") {
 		t.Fatal(out.String())
@@ -48,7 +48,7 @@ func TestDiskResetIsDisclosedWithoutClaimingUnchangedOrLimited(t *testing.T) {
 
 func TestStoppedRootResizeWarningDoesNotRecommendUp(t *testing.T) {
 	var output bytes.Buffer
-	printGuestLimitations(&output, privatevm.Status{Nodes: []privatevm.NodeStatus{{Name: "meta", State: state.Stopped, Warnings: []state.GuestWarning{{Stage: "root-resize", Detail: "retry barn resize -D 16GiB meta"}}}}}, "", lifecycleRetryOptions{})
+	printGuestLimitations(&output, linuxvm.Status{Nodes: []linuxvm.NodeStatus{{Name: "meta", State: state.Stopped, Warnings: []state.GuestWarning{{Stage: "root-resize", Detail: "retry barn resize -D 16GiB meta"}}}}}, "", lifecycleRetryOptions{})
 	if !strings.Contains(output.String(), "barn resize -D 16GiB meta") || strings.Contains(output.String(), "barn up") {
 		t.Fatalf("root recovery hint: %s", &output)
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/sshconfig"
 	"github.com/pgsty/barn/internal/state"
 )
@@ -69,11 +69,11 @@ func TestClockIntegrationUsesOnlyReadySelectedNodesAndPreservesReadiness(t *test
 		}
 		return errors.New("clock response unavailable")
 	}}
-	status := privatevm.Status{Nodes: []privatevm.NodeStatus{
+	status := linuxvm.Status{Nodes: []linuxvm.NodeStatus{
 		{Name: "meta", State: state.Running, Runtime: "running", Ready: true},
 		{Name: "pending", State: state.Running, Runtime: "running"},
 	}}
-	partial := &privatevm.PartialError{Failures: []privatevm.NodeFailure{{Node: "pending", Stage: "ready", Error: "SSH unavailable"}}}
+	partial := &linuxvm.PartialError{Failures: []linuxvm.NodeFailure{{Node: "pending", Stage: "ready", Error: "SSH unavailable"}}}
 	_, warnings := finishLifecycleIntegrations(context.Background(), "start", true, false, "barn start", status, partial, fixture, nil)
 	if len(warnings) != 1 || warnings[0].Code != "time_sync" || warnings[0].Next != "barn time sync meta" || !status.Nodes[0].Ready {
 		t.Fatalf("clock failure changed readiness or retry selection: %+v %+v", status, warnings)
@@ -83,15 +83,15 @@ func TestClockIntegrationUsesOnlyReadySelectedNodesAndPreservesReadiness(t *test
 	}
 
 	// Large deployments get a scaled clock budget and narrow Next to failed nodes.
-	many := privatevm.Status{}
+	many := linuxvm.Status{}
 	for _, name := range []string{"meta", "n1", "n2", "n3", "n4", "n5"} {
-		many.Nodes = append(many.Nodes, privatevm.NodeStatus{Name: name, State: state.Running, Runtime: "running", Ready: true})
+		many.Nodes = append(many.Nodes, linuxvm.NodeStatus{Name: name, State: state.Running, Runtime: "running", Ready: true})
 	}
 	if got := lifecycleTimeBudget(len(many.Nodes)); got != 30*time.Second {
 		t.Fatalf("scaled time budget = %s, want 30s", got)
 	}
 	scaledFixture := &integrationFixture{t: t, clock: func(_ context.Context, _ []string) error {
-		return &privatevm.PartialError{Total: 6, Failures: []privatevm.NodeFailure{{Node: "n4", Stage: "time-sync", Error: "timeout"}}}
+		return &linuxvm.PartialError{Total: 6, Failures: []linuxvm.NodeFailure{{Node: "n4", Stage: "time-sync", Error: "timeout"}}}
 	}}
 	_, warnings = finishLifecycleIntegrations(context.Background(), "up", true, false, "barn up", many, nil, scaledFixture, nil)
 	if len(warnings) != 1 || warnings[0].Next != "barn time sync n4" {
@@ -117,7 +117,7 @@ func TestOptionalIntegrationTimeoutRetainsCauseAndParent(t *testing.T) {
 
 func TestLifecycleIntegrationTimeoutKeepsReadyResultAndRecordsWarning(t *testing.T) {
 	fixture := &integrationFixture{t: t, guest: func(context.Context) error { return context.DeadlineExceeded }}
-	status := privatevm.Status{Message: "already running", Nodes: []privatevm.NodeStatus{{Name: "meta", State: state.Running, Runtime: "running", Ready: true}}}
+	status := linuxvm.Status{Message: "already running", Nodes: []linuxvm.NodeStatus{{Name: "meta", State: state.Running, Runtime: "running", Ready: true}}}
 	sshResult, warnings := finishLifecycleIntegrations(context.Background(), "up", true, false, "barn up -f 'my lab.yml'", status, nil, fixture, nil)
 	result := lifecycleResult{Status: status, SSHConfig: sshResult, Warnings: warnings}
 	if !allNodesReady(result.Status) || sshResult == nil || len(warnings) != 1 || warnings[0].Code != "guest_metadata" || !strings.Contains(warnings[0].Message, "timed out") || warnings[0].Next != "barn up -f 'my lab.yml'" {
@@ -129,7 +129,7 @@ func TestLifecycleIntegrationTimeoutKeepsReadyResultAndRecordsWarning(t *testing
 }
 
 func TestLifecycleIntegrationPolicyKeepsPartialAndNoWaitSemantics(t *testing.T) {
-	partial := &privatevm.PartialError{Failures: []privatevm.NodeFailure{{Node: "node-1", Stage: "ready", Error: "SSH pending"}}}
+	partial := &linuxvm.PartialError{Failures: []linuxvm.NodeFailure{{Node: "node-1", Stage: "ready", Error: "SSH pending"}}}
 	for _, test := range []struct {
 		name, command, calls, level string
 		hasNodes, noWait            bool
@@ -146,7 +146,7 @@ func TestLifecycleIntegrationPolicyKeepsPartialAndNoWaitSemantics(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := &integrationFixture{t: t}
-			_, warnings := finishLifecycleIntegrations(context.Background(), test.command, test.hasNodes, test.noWait, "barn up", privatevm.Status{}, test.err, fixture, nil)
+			_, warnings := finishLifecycleIntegrations(context.Background(), test.command, test.hasNodes, test.noWait, "barn up", linuxvm.Status{}, test.err, fixture, nil)
 			if strings.Join(fixture.calls, ",") != test.calls || fixture.level != test.level || len(warnings) != 0 {
 				t.Fatalf("integration policy changed: %#v, warnings=%v", fixture, warnings)
 			}
@@ -161,7 +161,7 @@ func TestLifecycleIntegrationsStopOnUserCancellation(t *testing.T) {
 		cancel()
 		return ctx.Err()
 	}}
-	_, _ = finishLifecycleIntegrations(ctx, "up", true, false, "barn up", privatevm.Status{}, nil, fixture, nil)
+	_, _ = finishLifecycleIntegrations(ctx, "up", true, false, "barn up", linuxvm.Status{}, nil, fixture, nil)
 	if ctx.Err() != context.Canceled || strings.Join(fixture.calls, ",") != "ssh,guests" {
 		t.Fatalf("ignored user cancellation: %#v", fixture)
 	}

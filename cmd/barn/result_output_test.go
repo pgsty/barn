@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/provision"
 	"github.com/pgsty/barn/internal/spec"
 )
@@ -94,7 +94,7 @@ func TestStaticResultAdaptsWithoutMutatingRowsOrRedirectedDetails(t *testing.T) 
 
 func TestPlanTableDistinguishesIntentAndMissingNodes(t *testing.T) {
 	var out bytes.Buffer
-	plan := privatevm.LifecyclePlan{Action: "blocked-removal", Nodes: []string{"meta", "peer"}, Resize: []string{"peer"}, Missing: []string{"old"}}
+	plan := linuxvm.LifecyclePlan{Action: "blocked-removal", Nodes: []string{"meta", "peer"}, Resize: []string{"peer"}, Missing: []string{"old"}}
 	resolved := spec.Resolved{Nodes: []spec.Node{{Name: "meta", Address: "10.10.10.10"}, {Name: "peer", Address: "10.10.10.11"}}}
 	printPlanTable(&out, plan, resolved)
 	for _, want := range []string{"NAME", "ADDRESS", "STATE", "unchanged", "planned", "would resize", "blocked", "explicit destroy required"} {
@@ -116,7 +116,7 @@ func TestPlanSummaryUsesResultStates(t *testing.T) {
 		{name: "blocked", action: "blocked-removal", blocked: "remove old explicitly", state: "blocked", message: "blocked: remove old explicitly"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state, message := planSummary(privatevm.LifecyclePlan{Action: test.action, Blocked: test.blocked, Nodes: []string{"meta", "peer"}})
+			state, message := planSummary(linuxvm.LifecyclePlan{Action: test.action, Blocked: test.blocked, Nodes: []string{"meta", "peer"}})
 			if state != test.state || message != test.message {
 				t.Fatalf("summary = %q, %q; want %q, %q", state, message, test.state, test.message)
 			}

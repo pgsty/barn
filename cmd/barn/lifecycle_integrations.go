@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/pgsty/barn/internal/activity"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/sshconfig"
 )
 
@@ -25,7 +25,7 @@ type lifecycleIntegrator interface {
 	RecordEvent(context.Context, string, string, string) error
 }
 
-func reportLifecycleNodes(report activity.Reporter, nodes []privatevm.NodeStatus, event activity.Event) {
+func reportLifecycleNodes(report activity.Reporter, nodes []linuxvm.NodeStatus, event activity.Event) {
 	for _, node := range nodes {
 		event.Node, event.Address = node.Name, node.Address
 		event.CPUs, event.Memory = node.CPUs, node.Memory
@@ -36,10 +36,10 @@ func reportLifecycleNodes(report activity.Reporter, nodes []privatevm.NodeStatus
 // The VM result is already known. Each optional integration gets its own
 // deadline so a busy lock or an unresponsive guest cannot use the lifecycle's
 // entire timeout, or prevent the next integration from being attempted.
-func finishLifecycleIntegrations(ctx context.Context, command string, deploymentHasNodes, noWait bool, retry string, status privatevm.Status, operationErr error, integrator lifecycleIntegrator, report activity.Reporter) (*sshconfig.Result, []lifecycleWarning) {
+func finishLifecycleIntegrations(ctx context.Context, command string, deploymentHasNodes, noWait bool, retry string, status linuxvm.Status, operationErr error, integrator lifecycleIntegrator, report activity.Reporter) (*sshconfig.Result, []lifecycleWarning) {
 	var sshResult *sshconfig.Result
 	var warnings []lifecycleWarning
-	var partial *privatevm.PartialError
+	var partial *linuxvm.PartialError
 	reconcileSSH := operationErr == nil || startupCommand(command) && errors.As(operationErr, &partial)
 	if action := lifecycleSSHConfigAction(command, deploymentHasNodes); reconcileSSH && action != "" && ctx.Err() == nil {
 		report.Report(activity.Event{Phase: "ssh-config", Message: "Updating the SSH client configuration"})
@@ -113,7 +113,7 @@ func lifecycleTimeBudget(nodes int) time.Duration {
 }
 
 func clockWarningNext(nodes []string, err error) string {
-	var partial *privatevm.PartialError
+	var partial *linuxvm.PartialError
 	if errors.As(err, &partial) && len(partial.Failures) > 0 {
 		failed := make([]string, 0, len(partial.Failures))
 		for _, failure := range partial.Failures {

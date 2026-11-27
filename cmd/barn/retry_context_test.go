@@ -7,14 +7,14 @@ import (
 	"testing"
 
 	"github.com/pgsty/barn/internal/failure"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 )
 
 func TestScopedRetryPreservesInventoryRepositoryAndFlags(t *testing.T) {
 	parallelism := 32
 	options := lifecycleRetryOptions{Repository: "https://images.example.test/private/channel", NoWait: true, Rollback: true, Parallelism: &parallelism, vmInputs: vmInputs{Image: "el9:stable", Arch: "amd64"}}
 	var out bytes.Buffer
-	printNodeFailures(&out, "/labs/team's lab.yml", []privatevm.NodeFailure{{Node: "meta", Stage: "prepare", Error: "temporary failure"}}, options)
+	printNodeFailures(&out, "/labs/team's lab.yml", []linuxvm.NodeFailure{{Node: "meta", Stage: "prepare", Error: "temporary failure"}}, options)
 	for _, want := range []string{"-f " + shellQuote("/labs/team's lab.yml"), "--repo " + options.Repository, "--parallel 32", "--no-wait", "--rollback", "--image el9:stable", "--arch amd64", " meta"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("retry lost %q: %s", want, &out)
@@ -48,9 +48,9 @@ func TestRetryPreservesExplicitZeroParallelism(t *testing.T) {
 
 func TestOverrideDriftRecoveryKeepsTheRequestedImageAndArchitecture(t *testing.T) {
 	options := lifecycleRetryOptions{Repository: "https://images.example.test", NoWait: true, Rollback: true, vmInputs: vmInputs{Image: "u24", Arch: "amd64"}}
-	err := lifecycleOverrideRecovery(privatevm.ErrRecreateRequired, "/labs/my lab.yml", []string{"meta"}, options)
+	err := lifecycleOverrideRecovery(linuxvm.ErrRecreateRequired, "/labs/my lab.yml", []string{"meta"}, options)
 	class, reason, next := failure.Classify(err)
-	if !errors.Is(err, privatevm.ErrRecreateRequired) || class != failure.Conflict || reason != "recreate_required" {
+	if !errors.Is(err, linuxvm.ErrRecreateRequired) || class != failure.Conflict || reason != "recreate_required" {
 		t.Fatalf("lost drift classification: %v, %s, %s", err, class, reason)
 	}
 	for _, command := range strings.Split(next, ", then ") {
@@ -71,7 +71,7 @@ func TestOverrideDriftRecoveryKeepsTheRequestedImageAndArchitecture(t *testing.T
 func TestOverrideResizeRecoveryKeepsDesiredStateWithoutUnsupportedFlags(t *testing.T) {
 	parallelism := 8
 	options := lifecycleRetryOptions{Repository: "https://images.example.test", NoWait: true, Rollback: true, Parallelism: &parallelism, vmInputs: vmInputs{Image: "u24", Arch: "arm64"}}
-	err := lifecycleOverrideRecovery(privatevm.ErrResizeRequired, "applied deployment state", []string{"node1"}, options)
+	err := lifecycleOverrideRecovery(linuxvm.ErrResizeRequired, "applied deployment state", []string{"node1"}, options)
 	_, _, next := failure.Classify(err)
 	if next != "barn resize --image u24 --arch arm64 node1" {
 		t.Fatalf("resize recovery lost effective desired state: %s", next)
@@ -88,9 +88,9 @@ func TestOverrideResizeRecoveryKeepsDesiredStateWithoutUnsupportedFlags(t *testi
 
 func TestPartialArchitectureRecoveryDoesNotRepeatTheBlockedRecreation(t *testing.T) {
 	options := lifecycleRetryOptions{vmInputs: vmInputs{Arch: "amd64", Image: "u24"}}
-	err := lifecycleOverrideRecovery(privatevm.ErrWholeDeploymentRequired, "applied deployment state", []string{"meta"}, options)
+	err := lifecycleOverrideRecovery(linuxvm.ErrWholeDeploymentRequired, "applied deployment state", []string{"meta"}, options)
 	_, reason, next := failure.Classify(err)
-	if !errors.Is(err, privatevm.ErrRecreateRequired) || reason != "recreate_required" {
+	if !errors.Is(err, linuxvm.ErrRecreateRequired) || reason != "recreate_required" {
 		t.Fatalf("selection error lost recreation classification: %v", err)
 	}
 	if !strings.Contains(next, "select all existing nodes") || !strings.Contains(next, "barn plan --image u24 --arch amd64") || strings.Contains(next, "barn recreate") {

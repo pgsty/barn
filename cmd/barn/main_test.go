@@ -16,8 +16,8 @@ import (
 
 	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/image"
+	"github.com/pgsty/barn/internal/linuxvm"
 	darwinnet "github.com/pgsty/barn/internal/network/darwin"
-	privatevm "github.com/pgsty/barn/internal/private"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/sshconfig"
 	"github.com/pgsty/barn/internal/sshkeys"
@@ -610,7 +610,7 @@ func TestDestroySSHPolicyUsesThePreOperationNodeSet(t *testing.T) {
 }
 
 func TestLifecycleSSHConfigAlwaysUsesTheFullDeployment(t *testing.T) {
-	manager := fullDeploymentSSHManager(privatevm.Manager{Nodes: []string{"meta"}})
+	manager := fullDeploymentSSHManager(linuxvm.Manager{Nodes: []string{"meta"}})
 	if len(manager.Nodes) != 0 {
 		t.Fatalf("full deployment manager retained selectors: %v", manager.Nodes)
 	}
@@ -663,7 +663,7 @@ func TestSelectedUpReconciliationKeepsEveryDeploymentSSHEntry(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	selected := fullDeploymentSSHManager(privatevm.Manager{BarnVersion: "test", Nodes: []string{"meta"}})
+	selected := fullDeploymentSSHManager(linuxvm.Manager{BarnVersion: "test", Nodes: []string{"meta"}})
 	result, err := reconcileLifecycleSSHConfig(context.TODO(), "up", true, selected)
 	if err != nil {
 		t.Fatal(err)
@@ -720,7 +720,7 @@ func TestLifecycleIntegrationWarningKeepsSuccessfulExitAndStructuredDetails(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := lifecycleResult{Status: privatevm.Status{Message: "created and started"}, Warnings: []lifecycleWarning{sshIntegrationWarning("install", errors.New("unsafe SSH directory"))}}
+	result := lifecycleResult{Status: linuxvm.Status{Message: "created and started"}, Warnings: []lifecycleWarning{sshIntegrationWarning("install", errors.New("unsafe SSH directory"))}}
 	outcome := commandOutcome{payload: result}
 	if code := renderCommandOutcome(&outcome, out, errOut); code != exitOK {
 		t.Fatalf("optional integration failed the operation: %d", code)
@@ -735,9 +735,9 @@ func TestLifecycleIntegrationWarningKeepsSuccessfulExitAndStructuredDetails(t *t
 }
 
 func TestLifecyclePartialFailurePreservesPerNodeDetails(t *testing.T) {
-	partial := &privatevm.PartialError{
+	partial := &linuxvm.PartialError{
 		Total: 1,
-		Failures: []privatevm.NodeFailure{{
+		Failures: []linuxvm.NodeFailure{{
 			Node: "d12-1", Stage: "readiness", Error: "guest bootstrap failed during data-disks",
 		}},
 	}

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
 	"github.com/pgsty/barn/internal/timesync"
@@ -103,9 +103,9 @@ func TestTimePreservesStructuredErrorContractAndQuietStderr(t *testing.T) {
 func TestRenderTimeFormatsTableWithNTPSourceAndPurgeCleansTimeFiles(t *testing.T) {
 	synced := true
 	runValue := timeRun{
-		TimeReport: privatevm.TimeReport{
+		TimeReport: linuxvm.TimeReport{
 			Source: "host",
-			Nodes: []privatevm.TimeNode{
+			Nodes: []linuxvm.TimeNode{
 				{
 					Name: "meta",
 					Result: timesync.Result{

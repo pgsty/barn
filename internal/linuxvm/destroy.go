@@ -1,0 +1,633 @@
+package linuxvm
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/pgsty/barn/internal/activity"
+	"github.com/pgsty/barn/internal/failure"
+	"github.com/pgsty/barn/internal/fsutil"
+	"github.com/pgsty/barn/internal/lock"
+	"github.com/pgsty/barn/internal/persistent"
+	"github.com/pgsty/barn/internal/process"
+	"github.com/pgsty/barn/internal/spec"
+	"github.com/pgsty/barn/internal/state"
+	"github.com/pgsty/barn/internal/vm"
+)
+
+func ownedRegularWithin(root, path string) error {
+	inside, err := fsutil.IsWithin(root, path)
+	if err != nil || !inside {
+		return fmt.Errorf("destroy target escapes node root: %s", path)
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("destroy target is unsafe: %s", path)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("destroy target is not owned by the current user: %s", path)
+	}
+	return nil
+}
+
+func removeOwnedRegularWithin(root, path string) error {
+	if err := ownedRegularWithin(root, path); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return fsutil.SyncDir(root)
+}
+
+func privateNodeTargets(deploymentValue Deployment, node state.NodeState) (string, []string, error) {
+	nodeDir, err := deploymentValue.NodeDir(node.Node)
+	if err != nil {
+		return "", nil, err
+	}
+	expected := map[string]struct{}{
+		filepath.Join(nodeDir, "state.json"): {}, node.RootDisk: {}, node.Seed: {},
+		filepath.Join(nodeDir, "serial.log"): {}, filepath.Join(nodeDir, "qemu.log"): {}, filepath.Join(nodeDir, "events.jsonl"): {},
+	}
+	if node.NVRAM != "" {
+		expected[node.NVRAM] = struct{}{}
+	}
+	for _, disk := range node.DataDisks {
+		inside, err := fsutil.IsWithin(nodeDir, disk.Path)
+		if err != nil {
+			return "", nil, err
+		}
+		if inside {
+			expected[disk.Path] = struct{}{}
+		} else if !disk.Persistent {
+			return "", nil, fmt.Errorf("non-persistent private disk escapes node root: %s", disk.Path)
+		}
+	}
+	entries, err := os.ReadDir(nodeDir)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(nodeDir, entry.Name())
+		if entry.Name() == ".DS_Store" {
+			if err := ownedRegularWithin(nodeDir, path); err != nil {
+				return "", nil, err
+			}
+			expected[path] = struct{}{}
+			continue
+		}
+		if _, ok := expected[path]; !ok {
+			return "", nil, fmt.Errorf("will not destroy: unexpected file %s in the node directory", path)
+		}
+		if err := ownedRegularWithin(nodeDir, path); err != nil {
+			return "", nil, err
+		}
+	}
+	ordered := make([]string, 0, len(expected))
+	for _, path := range []string{node.RootDisk} {
+		if path != "" {
+			ordered = append(ordered, path)
+		}
+	}
+	finderMetadata := filepath.Join(nodeDir, ".DS_Store")
+	if _, err := os.Lstat(finderMetadata); err == nil {
+		ordered = append(ordered, finderMetadata)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", nil, err
+	}
+	for _, disk := range node.DataDisks {
+		if !disk.Persistent {
+			ordered = append(ordered, disk.Path)
+		}
+	}
+	for _, path := range []string{node.Seed, node.NVRAM, filepath.Join(nodeDir, "serial.log"), filepath.Join(nodeDir, "qemu.log"), filepath.Join(nodeDir, "events.jsonl"), filepath.Join(nodeDir, "state.json")} {
+		if path != "" {
+			ordered = append(ordered, path)
+		}
+	}
+	return nodeDir, ordered, nil
+}
+
+func (m Manager) removeKnownHostEntries(ctx context.Context, deploymentValue Deployment, nodes []state.NodeState) error {
+	sshKeygen, err := m.lookPath("ssh-keygen")
+	if err != nil {
+		return err
+	}
+	keysDir := filepath.Join(deploymentValue.Root, "keys")
+	knownHosts := filepath.Join(keysDir, "known_hosts")
+	for _, node := range nodes {
+		if _, err := m.runner().Run(ctx, sshKeygen, "-f", knownHosts, "-R", vm.HostKeyAlias(node.VMUUID)); err != nil {
+			return err
+		}
+		backup := knownHosts + ".old"
+		if info, err := os.Lstat(backup); err == nil {
+			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+				return errors.New("ssh-keygen created an unsafe private known_hosts backup")
+			}
+			if err := os.Remove(backup); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return fsutil.SyncDir(keysDir)
+}
+
+func (m Manager) Destroy(ctx context.Context) (Status, error) {
+	return m.destroy(ctx, nil)
+}
+
+// check runs under the same exclusive lock as every stop and removal.
+func (m Manager) destroy(ctx context.Context, check func(Deployment, state.DeploymentState) error) (_ Status, returnErr error) {
+	deploymentValue, err := m.openDeployment(false)
+	if err != nil {
+		return Status{}, err
+	}
+	deploymentLock, err := acquireDeploymentLock(ctx, deploymentValue.Root, false, m.Progress)
+	if err != nil {
+		return Status{}, err
+	}
+	defer func() {
+		returnErr = lock.JoinRelease(returnErr, deploymentLock, "deployment destroy lock")
+	}()
+	store := state.Store{Root: deploymentValue.Root}
+	deploymentState, err := store.ReadDeployment()
+	if err != nil || deploymentState.Resolved.Network != "private" {
+		return Status{}, errors.New("the deployment has no valid state")
+	}
+	if check != nil {
+		if err := check(deploymentValue, deploymentState); err != nil {
+			return Status{}, err
+		}
+	}
+	selected, err := selectedNodeNames(deploymentState.Resolved, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
+	partial := len(selected) != len(deploymentState.Resolved.Nodes)
+	if partial && !m.allowPartialDestroy {
+		return Status{}, errors.New("destroy currently requires selecting the complete deployment")
+	}
+	selectedSet := nodeNameSet(selected)
+	addresses := resolvedNodeAddresses(deploymentState.Resolved)
+	reportNode := func(name, state, message string, done bool) {
+		m.Progress.Report(activity.Event{
+			Phase: "destroy", Node: name, Address: addresses[name],
+			State: state, Message: message, Done: done,
+		})
+	}
+	for _, name := range selected {
+		reportNode(name, "queued", "waiting to remove node", false)
+	}
+	// Attribute node-specific errors without changing the deletion transaction.
+	// Shared cleanup failures stay on the operation's summary and error line.
+	activeNode := ""
+	defer func() {
+		if returnErr != nil && activeNode != "" {
+			reportNode(activeNode, "failed", returnErr.Error(), true)
+		}
+	}()
+	// An interrupted start, stop, or destroy leaves a transitional phase.
+	// Settle it first (status proves the runtime dead, or live and ours), so
+	// destroy can finish the job instead of sending the user elsewhere.
+	interrupted := make([]string, 0)
+	for _, name := range selected {
+		if node, err := store.ReadNode(name); err == nil && (node.Phase == state.Starting || node.Phase == state.Stopping || node.Phase == state.Destroying) {
+			interrupted = append(interrupted, name)
+		}
+	}
+	if len(interrupted) != 0 {
+		settling := m
+		settling.Nodes = interrupted
+		if _, err := settling.statusForLocked(ctx, deploymentValue, ""); err != nil {
+			return Status{}, err
+		}
+	}
+	needsStop := false
+	stopNodes := make([]string, 0, len(selected))
+	for _, definition := range deploymentState.Resolved.Nodes {
+		if _, include := selectedSet[definition.Name]; !include {
+			continue
+		}
+		activeNode = definition.Name
+		node, err := store.ReadNode(definition.Name)
+		if missingPath(err) {
+			// A node in the resolved spec without committed state is a pending
+			// creation; there is nothing to stop or destroy for it.
+			reportNode(definition.Name, "removed", "node artifacts already absent", true)
+			continue
+		}
+		if err != nil {
+			return Status{}, err
+		}
+		stopNodes = append(stopNodes, definition.Name)
+		needsStop = needsStop || node.Phase == state.Running || node.Phase == state.Prepared || node.Phase == state.Starting || node.Phase == state.Stopping
+	}
+	activeNode = ""
+	// Known-host cleanup runs after every artifact is gone; a missing tool
+	// found only then would strand a half-destroyed deployment.
+	if _, err := m.lookPath("ssh-keygen"); err != nil {
+		return Status{}, failure.New(failure.Capability, fmt.Errorf("destroy needs ssh-keygen: %w", err))
+	}
+	if needsStop {
+		stopper := m
+		stopper.Nodes = stopNodes
+		if _, err := stopper.stopLocked(ctx, deploymentValue); err != nil {
+			return Status{}, err
+		}
+	}
+	nodes := make([]state.NodeState, 0, len(deploymentState.Resolved.Nodes))
+	allNodes := make([]state.NodeState, 0, len(deploymentState.Resolved.Nodes))
+	targets := make(map[string][]string)
+	nodeDirs := make(map[string]string)
+	for _, definition := range deploymentState.Resolved.Nodes {
+		activeNode = ""
+		if _, include := selectedSet[definition.Name]; include {
+			activeNode = definition.Name
+		}
+		node, err := store.ReadNode(definition.Name)
+		if missingPath(err) {
+			continue
+		}
+		if err != nil {
+			return Status{}, err
+		}
+		allNodes = append(allNodes, node)
+		if _, include := selectedSet[definition.Name]; !include {
+			continue
+		}
+		reportNode(node.Node, "checking", "checking node files and runtime", false)
+		if node.Phase != state.Stopped && node.Phase != state.Prepared && node.Phase != state.Destroying {
+			return Status{}, interruptedPhaseError(node)
+		}
+		identityValue := process.Identity{PID: node.Process.PID, Executable: node.Process.Executable, Started: node.Process.Started, ArgvHash: node.Process.ArgvHash}
+		if process.MatchesLive(ctx, m.runner(), identityValue, node.Invocation) || process.Alive(node.Process.PID) {
+			return Status{}, fmt.Errorf("will not destroy node %s while its QEMU process is running", node.Node)
+		}
+		if err := checkRuntimeUnused(node); err != nil {
+			return Status{}, err
+		}
+		if err := FinalizePrepared(deploymentValue, node.Node); err != nil {
+			return Status{}, fmt.Errorf("finish committed prepare for %s: %w", node.Node, err)
+		}
+		nodeDir, nodeTargets, err := privateNodeTargets(deploymentValue, node)
+		if err != nil {
+			return Status{}, err
+		}
+		nodes = append(nodes, node)
+		targets[node.Node] = nodeTargets
+		nodeDirs[node.Node] = nodeDir
+	}
+	activeNode = ""
+	// Destroying the control node elects a successor whose committed prepare
+	// journal must be finished before its hash changes. Do that before any
+	// node is marked or deleted, so a journal that cannot be finished refuses
+	// the destroy instead of failing after the old control node is gone.
+	successor := ""
+	if partial && m.dropFromSpec {
+		successor = controlSuccessor(deploymentState.Resolved, selectedSet)
+	}
+	if successor != "" {
+		if _, err := store.ReadNode(successor); err == nil {
+			if err := FinalizePrepared(deploymentValue, successor); err != nil {
+				return Status{}, fmt.Errorf("will not destroy the control node: its successor %s has an unfinished prepare record: %w", successor, err)
+			}
+		} else if !missingPath(err) {
+			return Status{}, err
+		}
+	}
+	persistentIdentities, err := validatePrivatePersistentState(deploymentValue, deploymentState, allNodes)
+	if err != nil {
+		return Status{}, err
+	}
+	deploymentStatePath := filepath.Join(deploymentValue.Root, "state.json")
+	if !partial {
+		if err := ownedRegularWithin(deploymentValue.Root, deploymentStatePath); err != nil {
+			return Status{}, err
+		}
+	}
+	for index := range nodes {
+		activeNode = nodes[index].Node
+		nodes[index].Phase = state.Destroying
+		nodes[index].UpdatedAt = time.Now().UTC()
+		if err := store.WriteNode(nodes[index]); err != nil {
+			return Status{}, err
+		}
+	}
+	for _, node := range nodes {
+		activeNode = node.Node
+		reportNode(node.Node, "removing", "removing node files; keeping persistent disks", false)
+		for _, identityValue := range persistentIdentities {
+			if identityValue.Node != node.Node {
+				continue
+			}
+			source := ""
+			for _, dataDisk := range node.DataDisks {
+				if dataDisk.Name == identityValue.Name {
+					source = dataDisk.Path
+					break
+				}
+			}
+			if source == "" {
+				return Status{}, fmt.Errorf("persistent private disk %s/%s has no state path", identityValue.Node, identityValue.Name)
+			}
+			if _, err := persistent.Preserve(deploymentValue.Root, identityValue, source); err != nil {
+				return Status{}, err
+			}
+		}
+		for _, path := range targets[node.Node] {
+			if err := removeOwnedRegularWithin(nodeDirs[node.Node], path); err != nil {
+				return Status{}, err
+			}
+		}
+		if err := cleanupRuntime(node); err != nil {
+			return Status{}, err
+		}
+		if err := os.Remove(nodeDirs[node.Node]); err != nil {
+			return Status{}, fmt.Errorf("node directory contains unexpected artifacts: %w", err)
+		}
+		// A stale diagnostic cache must not turn successful destruction into a
+		// failure. Its instance identity also prevents reuse by a later VM.
+		_ = store.WriteGuestWarnings(node, nil)
+		reportNode(node.Node, "removed", "node removed; persistent disks kept", true)
+	}
+	activeNode = ""
+	m.report("destroy", "Removing known-host entries and updating deployment state")
+	if err := m.removeKnownHostEntries(ctx, deploymentValue, nodes); err != nil {
+		return Status{}, err
+	}
+	if !partial {
+		if err := removeOwnedRegularWithin(deploymentValue.Root, deploymentStatePath); err != nil {
+			return Status{}, err
+		}
+	}
+	_ = pruneClockRecords(deploymentValue.Root, selected, !partial)
+	elected := ""
+	if partial && m.dropFromSpec {
+		remaining := cloneResolved(deploymentState.Resolved)
+		remaining.Nodes = remaining.Nodes[:0]
+		for _, definition := range deploymentState.Resolved.Nodes {
+			if _, removed := selectedSet[definition.Name]; !removed {
+				remaining.Nodes = append(remaining.Nodes, definition)
+			}
+		}
+		if successor != "" {
+			remaining.Nodes[0].Control = true
+			elected = successor
+		}
+		remainingHash, hashErr := spec.Hash(remaining)
+		if hashErr != nil {
+			return Status{}, hashErr
+		}
+		updated := state.DeploymentState{Schema: state.DeploymentSchema, BarnVersion: m.BarnVersion, SpecHash: remainingHash, Resolved: remaining, UpdatedAt: time.Now().UTC()}
+		if err := writeElectedControl(store, updated); err != nil {
+			return Status{}, err
+		}
+	}
+	message := "destroyed node artifacts; image cache, keys, and persistent data disks preserved"
+	switch {
+	case partial && m.dropFromSpec && elected != "":
+		message = fmt.Sprintf("destroyed and removed the selected node(s); %s is now the control node; peers, keys, and persistent data disks preserved", elected)
+	case partial && m.dropFromSpec:
+		message = "destroyed and removed the selected node(s); peers, keys, and persistent data disks preserved"
+	case partial:
+		message = "destroyed selected node artifacts for immediate recreate; deployment state, peer nodes, keys, and persistent data disks preserved"
+	}
+	result := Status{OperationID: m.OperationID, SpecHash: deploymentState.SpecHash, Message: message}
+	if elected != "" {
+		result.Note = fmt.Sprintf("%s is now the control node; update the inventory control role, then run barn up to install its control SSH access", elected)
+	}
+	for _, definition := range deploymentState.Resolved.Nodes {
+		if _, include := selectedSet[definition.Name]; !include {
+			continue
+		}
+		result.Nodes = append(result.Nodes, NodeStatus{Name: definition.Name, Address: definition.Address, State: state.Absent, Runtime: "inactive"})
+	}
+	return result, nil
+}
+
+// controlSuccessor names the node that becomes the control node when the
+// selected nodes are removed: the first remaining node, if none of the
+// remaining nodes is already the control node.
+func controlSuccessor(resolved spec.Resolved, removed map[string]struct{}) string {
+	first := ""
+	for _, definition := range resolved.Nodes {
+		if _, gone := removed[definition.Name]; gone {
+			continue
+		}
+		if definition.Control {
+			return ""
+		}
+		if first == "" {
+			first = definition.Name
+		}
+	}
+	return first
+}
+
+// writeElectedControl publishes the remaining deployment first. It is the
+// commit record for the role change; a later exclusive operation can finish
+// the node hash update if this process exits between the two writes. The
+// successor's prepare journal was finished before anything was destroyed.
+func writeElectedControl(store state.Store, updated state.DeploymentState) error {
+	if err := store.WriteDeployment(updated); err != nil {
+		return err
+	}
+	return reconcileControlHashes(store.Root)
+}
+
+// DestroyNodes destroys only the selected nodes and removes them from the
+// deployment's resolved state and lock, so a later `up` does not resurrect
+// them. This is the explicit removal path required by scale-in edits.
+func (m Manager) DestroyNodes(ctx context.Context) (Status, error) {
+	if len(m.Nodes) == 0 {
+		return Status{}, errors.New("node destroy requires explicit node selectors")
+	}
+	m.allowPartialDestroy = true
+	m.dropFromSpec = true
+	return m.Destroy(ctx)
+}
+
+func (m Manager) Recreate(ctx context.Context) (Status, error) {
+	deploymentValue, err := m.openDeployment(false)
+	if err != nil {
+		return Status{}, err
+	}
+	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
+	if err != nil || deploymentState.Resolved.Network != "private" {
+		return Status{}, errors.New("the deployment has no valid state")
+	}
+	return m.RecreateResolved(ctx, deploymentState.Resolved)
+}
+
+func validatePrivateRecreatePersistent(deploymentValue Deployment, current, requested spec.Resolved) error {
+	currentIdentities, err := privatePersistentIdentities(deploymentValue, current)
+	if err != nil {
+		return err
+	}
+	requestedIdentities, err := privatePersistentIdentities(deploymentValue, requested)
+	if err != nil {
+		return err
+	}
+	wanted := make(map[string]persistent.Identity, len(requestedIdentities))
+	for _, identityValue := range requestedIdentities {
+		wanted[identityValue.Node+"\x00"+identityValue.Name] = identityValue
+	}
+	active, err := activePersistentDiskKeys(deploymentValue, current)
+	if err != nil {
+		return err
+	}
+	for _, identityValue := range currentIdentities {
+		candidate, ok := wanted[identityValue.Node+"\x00"+identityValue.Name]
+		// "auto" keeps whatever the retained disk was formatted with, so it is
+		// compatible with any concrete filesystem on the other side.
+		sameFilesystem := candidate.Filesystem == identityValue.Filesystem || candidate.Filesystem == "auto" || identityValue.Filesystem == "auto"
+		if !ok {
+			if _, exists := active[identityValue.Node+"\x00"+identityValue.Name]; exists {
+				return fmt.Errorf("recreate desired configuration removes active persistent disk %s/%s; remove it with full-deployment `barn destroy --force --delete-persistent` or `barn purge` before recreate", identityValue.Node, identityValue.Name)
+			}
+			continue
+		}
+		if candidate.Serial != identityValue.Serial || candidate.Size != identityValue.Size || candidate.Mount != identityValue.Mount || !sameFilesystem {
+			return fmt.Errorf("recreate desired configuration is incompatible with persistent disk %s/%s", identityValue.Node, identityValue.Name)
+		}
+	}
+	validated, err := privatePersistentDesiredIdentities(deploymentValue, requested)
+	if err != nil {
+		return err
+	}
+	_, err = persistent.ValidateDesired(deploymentValue.Root, validated)
+	return err
+}
+
+// recreateScope applies the node selection and refuses any stateful node the
+// desired configuration omits. A whole-deployment recreate destroys every
+// applied node and recreates only the desired ones, so an omitted node would
+// otherwise be deleted without being named or recreated. Absence from the
+// inventory never destroys; a node whose state cannot be read counts as
+// stateful so an unreadable record is never deleted by omission.
+func recreateScope(root string, current spec.Resolved, requested spec.Resolved, selectors []string) (spec.Resolved, error) {
+	requested, err := applyNodeSelection(current, requested, selectors)
+	if err != nil {
+		return spec.Resolved{}, err
+	}
+	store := state.Store{Root: root}
+	hasState := func(name string) bool {
+		_, readErr := store.ReadNode(name)
+		return !errors.Is(readErr, os.ErrNotExist)
+	}
+	if removed := diffResolved(current, requested, hasState).Removed; len(removed) != 0 {
+		return spec.Resolved{}, failure.WithNext(fmt.Errorf("%w: %s; recreate would delete them without recreating them, and Barn never destroys a node because it left the inventory", ErrNodesRemoved, strings.Join(removed, ", ")), "barn destroy "+strings.Join(removed, " ")+", or add them back to the inventory")
+	}
+	return requested, nil
+}
+
+func (m Manager) recreateDeployment() (Deployment, state.DeploymentState, error) {
+	deploymentValue, err := m.openDeployment(false)
+	if err != nil {
+		return Deployment{}, state.DeploymentState{}, err
+	}
+	deploymentState, err := (state.Store{Root: deploymentValue.Root}).ReadDeployment()
+	if err != nil || deploymentState.Resolved.Network != "private" {
+		return Deployment{}, state.DeploymentState{}, errors.New("the deployment has no valid state")
+	}
+	return deploymentValue, deploymentState, nil
+}
+
+// RecreateTargets names the applied nodes a recreate destroys and replaces. It
+// applies the same scope checks as RecreateResolved, so a confirmation prompt
+// never lists less than the operation would delete.
+func (m Manager) RecreateTargets(requested spec.Resolved) ([]string, error) {
+	if err := validateResolved(requested); err != nil {
+		return nil, err
+	}
+	deploymentValue, deploymentState, err := m.recreateDeployment()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := recreateScope(deploymentValue.Root, deploymentState.Resolved, requested, m.Nodes); err != nil {
+		return nil, err
+	}
+	return selectedNodeNames(deploymentState.Resolved, m.Nodes)
+}
+
+// RecreateResolved validates the complete desired private spec and persistent
+// attachment contract before the first stop/destroy mutation.
+func (m Manager) RecreateResolved(ctx context.Context, requested spec.Resolved) (Status, error) {
+	var err error
+	if err := validateResolved(requested); err != nil {
+		return Status{}, err
+	}
+	deploymentValue, deploymentState, err := m.recreateDeployment()
+	if err != nil {
+		return Status{}, err
+	}
+	requested, err = recreateScope(deploymentValue.Root, deploymentState.Resolved, requested, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
+	if err := validatePrivateRecreatePersistent(deploymentValue, deploymentState.Resolved, requested); err != nil {
+		return Status{}, err
+	}
+	selected, err := selectedNodeNames(deploymentState.Resolved, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
+	requestedSelection, err := selectedNodeNames(requested, m.Nodes)
+	if err != nil {
+		return Status{}, err
+	}
+	runtimeRequested, err := selectedOperationResolved(state.Store{Root: deploymentValue.Root}, requested, requestedSelection, len(m.Nodes) != 0)
+	if err != nil {
+		return Status{}, err
+	}
+	_, qemuPath, err := m.preflightBoot(ctx, runtimeRequested, requestedSelection)
+	if err != nil {
+		return Status{}, err
+	}
+	destroyManager := m
+	if err := selectedShareSources(deploymentValue, requested, requestedSelection); err != nil {
+		return Status{}, err
+	}
+	shareBinaries, err := selectedShareInvocationBinaries(state.Store{Root: deploymentValue.Root}, deploymentState.Resolved, selected)
+	if err != nil {
+		return Status{}, err
+	}
+	if selectedHasShares(requested, requestedSelection) {
+		shareBinaries = append(shareBinaries, qemuPath)
+	}
+	if err := validatePrivateShareDeviceHelp(ctx, m.runner(), shareBinaries); err != nil {
+		return Status{}, err
+	}
+	if err := selectedShareAccess(deploymentValue, requested, requestedSelection); err != nil {
+		return Status{}, err
+	}
+	if len(selected) != len(deploymentState.Resolved.Nodes) {
+		destroyManager.allowPartialDestroy = true
+	}
+	if _, err := destroyManager.destroy(ctx, func(latestDeployment Deployment, latest state.DeploymentState) error {
+		if latest.SpecHash != deploymentState.SpecHash {
+			return failure.New(failure.Conflict, errors.New("deployment changed while preparing recreate")).Because("deployment_changed").Then("review the inventory and retry recreate")
+		}
+		// A pending node can become committed without changing the deployment
+		// hash. Recheck omissions and persistent disks after taking the lock.
+		if _, err := recreateScope(latestDeployment.Root, latest.Resolved, requested, m.Nodes); err != nil {
+			return err
+		}
+		return validatePrivateRecreatePersistent(latestDeployment, latest.Resolved, requested)
+	}); err != nil {
+		return Status{}, err
+	}
+	return m.Up(ctx, requested)
+}

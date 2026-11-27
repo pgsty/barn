@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/pgsty/barn/internal/state"
 )
@@ -135,9 +135,9 @@ func TestInterruptedLifecycleIsRecordedInTheEventLog(t *testing.T) {
 	}
 	parent, cancel := context.WithCancel(context.TODO())
 	cancel()
-	manager := privatevm.Manager{BarnVersion: "test", OperationID: "018f4b8e-1234-4abc-9def-0123456789ab"}
+	manager := linuxvm.Manager{BarnVersion: "test", OperationID: "018f4b8e-1234-4abc-9def-0123456789ab"}
 	var stderr bytes.Buffer
-	recordCancelledLifecycle(parent, manager, "up", privatevm.Status{}, context.Canceled, &stderr)
+	recordCancelledLifecycle(parent, manager, "up", linuxvm.Status{}, context.Canceled, &stderr)
 	if stderr.Len() != 0 {
 		t.Fatalf("audit append reported a problem: %q", stderr.String())
 	}

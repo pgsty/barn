@@ -10,7 +10,7 @@ import (
 
 	"github.com/pgsty/barn/internal/config"
 	"github.com/pgsty/barn/internal/failure"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/state"
 )
 
@@ -68,7 +68,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 			found = found || failure.Node == node.Name
 		}
 		if !found {
-			result.Failures = append(result.Failures, privatevm.NodeFailure{Node: node.Name, Stage: "status", Error: node.Error})
+			result.Failures = append(result.Failures, linuxvm.NodeFailure{Node: node.Name, Stage: "status", Error: node.Error})
 		}
 	}
 	// Preparation can fail before a node has committed state. Keep it in the
@@ -79,7 +79,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 	}
 	for _, failure := range result.Failures {
 		if !known[failure.Node] {
-			result.Nodes = append(result.Nodes, privatevm.NodeStatus{Name: failure.Node, State: state.Absent, Error: failure.Error})
+			result.Nodes = append(result.Nodes, linuxvm.NodeStatus{Name: failure.Node, State: state.Absent, Error: failure.Error})
 			known[failure.Node] = true
 		}
 	}
@@ -191,7 +191,7 @@ func printLifecycleResult(out io.Writer, command string, result lifecycleResult,
 	}
 }
 
-func printGuestLimitations(out io.Writer, status privatevm.Status, source string, options lifecycleRetryOptions) {
+func printGuestLimitations(out io.Writer, status linuxvm.Status, source string, options lifecycleRetryOptions) {
 	groups := make(map[string][]string)
 	var repairNode string
 	for _, node := range status.Nodes {
@@ -235,7 +235,7 @@ func printGuestLimitations(out io.Writer, status privatevm.Status, source string
 	}
 }
 
-func printNodeFailures(out io.Writer, source string, failures []privatevm.NodeFailure, options ...lifecycleRetryOptions) {
+func printNodeFailures(out io.Writer, source string, failures []linuxvm.NodeFailure, options ...lifecycleRetryOptions) {
 	groups := make(map[string][]string)
 	var retry, start, stop, bootstrap, repair, booted []string
 	for _, failure := range failures {

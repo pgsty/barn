@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/pgsty/barn/internal/failure"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/spec"
 	"github.com/spf13/cobra"
 )
@@ -78,13 +78,13 @@ func lifecycleOverrideRecovery(err error, source string, nodes []string, options
 	if !options.vmInputs.any() {
 		return err
 	}
-	if errors.Is(err, privatevm.ErrWholeDeploymentRequired) {
+	if errors.Is(err, linuxvm.ErrWholeDeploymentRequired) {
 		return failure.WithNext(err, "select all existing nodes together; review "+lifecycleNodeCommand("plan", source, nil, options)+" before recreating")
 	}
-	if errors.Is(err, privatevm.ErrRecreateRequired) {
+	if errors.Is(err, linuxvm.ErrRecreateRequired) {
 		return failure.WithNext(err, lifecycleNodeCommand("plan", source, nodes, options)+", then "+lifecycleNodeCommand("recreate", source, nodes, options))
 	}
-	if errors.Is(err, privatevm.ErrResizeRequired) {
+	if errors.Is(err, linuxvm.ErrResizeRequired) {
 		return failure.WithNext(err, lifecycleNodeCommand("resize", source, nodes, options))
 	}
 	return err

@@ -12,7 +12,7 @@ import (
 
 	"github.com/pgsty/barn/internal/activity"
 	"github.com/pgsty/barn/internal/config"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/spec"
 )
 
@@ -86,7 +86,7 @@ func TestVMInputPrecedenceSelectionAndRetryAreStable(t *testing.T) {
 			t.Fatalf("plan %d: %s", code, &errOut)
 		}
 		var result struct {
-			privatevm.LifecyclePlan
+			linuxvm.LifecyclePlan
 			Resources []config.ResourceResolution `json:"resources"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
@@ -264,7 +264,7 @@ func TestSpecDisplayUsesEffectiveResourcesAndPreservesPrecision(t *testing.T) {
 	desired.Nodes[0].CPUs = 4
 	desired.Nodes[0].Memory = 8 * spec.GiB
 	var out bytes.Buffer
-	printPlanTable(&out, privatevm.LifecyclePlan{Nodes: []string{"meta"}, Resize: []string{"meta"}}, desired, &applied)
+	printPlanTable(&out, linuxvm.LifecyclePlan{Nodes: []string{"meta"}, Resize: []string{"meta"}}, desired, &applied)
 	if !strings.Contains(out.String(), "2c4g → 4c8g") {
 		t.Fatalf("change display: %s", &out)
 	}

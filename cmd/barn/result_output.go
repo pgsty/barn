@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/pgsty/barn/internal/activity"
-	privatevm "github.com/pgsty/barn/internal/private"
+	"github.com/pgsty/barn/internal/linuxvm"
 	"github.com/pgsty/barn/internal/spec"
 )
 
@@ -38,7 +38,7 @@ func printItemResult(out io.Writer, name, state, message string) {
 	}
 }
 
-func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.Resolved, applied ...*spec.Resolved) {
+func printPlanTable(out io.Writer, plan linuxvm.LifecyclePlan, resolved spec.Resolved, applied ...*spec.Resolved) {
 	actions := make(map[string]string)
 	for _, group := range []struct {
 		names  []string
@@ -106,7 +106,7 @@ func printPlanTable(out io.Writer, plan privatevm.LifecyclePlan, resolved spec.R
 	printTable(out, []string{"NAME", "ADDRESS", "SPEC", "ROOT", "STATE", "MESSAGE"}, rows, 4)
 }
 
-func planSummary(plan privatevm.LifecyclePlan) (string, string) {
+func planSummary(plan linuxvm.LifecyclePlan) (string, string) {
 	if plan.Blocked != "" {
 		return "blocked", "blocked: " + plan.Blocked
 	}
