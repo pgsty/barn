@@ -3,21 +3,40 @@ package cloudinit
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
-	pathpkg "path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/pgsty/barn/internal/spec"
-
 	"github.com/pgsty/barn/internal/naming"
+	"github.com/pgsty/barn/internal/spec"
 	"golang.org/x/crypto/ssh"
+)
+
+var (
+	//go:embed scripts/init-disks.sh
+	initDisksScript string
+	//go:embed scripts/init-shares.sh
+	initSharesScript string
+	//go:embed scripts/network-check.sh
+	networkCheckScript string
+	//go:embed scripts/private-contract.sh
+	privateContractScript string
+	//go:embed scripts/install-control-ssh.sh
+	installControlSSHScript string
+	//go:embed scripts/identity-contract.sh
+	identityContractScript string
+	//go:embed scripts/finalize.sh
+	finalizeScript string
+	//go:embed scripts/ready.sh
+	readyScriptTemplate string
+	//go:embed scripts/warning.sh
+	warningScript string
 )
 
 type Host struct {
@@ -78,63 +97,10 @@ var (
 	userPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 )
 
-func mountPathsOverlap(left, right string) bool {
-	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
-}
-
-func reservedMount(path string) bool {
-	for _, root := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn"} {
-		if path == root || strings.HasPrefix(path, root+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func safeMount(path string) bool {
-	return safeGuestPath(path) && !reservedMount(path)
-}
-
-func safeShareMount(path, user string) bool {
-	if !safeGuestPath(path) {
-		return false
-	}
-	for _, reserved := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var/lib/barn", filepath.Join("/home", user, ".ssh")} {
-		if mountPathsOverlap(path, reserved) {
-			return false
-		}
-	}
-	return true
-}
-
-func safeGuestPath(value string) bool {
-	cleaned, ok := normalizeGuestPath(value)
-	if !ok || cleaned == "/" {
-		return false
-	}
-	return true
-}
-
-func normalizeGuestPath(value string) (string, bool) {
-	if !pathpkg.IsAbs(value) {
-		return "", false
-	}
-	for _, character := range value {
-		if character < 0x20 || character == 0x7f {
-			return "", false
-		}
-	}
-	cleaned := pathpkg.Clean(value)
-	if cleaned == "/" {
-		return "", false
-	}
-	return cleaned, true
-}
-
 func normalizeInput(input Input) (Input, error) {
 	input.Disks = append([]Disk(nil), input.Disks...)
 	for index := range input.Disks {
-		cleaned, ok := normalizeGuestPath(input.Disks[index].Mount)
+		cleaned, ok := spec.NormalizeGuestPath(input.Disks[index].Mount)
 		if !ok {
 			return Input{}, fmt.Errorf("unsafe data disk mount %q", input.Disks[index].Mount)
 		}
@@ -142,7 +108,7 @@ func normalizeInput(input Input) (Input, error) {
 	}
 	input.Shares = append([]Share(nil), input.Shares...)
 	for index := range input.Shares {
-		cleaned, ok := normalizeGuestPath(input.Shares[index].Guest)
+		cleaned, ok := spec.NormalizeGuestPath(input.Shares[index].Guest)
 		if !ok {
 			return Input{}, fmt.Errorf("unsafe guest share mount %q", input.Shares[index].Guest)
 		}
@@ -196,7 +162,7 @@ func validateInput(input Input) error {
 		return err
 	}
 	if !strings.HasPrefix(input.PublicKey, "ssh-ed25519 ") {
-		return errors.New("M0 requires an Ed25519 SSH public key")
+		return errors.New("cloud-init requires an Ed25519 SSH public key")
 	}
 	if _, err := net.ParseMAC(input.MgmtMAC); err != nil {
 		return fmt.Errorf("invalid management MAC: %w", err)
@@ -234,7 +200,7 @@ func validateInput(input Input) error {
 		if !serialPattern.MatchString(disk.Serial) {
 			return fmt.Errorf("invalid data disk serial %q", disk.Serial)
 		}
-		if !safeMount(disk.Mount) {
+		if !spec.SafeDiskMount(disk.Mount) {
 			return fmt.Errorf("unsafe data disk mount %q", disk.Mount)
 		}
 		if !spec.ValidFilesystem(disk.Filesystem) {
@@ -255,19 +221,19 @@ func validateInput(input Input) error {
 		if !shareTagPattern.MatchString(share.Tag) {
 			return fmt.Errorf("invalid Barn share tag %q", share.Tag)
 		}
-		if !safeShareMount(share.Guest, input.SSHUser) {
+		if !spec.SafeShareMount(share.Guest, input.SSHUser) {
 			return fmt.Errorf("unsafe guest share mount %q", share.Guest)
 		}
 		if _, exists := seenTags[share.Tag]; exists {
 			return fmt.Errorf("duplicate Barn share tag %q", share.Tag)
 		}
 		for existing := range seenGuests {
-			if mountPathsOverlap(existing, share.Guest) {
+			if spec.MountPathsOverlap(existing, share.Guest) {
 				return fmt.Errorf("overlapping guest share mounts %q and %q", existing, share.Guest)
 			}
 		}
 		for diskMount := range seenMount {
-			if mountPathsOverlap(diskMount, share.Guest) {
+			if spec.MountPathsOverlap(diskMount, share.Guest) {
 				return fmt.Errorf("guest share mount %q overlaps data disk mount %q", share.Guest, diskMount)
 			}
 		}
@@ -309,150 +275,9 @@ func indent(content string, spaces int) string {
 }
 
 func renderDiskScript(disks []Disk) string {
-	var out strings.Builder
-	out.WriteString(`#!/bin/bash
-set -euo pipefail
-check_only=false
-[[ "${1:-}" != --check ]] || check_only=true
-probe_disk() {
-  local attempt status
-  for attempt in 1 2 3; do
-    status=0
-    metadata=$(blkid -p -o export "${dev}" 2>"${probe_error}") || status=$?
-    case "${status}" in
-      0) uuid=$(printf '%s\n' "${metadata}" | sed -n 's/^UUID=//p'); fstype=$(printf '%s\n' "${metadata}" | sed -n 's/^TYPE=//p'); return 0 ;;
-      2) ;; # No recognizable signature. Retry before treating it as unusable.
-      *) cat "${probe_error}" >&2; echo "filesystem probe failed (${status}); disk not reset" >&2; return 1 ;;
-    esac
-    [[ "${attempt}" == 3 ]] || sleep 1
-  done
-  uuid= fstype=
-}
-reset_disk() {
-  local format="${requested}" status=0
-  if [[ "${format}" == auto ]]; then
-    if command -v mkfs.xfs >/dev/null 2>&1; then format=xfs; else format=ext4; fi
-  fi
-  command -v "mkfs.${format}" >/dev/null 2>&1 || { echo "${format} requested but mkfs.${format} is unavailable" >&2; return 1; }
-  # Only the configured whole data device may be reset, and never while any
-  # filesystem on it is mounted. An I/O or read-only backend is not fixed by mkfs.
-  [[ "$(lsblk -dn -o TYPE "${dev}")" == disk ]] || { echo 'data device is not a whole disk' >&2; return 1; }
-  [[ -z "$(lsblk -nr -o MOUNTPOINT "${dev}" | sed '/^[[:space:]]*$/d')" ]] || { echo 'data disk is still in use; stop its users and run barn up again' >&2; return 1; }
-  [[ "$(blockdev --getro "${dev}")" == 0 ]] || { echo 'data device is read-only; disk not reset' >&2; return 1; }
-  dd if="${dev}" of=/dev/null bs=4096 count=1 status=none || { echo 'data device cannot be read; disk not reset' >&2; return 1; }
-  printf 'Barn: initializing %s on %s (%s)\n' "${mountpoint}" "${dev}" "${format}"
-  if [[ "${format}" == xfs ]]; then
-    timeout --kill-after=5s 60s mkfs.xfs -f "${dev}" || status=$?
-  else
-    timeout --kill-after=5s 60s mkfs.ext4 -F "${dev}" || status=$?
-  fi
-  if (( status != 0 )); then
-    echo 'data disk reset failed; previous contents may have been discarded' >&2
-    return 1
-  fi
-  if [[ "${fresh}" != true || -e "/var/lib/barn/disk-${serial}.initialized" ]]; then
-    /usr/local/libexec/barn-warning disk-reset "${mountpoint}: reset to an empty ${format} filesystem; previous data discarded"
-  fi
-  touch "/var/lib/barn/disk-${serial}.initialized"
-  probe_disk
-  [[ -n "${uuid}" && -n "${fstype}" ]]
-}
-filesystem_unusable() {
-  local status=0
-  case "${fstype}" in
-    ext4)
-      command -v e2fsck >/dev/null 2>&1 || return 1
-      LC_ALL=C timeout --kill-after=2s 15s e2fsck -fn "${dev}" >"${probe_error}" 2>&1 || status=$?
-      # Severe metadata damage (for example an invalid root inode) also sets
-      # the abort bit: 4 + 8. Exclude operational read failures before resetting.
-      if grep -Eqi 'I/O error|Input/output error|cannot read|could not read|Permission denied|allocat.*memory|out of memory' "${probe_error}"; then return 1; fi
-      # A filesystem made by a newer e2fsprogs is healthy data this guest's tools
-      # cannot read, never evidence of damage.
-      if grep -Eqi 'unsupported feature|too new|revision too high|newer version' "${probe_error}"; then return 1; fi
-      [[ "${status}" == 4 || "${status}" == 12 ]] || return 1
-      grep -Eqi 'Filesystem still has errors|UNEXPECTED INCONSISTENCY|Root inode is not a directory|bad magic number|corrupt.*(inode|superblock)|invalid.*(inode|superblock)' "${probe_error}"
-      ;;
-    xfs)
-      command -v xfs_repair >/dev/null 2>&1 || return 1
-      LC_ALL=C timeout --kill-after=2s 15s xfs_repair -n "${dev}" >"${probe_error}" 2>&1 || status=$?
-      # Operational read failures are not evidence that mkfs would help.
-      if grep -Eqi 'I/O error|Input/output error|cannot read|could not read|Permission denied' "${probe_error}"; then return 1; fi
-      # An older xfs_repair exits 1 for a healthy filesystem with features it
-      # does not know, for example a persistent disk formatted by a newer
-      # distribution. That is an unsupported filesystem, not damage.
-      if grep -Eqi 'unknown .*features|unsupported .*feature|features not understood|more recent|newer|out of memory|allocat.*memory' "${probe_error}"; then return 1; fi
-      [[ "${status}" == 1 ]] || return 1
-      # Exit 1 also covers unsupported formats and operational failures.
-      # Only recognized damage authorizes discarding existing test data.
-      grep -Eqi 'bad magic number|would (reset|rebuild|clear|correct)|would have modified' "${probe_error}"
-      ;;
-    *) return 1 ;;
-  esac
-}
-init_disk() {
-  local serial="$1" mountpoint="$2" requested="$3" fresh="$4" dev="/dev/disk/by-id/$5" fstab_mountpoint="$6"
-  local uuid= fstype= metadata= mounted_id= expected_id= attempt probe_error
-  probe_error=$(mktemp /var/lib/barn/probe.err.XXXXXX)
-  trap "rm -f -- '${probe_error}'" EXIT
-  if [[ "${check_only}" == false ]]; then
-    for attempt in $(seq 1 10); do
-      [[ -b "${dev}" ]] && break
-      sleep 1
-    done
-  fi
-  [[ -b "${dev}" ]] || { echo "missing data device ${dev}; run barn up after it returns" >&2; return 1; }
-  expected_id=$(lsblk -dn -o MAJ:MIN "${dev}")
-  [[ -n "${expected_id}" ]] || return 1
-  if mountpoint -q "${mountpoint}"; then
-    mounted_id=$(findmnt -n -o MAJ:MIN --mountpoint "${mountpoint}")
-    [[ "${mounted_id}" == "${expected_id}" ]] || { echo "another filesystem occupies ${mountpoint}; disk not reset" >&2; return 1; }
-    # A directory read and the mount flags are a cheap check, not a full scrub.
-    if [[ ",$(findmnt -n -o OPTIONS --mountpoint "${mountpoint}")," != *,ro,* ]] && ls -U "${mountpoint}" >/dev/null; then
-      return 0
-    fi
-    [[ "${check_only}" == false ]] || return 1
-    umount "${mountpoint}" || { echo 'data disk is busy; stop its users and run barn up again' >&2; return 1; }
-  fi
-  [[ "${check_only}" == false ]] || return 1
-  probe_disk
-  mkdir -p "${mountpoint}"
-  [[ ! -L "${mountpoint}" ]] || { echo 'data mountpoint is a symlink' >&2; return 1; }
-  # Only a device with no recognizable signature at all is initialized. A
-  # partition table, or any signature without a filesystem UUID and type, is
-  # data Barn does not manage; leave it for the user rather than mkfs it.
-  if [[ -z "${metadata}" ]]; then
-    reset_disk
-  elif [[ -z "${fstype}" || -z "${uuid}" ]]; then
-    echo 'data disk holds a partition table or a signature Barn does not manage; disk not reset' >&2
-    return 1
-  fi
-  case "${fstype}" in ext4|xfs) ;; *) echo "unsupported existing filesystem ${fstype}; disk not reset" >&2; return 1 ;; esac
-  local mounted=false
-  for attempt in 1 2; do
-    if mount -t "${fstype}" -o defaults "${dev}" "${mountpoint}"; then mounted=true; break; fi
-    [[ "${attempt}" == 2 ]] || sleep 1
-  done
-  if [[ "${mounted}" == false ]]; then
-    if filesystem_unusable; then
-      reset_disk
-      mount -t "${fstype}" -o defaults "${dev}" "${mountpoint}"
-    else
-      echo 'data disk mount failed without confirmed filesystem damage; disk not reset' >&2
-      return 1
-    fi
-  fi
-  local fstab_tmp
-  fstab_tmp=$(mktemp /etc/fstab.barn.XXXXXX)
-  BARN_FSTAB_MOUNT="${fstab_mountpoint}" awk 'NF < 2 || $2 != ENVIRON["BARN_FSTAB_MOUNT"] { print }' /etc/fstab >"${fstab_tmp}"
-  printf 'UUID=%s %s %s defaults,nofail 0 2\n' "${uuid}" "${fstab_mountpoint}" "${fstype}" >>"${fstab_tmp}"
-  chmod 0644 "${fstab_tmp}"
-  mv -f -- "${fstab_tmp}" /etc/fstab
-  touch "/var/lib/barn/disk-${serial}.initialized"
-}
-
-`)
+	var calls strings.Builder
 	for _, disk := range disks {
-		fmt.Fprintf(&out, `disk_mount=%s
+		fmt.Fprintf(&calls, `disk_mount=%s
 disk_err=$(mktemp /var/lib/barn/disk.err.XXXXXX)
 set +e
 ( set -euo pipefail; init_disk %s "${disk_mount}" %s %t virtio-%s %s ) 2>"${disk_err}"
@@ -467,7 +292,7 @@ cat "${disk_err}" >&2
 rm -f -- "${disk_err}"
 `, shellQuote(disk.Mount), disk.Serial, shellQuote(disk.Filesystem), disk.Fresh, disk.Serial, shellQuote(fstabField(disk.Mount)))
 	}
-	return out.String()
+	return strings.Replace(initDisksScript, "# __BARN_DISK_CALLS__\n", calls.String(), 1)
 }
 
 func renderShareScript(user string, shares []Share) string {
@@ -479,269 +304,22 @@ func renderShareScript(user string, shares []Share) string {
 		endMarker   = "# END BARN SHARES"
 		baseOptions = "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid"
 	)
-	var out strings.Builder
-	out.WriteString("#!/bin/bash\nset -Eeuo pipefail\n\n")
-	fmt.Fprintf(&out, "share_user=%s\n", shellQuote(user))
-	fmt.Fprintf(&out, "begin_marker=%s\n", shellQuote(beginMarker))
-	fmt.Fprintf(&out, "end_marker=%s\n", shellQuote(endMarker))
-	out.WriteString("is_desired_share() {\n  case \"$1|$2\" in\n")
+	var config, fstab, calls strings.Builder
+	fmt.Fprintf(&config, "share_user=%s\n", shellQuote(user))
+	fmt.Fprintf(&config, "begin_marker=%s\n", shellQuote(beginMarker))
+	fmt.Fprintf(&config, "end_marker=%s\n", shellQuote(endMarker))
+	config.WriteString("is_desired_share() {\n  case \"$1|$2\" in\n")
 	for _, share := range shares {
-		fmt.Fprintf(&out, "    %s) return 0 ;;\n", shellQuote(share.Tag+"|"+share.Guest))
-	}
-	out.WriteString("    *) return 1 ;;\n  esac\n}\n\n")
-	out.WriteString(`fstab=/etc/fstab
-fstab_tmp=
-active_probe=
-
-cleanup() {
-  local status=$?
-  trap - EXIT
-  if [[ -n "${active_probe}" ]]; then
-    rm -f -- "${active_probe}" || true
-  fi
-  if [[ -n "${fstab_tmp}" ]]; then
-    rm -f -- "${fstab_tmp}" || true
-  fi
-  exit "${status}"
-}
-trap cleanup EXIT
-
-path_overlap() {
-  local left="$1" right="$2"
-  [[ "${left}" == "${right}" || "${left}" == "${right}"/* || "${right}" == "${left}"/* ]]
-}
-
-safe_guest_mount() {
-  local path="$1" root canonical
-  [[ "${path}" == /* && "${path}" != / && "${path}" != *[[:cntrl:]]* ]]
-  canonical=$(realpath -m -- "${path}")
-  [[ "${canonical}" == "${path}" ]]
-  for root in /bin /boot /dev /etc /lib /lib64 /proc /root /run /sbin /sys /usr /var/lib/barn; do
-    if path_overlap "${path}" "${root}"; then
-      return 1
-    fi
-  done
-  if path_overlap "${path}" "/home/${share_user}/.ssh"; then
-    return 1
-  fi
-  return 0
-}
-
-fstab_unescape() {
-  local value="$1"
-  value="${value//\\040/ }"
-  value="${value//\\011/$'\t'}"
-  REPLY="${value//\\134/\\}"
-}
-
-for required in awk findmnt grep mktemp mount mountpoint realpath runuser stat sync umount; do
-  command -v "${required}" >/dev/null
-done
-[[ -f "${fstab}" && ! -L "${fstab}" ]]
-[[ "$(stat -c '%u:%g' "${fstab}")" == "0:0" ]]
-fstab_mode=$(stat -c '%a' "${fstab}")
-[[ "${fstab_mode}" =~ ^[0-7]{3,4}$ ]]
-(( (8#${fstab_mode} & 8#22) == 0 ))
-begin_count=$(grep -Fxc -- "${begin_marker}" "${fstab}" || true)
-end_count=$(grep -Fxc -- "${end_marker}" "${fstab}" || true)
-if (( begin_count != end_count || begin_count > 1 )); then
-  echo 'malformed Barn share block in /etc/fstab' >&2
-  exit 1
-fi
-
-declare -a old_shares=()
-if (( begin_count == 1 )); then
-  begin_line=$(grep -Fn -- "${begin_marker}" "${fstab}" | cut -d: -f1)
-  end_line=$(grep -Fn -- "${end_marker}" "${fstab}" | cut -d: -f1)
-  if (( begin_line >= end_line )); then
-    echo 'misordered Barn share block in /etc/fstab' >&2
-    exit 1
-  fi
-  while read -r tag guest fstype options dump pass extra; do
-    if [[ -z "${tag}" || -n "${extra:-}" || ! "${tag}" =~ ^barn-[0-9a-f]{20}$ || "${fstype}" != 9p || "${dump}" != 0 || "${pass}" != 0 ]]; then
-      echo 'unsafe entry in Barn share block' >&2
-      exit 1
-    fi
-    fstab_unescape "${guest}"
-    guest="${REPLY}"
-    normalized_options=${options/access=any/access=client}
-    if [[ "${normalized_options}" != "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,rw" && "${normalized_options}" != "version=9p2000.L,trans=virtio,cache=none,msize=262144,access=client,nofail,nodev,nosuid,ro" ]]; then
-      echo 'unexpected options in Barn share block' >&2
-      exit 1
-    fi
-    safe_guest_mount "${guest}" || { echo "unsafe old Barn share mount ${guest}" >&2; exit 1; }
-    old_shares+=("${tag}|${guest}")
-  done < <(awk -v begin="${begin_marker}" -v end="${end_marker}" '
-    $0 == begin { inside=1; next }
-    $0 == end { inside=0; next }
-    inside { print }
-  ' "${fstab}")
-fi
-
-for old_share in "${old_shares[@]}"; do
-  old_tag=${old_share%%|*}
-  old_guest=${old_share#*|}
-  if ! mountpoint -q "${old_guest}"; then
-    continue
-  fi
-  mounted_source=$(findmnt -n -o SOURCE --target "${old_guest}")
-  mounted_type=$(findmnt -n -o FSTYPE --target "${old_guest}")
-  if [[ "${mounted_type}" == 9p ]] && is_desired_share "${mounted_source}" "${old_guest}"; then
-    continue
-  fi
-  if [[ "${mounted_source}" != "${old_tag}" || "${mounted_type}" != 9p ]] || is_desired_share "${old_tag}" "${old_guest}"; then
-    echo "refuse to unmount unexpected filesystem at ${old_guest}" >&2
-    exit 1
-  fi
-  umount "${old_guest}"
-done
-
-fstab_tmp=$(mktemp /etc/.fstab.barn-shares.XXXXXX)
-awk -v begin="${begin_marker}" -v end="${end_marker}" '
-  $0 == begin { inside=1; next }
-  $0 == end { inside=0; next }
-  !inside { print }
-' "${fstab}" > "${fstab_tmp}"
-printf '%s\n' "${begin_marker}" >> "${fstab_tmp}"
-`)
-	for _, share := range shares {
+		fmt.Fprintf(&config, "    %s) return 0 ;;\n", shellQuote(share.Tag+"|"+share.Guest))
 		options := baseOptions + ",rw"
 		if share.Readonly {
 			options = baseOptions + ",ro"
 		}
 		line := fmt.Sprintf("%s %s 9p %s 0 0", share.Tag, fstabField(share.Guest), options)
-		fmt.Fprintf(&out, "printf '%%s\\n' %s >> \"${fstab_tmp}\"\n", shellQuote(line))
-	}
-	out.WriteString(`printf '%s\n' "${end_marker}" >> "${fstab_tmp}"
-chown root:root "${fstab_tmp}"
-chmod 0644 "${fstab_tmp}"
-sync -f "${fstab_tmp}"
-mv -f -- "${fstab_tmp}" "${fstab}"
-fstab_tmp=
-
-has_mount_option() {
-  local options="$1" wanted="$2"
-  [[ ",${options}," == *,"${wanted}",* ]]
-}
-
-verify_mount() {
-  local tag="$1" mountpoint="$2" readonly="$3"
-  local mounted_source mounted_type mounted_options
-  mountpoint -q "${mountpoint}"
-  mounted_source=$(findmnt -n -o SOURCE --target "${mountpoint}")
-  mounted_type=$(findmnt -n -o FSTYPE --target "${mountpoint}")
-  mounted_options=$(findmnt -n -o OPTIONS --target "${mountpoint}")
-  [[ "${mounted_source}" == "${tag}" && "${mounted_type}" == 9p ]]
-  has_mount_option "${mounted_options}" nodev
-  has_mount_option "${mounted_options}" nosuid
-  if [[ "${readonly}" == true ]]; then
-    has_mount_option "${mounted_options}" ro
-  else
-    has_mount_option "${mounted_options}" rw
-  fi
-}
-
-probe_share() {
-  local mountpoint="$1" readonly="$2"
-  runuser -u "${share_user}" -- test -r "${mountpoint}" || return 1
-  runuser -u "${share_user}" -- test -x "${mountpoint}" || return 1
-  if [[ "${readonly}" == true ]]; then
-    if active_probe=$(runuser -u "${share_user}" -- mktemp "${mountpoint}/.barn-write-probe.XXXXXX" 2>/dev/null); then
-      if ! rm -f -- "${active_probe}" || [[ -e "${active_probe}" || -L "${active_probe}" ]]; then
-        echo "failed to clean unexpected read-only share probe ${active_probe}" >&2
-        return 1
-      fi
-      active_probe=
-      echo "read-only Barn share is writable by ${share_user}: ${mountpoint}" >&2
-      return 1
-    fi
-    active_probe=
-    return 0
-  fi
-
-  active_probe=$(runuser -u "${share_user}" -- mktemp "${mountpoint}/.barn-write-probe.XXXXXX") || return 1
-  runuser -u "${share_user}" -- /bin/sh -c 'printf "%s\n" barn-share-probe > "$1"' barn-probe "${active_probe}" || return 1
-  runuser -u "${share_user}" -- rm -f -- "${active_probe}" || return 1
-  [[ ! -e "${active_probe}" && ! -L "${active_probe}" ]] || return 1
-  active_probe=
-}
-
-check_share_access() {
-  local tag="$1" mountpoint="$2" readonly="$3"
-  if probe_share "${mountpoint}" "${readonly}"; then
-    return 0
-  fi
-  if [[ -n "${active_probe}" ]]; then
-    rm -f -- "${active_probe}"
-    active_probe=
-  fi
-  if [[ "${readonly}" == false ]]; then
-    mount -o remount,ro "${mountpoint}"
-    verify_mount "${tag}" "${mountpoint}" true
-    # Keep the actual fallback across reboots. A subsequent finalize rewrites
-    # the desired options and retries writable access.
-    fstab_tmp=$(mktemp /etc/.fstab.barn-shares.XXXXXX)
-    awk -v tag="${tag}" -v begin="${begin_marker}" -v end="${end_marker}" '
-      $0 == begin { inside=1 }
-      $0 == end { inside=0 }
-      inside && $1 == tag && $3 == "9p" { sub(/,rw$/, ",ro", $4) }
-      { print }
-    ' "${fstab}" >"${fstab_tmp}"
-    chown root:root "${fstab_tmp}"
-    chmod 0644 "${fstab_tmp}"
-    sync -f "${fstab_tmp}"
-    mv -f -- "${fstab_tmp}" "${fstab}"
-    fstab_tmp=
-    if runuser -u "${share_user}" -- test -r "${mountpoint}" && runuser -u "${share_user}" -- test -x "${mountpoint}"; then
-      echo "${mountpoint}: read-only; ${share_user} cannot write with the host directory's permissions" >&2
-      return 1
-    fi
-  fi
-  echo "${mountpoint}: unavailable to ${share_user}; check host directory permissions" >&2
-  return 1
-}
-
-init_share() {
-  local tag="$1" mountpoint="$2" readonly="$3"
-  safe_guest_mount "${mountpoint}"
-  if [[ -e "${mountpoint}" || -L "${mountpoint}" ]]; then
-    [[ -d "${mountpoint}" && ! -L "${mountpoint}" ]]
-  else
-    install -d -o root -g root -m 0755 "${mountpoint}"
-  fi
-  [[ "$(readlink -f -- "${mountpoint}")" == "${mountpoint}" ]]
-  if mountpoint -q "${mountpoint}"; then
-    # A previous boot may have downgraded this mount. Retry the requested
-    # access after the user fixes permissions, without changing host metadata.
-    mounted_source=$(findmnt -n -o SOURCE --target "${mountpoint}")
-    mounted_type=$(findmnt -n -o FSTYPE --target "${mountpoint}")
-    [[ "${mounted_source}" == "${tag}" && "${mounted_type}" == 9p ]]
-    mounted_options=$(findmnt -n -o OPTIONS --target "${mountpoint}")
-    if ! has_mount_option "${mounted_options}" access=client; then
-      umount "${mountpoint}"
-      mount "${mountpoint}"
-    fi
-    if [[ "${readonly}" == false ]]; then
-      mount -o remount,rw "${mountpoint}"
-    fi
-    verify_mount "${tag}" "${mountpoint}" "${readonly}"
-    check_share_access "${tag}" "${mountpoint}" "${readonly}"
-    return 0
-  fi
-  if find "${mountpoint}" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
-    echo "refuse non-empty Barn share mountpoint ${mountpoint}" >&2
-    return 1
-  fi
-  mount "${mountpoint}"
-  verify_mount "${tag}" "${mountpoint}" "${readonly}"
-  check_share_access "${tag}" "${mountpoint}" "${readonly}"
-}
-
-`)
-	for _, share := range shares {
+		fmt.Fprintf(&fstab, "printf '%%s\\n' %s >> \"${fstab_tmp}\"\n", shellQuote(line))
 		// Run each mount in an independent strict subshell. Putting a shell
 		// function in an if/|| condition would disable errexit inside it.
-		fmt.Fprintf(&out, `share_err=$(mktemp /var/lib/barn/share.err.XXXXXX)
+		fmt.Fprintf(&calls, `share_err=$(mktemp /var/lib/barn/share.err.XXXXXX)
 set +e
 ( set -Eeuo pipefail; init_share %s %s %t ) 2>"${share_err}"
 share_status=$?
@@ -754,7 +332,13 @@ cat "${share_err}" >&2
 rm -f -- "${share_err}"
 `, shellQuote(share.Tag), shellQuote(share.Guest), share.Readonly)
 	}
-	return out.String()
+	config.WriteString("    *) return 1 ;;\n  esac\n}\n\n")
+	replacer := strings.NewReplacer(
+		"# __BARN_SHARE_CONFIG__\n", config.String(),
+		"# __BARN_SHARE_FSTAB__\n", fstab.String(),
+		"# __BARN_SHARE_CALLS__\n", calls.String(),
+	)
+	return replacer.Replace(initSharesScript)
 }
 
 func RenderHostsScript(hosts []Host) string {
@@ -775,117 +359,18 @@ func RenderControlSSHConfig(user string, hosts []Host) string {
 	return "# BEGIN BARN\nHost " + strings.Join(hostNames(hosts), " ") + "\n  User " + user + "\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\nHost *\n# END BARN\n"
 }
 
-func renderNetworkCheckScript() string {
-	return `#!/bin/bash
-set -euo pipefail
-for attempt in 1 2 3; do
-  if response=$(timeout 10s /bin/bash -c '
-exec 3<>/dev/tcp/example.com/80
-printf "HEAD / HTTP/1.0\r\nHost: example.com\r\n\r\n" >&3
-IFS= read -r response <&3
-printf "%s\n" "${response}"
-'); then
-    if [[ "${response}" == HTTP/* ]]; then
-      printf '%s\n' "${response}"
-      exit 0
-    fi
-  fi
-  if (( attempt < 3 )); then
-    sleep 2
-  fi
-done
-echo 'management egress probe failed after 3 bounded attempts' >&2
-exit 1
-`
-}
-
 func renderPrivateContractScript(network PrivateNetwork) string {
-	return fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-expected=%q
-expected_host=%q
-expected_mac=%q
-interface=
-for candidate in /sys/class/net/*; do
-  [[ -r "${candidate}/address" ]] || continue
-  read -r actual_mac <"${candidate}/address" || continue
-  if [[ "${actual_mac,,}" == "${expected_mac}" ]]; then
-    [[ -z "${interface}" ]] || { echo "multiple interfaces have private MAC ${expected_mac}" >&2; exit 1; }
-    interface=${candidate##*/}
-  fi
-done
-[[ -n "${interface}" ]] || { echo "private interface with MAC ${expected_mac} was not found" >&2; exit 1; }
-ip link show dev "${interface}" >/dev/null
-if ! ip link show dev "${interface}" | grep -Eq '<[^>]*UP[^>]*>'; then
-  ip link set dev "${interface}" up
-fi
-if ! ip -4 -o address show dev "${interface}" scope global | awk '{print $4}' | grep -Fxq "${expected}"; then
-  ip address add "${expected}" dev "${interface}"
-fi
-if ip -4 route show default dev "${interface}" | grep -q .; then
-  echo "private interface ${interface} owns a default route" >&2
-  exit 1
-fi
-if command -v resolvectl >/dev/null 2>&1; then
-  dns=$(resolvectl dns "${interface}" 2>/dev/null || true)
-  dns=${dns#*:}
-	  dns=$(printf '%%s' "${dns}" | tr -d '[:space:]')
-  if [[ -n "${dns}" && "${dns}" != "-" ]]; then
-    echo "private interface ${interface} has DNS: ${dns}" >&2
-    exit 1
-  fi
-elif command -v nmcli >/dev/null 2>&1; then
-  dns=$(nmcli -g IP4.DNS device show "${interface}" 2>/dev/null || true)
-  if [[ -n "${dns}" ]]; then
-    echo "private interface ${interface} has DNS: ${dns}" >&2
-    exit 1
-  fi
-fi
-printf 'barn-arp-refresh\n' >"/dev/udp/${expected_host}/9"
-printf 'private interface %%s %%s is up with no default route or DNS\n' "${interface}" "${expected}"
-`, fmt.Sprintf("%s/%d", network.Address, network.Prefix), network.HostAddress, strings.ToLower(network.MAC))
+	vars := fmt.Sprintf("expected=%q\nexpected_host=%q\nexpected_mac=%q\n",
+		fmt.Sprintf("%s/%d", network.Address, network.Prefix), network.HostAddress, strings.ToLower(network.MAC))
+	return strings.Replace(privateContractScript, "# __BARN_PRIVATE_VARS__\n", vars, 1)
 }
 
 func renderControlSSHInstallScript(user string) string {
-	keySource := "/var/lib/barn/control-id_ed25519"
-	configSource := "/var/lib/barn/control-ssh-config"
-	return fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-user=%q
-entry=$(getent passwd "${user}")
-IFS=: read -r _ _ uid gid _ home _ <<<"${entry}"
-[[ "${uid}" =~ ^[0-9]+$ && "${gid}" =~ ^[0-9]+$ ]]
-[[ "${home}" == /home/* && -d "${home}" && ! -L "${home}" ]]
-[[ "$(readlink -f -- "${home}")" == "${home}" ]]
-ssh_dir="${home}/.ssh"
-if [[ -e "${ssh_dir}" || -L "${ssh_dir}" ]]; then
-  [[ -d "${ssh_dir}" && ! -L "${ssh_dir}" ]]
-fi
-if [[ ! -e %[2]s && ! -e %[3]s ]]; then
-  # The first successful installation consumes the staged secret. A later
-  # repair must validate the installed files instead of requiring it again.
-  if [[ ! -f "${ssh_dir}/id_ed25519" || -L "${ssh_dir}/id_ed25519" ]]; then
-    echo "node-to-node SSH key is missing or unsafe; restore the original deployment private key to ${ssh_dir}/id_ed25519 (owner ${uid}:${gid}, mode 0600); management SSH remains available" >&2
-    exit 1
-  fi
-  [[ ! -L "${ssh_dir}/id_ed25519" && ! -L "${ssh_dir}/config" ]]
-  [[ "$(stat -c '%%u:%%g:%%a' "${ssh_dir}/id_ed25519")" == "${uid}:${gid}:600" ]]
-  [[ "$(stat -c '%%u:%%g:%%a' "${ssh_dir}/config")" == "${uid}:${gid}:600" ]]
-  exit 0
-fi
-[[ "$(stat -c '%%u:%%g:%%a' %[2]s)" == "0:0:600" && ! -L %[2]s ]]
-[[ "$(stat -c '%%u:%%g:%%a' %[3]s)" == "0:0:600" && ! -L %[3]s ]]
-install -d -o "${uid}" -g "${gid}" -m 0700 "${ssh_dir}"
-install -o "${uid}" -g "${gid}" -m 0600 %[2]s "${ssh_dir}/id_ed25519"
-install -o "${uid}" -g "${gid}" -m 0600 %[3]s "${ssh_dir}/config"
-rm -f -- %[2]s %[3]s
-[[ "$(stat -c '%%u:%%g:%%a' "${ssh_dir}/id_ed25519")" == "${uid}:${gid}:600" ]]
-[[ "$(stat -c '%%u:%%g:%%a' "${ssh_dir}/config")" == "${uid}:${gid}:600" ]]
-`, user, keySource, configSource)
+	return strings.Replace(installControlSSHScript, "# __BARN_CONTROL_SSH_VARS__\n", fmt.Sprintf("user=%q\n", user), 1)
 }
 
 func renderIdentityContractScript(user string) string {
-	var contract string
+	contract := "[[ \"${uid}\" =~ ^[0-9]+$ && \"${gid}\" =~ ^[0-9]+$ ]]\n[[ \"${home}\" == /home/* && \"${shell}\" == /bin/bash ]]\n"
 	if user == "dba" {
 		contract = `[[ "${uid}" == 88 && "${gid}" == 88 ]]
 [[ "${home}" == /home/dba && "${shell}" == /bin/bash ]]
@@ -894,103 +379,26 @@ IFS=: read -r group_name _ group_gid _ <<<"${group}"
 [[ "${group_name}" == admin && "${group_gid}" == 88 ]]
 [[ "$(stat -c '%u:%g' "${home}")" == 88:88 ]]
 `
-	} else {
-		contract = `[[ "${uid}" =~ ^[0-9]+$ && "${gid}" =~ ^[0-9]+$ ]]
-[[ "${home}" == /home/* && "${shell}" == /bin/bash ]]
-`
 	}
-	return fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-user=%q
-entry=$(getent passwd "${user}")
-IFS=: read -r _ _ uid gid _ home shell <<<"${entry}"
-%s[[ -d "${home}" && ! -L "${home}" ]]
-printf 'login identity %%s uid=%%s gid=%%s home=%%s\n' "${user}" "${uid}" "${gid}" "${home}"
-`, user, contract)
+	replacer := strings.NewReplacer(
+		"# __BARN_IDENTITY_USER__\n", fmt.Sprintf("user=%q\n", user),
+		"# __BARN_IDENTITY_CONTRACT__\n", contract,
+	)
+	return replacer.Replace(identityContractScript)
 }
 
 func renderFinalizeScript(controlSSH, privateNetwork, shares bool) string {
-	var out strings.Builder
-	out.WriteString(`#!/bin/bash
-set -euo pipefail
-install -d -o root -g root -m 0755 /var/lib/barn
-exec 9>/var/lib/barn/finalize.lock
-flock -n 9 || { echo 'guest setup is already running' >&2; exit 1; }
-# Empty selection runs initial setup; up passes only stages needing a retry.
-selected=" $* "
-previous_warnings=$(cat /var/lib/barn/warnings.jsonl 2>/dev/null || true)
-stage=identity
-stage_err=/var/lib/barn/stage.err
-finalize_exit() {
-  local status=$?
-  local error_tmp= detail=
-  trap - EXIT
-  if (( status != 0 )); then
-    if [[ -s "${stage_err}" ]]; then
-      detail=$(tail -n 1 "${stage_err}" | LC_ALL=C tr -d '\r\n' | LC_ALL=C tr '\000-\037\177' ' ' | cut -c1-200 | sed 's/\\/\\\\/g; s/"/\\"/g')
-    fi
-    if error_tmp=$(mktemp /var/lib/barn/error.json.XXXXXX); then
-      if printf '{"exit_status":%d,"stage":"%s","detail":"%s"}\n' "${status}" "${stage}" "${detail}" > "${error_tmp}" &&
-        chown root:root "${error_tmp}" && chmod 0644 "${error_tmp}"; then
-        mv -f -- "${error_tmp}" /var/lib/barn/error.json || rm -f -- "${error_tmp}" || true
-      else
-        rm -f -- "${error_tmp}" || true
-      fi
-    fi
-  fi
-  rm -f -- "${stage_err}" || true
-`)
-	// The installer consumes its root-only staged key on success. Retain it
-	// after a failed optional install so an in-place repair can finish later.
-	out.WriteString(`  exit "${status}"
-}
-# run_stage records the stage name and keeps its stderr so the error marker
-# can carry the failing command's last line to the host.
-run_stage() {
-  stage=$1
-  shift
-  : >"${stage_err}"
-  local rc=0
-  "$@" 2>"${stage_err}" || rc=$?
-  cat "${stage_err}" >&2
-  return "${rc}"
-}
-run_optional() {
-  local name=$1 budget=$2 detail
-  shift 2
-  if [[ "${selected}" != '  ' && "${selected}" != *" ${name} "* ]]; then
-    # Retain unselected limitations, but reset notices describe only one run.
-    printf '%s\n' "${previous_warnings}" | grep -F "\"stage\":\"${name}\"" >>/var/lib/barn/warnings.jsonl || true
-    return 0
-  fi
-  if run_stage "${name}" timeout --kill-after=5s "${budget}" "$@"; then
-    return 0
-  fi
-  detail=$(tail -n 1 "${stage_err}")
-  /usr/local/libexec/barn-warning "${name}" "${detail:-setup unavailable or timed out}"
-}
-trap finalize_exit EXIT
-rm -f -- /var/lib/barn/ready.json /var/lib/barn/error.json
-: >/var/lib/barn/warnings.jsonl
-chmod 0644 /var/lib/barn/warnings.jsonl
-run_stage identity /usr/local/libexec/barn-identity-contract
-run_optional hosts 30s /usr/local/libexec/barn-hosts
-# Internet access is diagnostic only: an offline lab must still initialize its
-# disks, shares and private network. barn-network-check remains available for
-# an explicit guest connectivity check.
-run_optional data-disks 90s /usr/local/libexec/barn-init-disks
-`)
+	var optional strings.Builder
 	if shares {
-		out.WriteString("run_optional shares 30s /usr/local/libexec/barn-init-shares\n")
+		optional.WriteString("run_optional shares 30s /usr/local/libexec/barn-init-shares\n")
 	}
 	if controlSSH {
-		out.WriteString("run_optional control-ssh 30s /usr/local/libexec/barn-install-control-ssh\n")
+		optional.WriteString("run_optional control-ssh 30s /usr/local/libexec/barn-install-control-ssh\n")
 	}
 	if privateNetwork {
-		out.WriteString("run_optional private-network 30s /usr/local/libexec/barn-private-contract\n")
+		optional.WriteString("run_optional private-network 30s /usr/local/libexec/barn-private-contract\n")
 	}
-	out.WriteString("run_stage ready /usr/local/libexec/barn-ready\n")
-	return out.String()
+	return strings.Replace(finalizeScript, "# __BARN_FINALIZE_OPTIONAL__\n", optional.String(), 1)
 }
 
 func renderReadyScript(input Input) (string, error) {
@@ -1004,27 +412,8 @@ func renderReadyScript(input Input) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(`#!/bin/bash
-set -euo pipefail
-install -d -m 0755 /var/lib/barn
-warnings=
-if [[ -f /var/lib/barn/warnings.jsonl ]]; then
-  warnings=$(paste -sd, /var/lib/barn/warnings.jsonl)
-fi
-printf '%%s,"warnings":[%%s]}\n' %s "${warnings}" > /var/lib/barn/ready.json.tmp
-chmod 0644 /var/lib/barn/ready.json.tmp
-mv /var/lib/barn/ready.json.tmp /var/lib/barn/ready.json
-`, yamlQuote(strings.TrimSuffix(string(data), "}"))), nil
-}
-
-func renderWarningScript() string {
-	return `#!/bin/bash
-set -euo pipefail
-json_string() {
-  printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c1-400 | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-printf '{"stage":"%s","detail":"%s"}\n' "$(json_string "$1")" "$(json_string "$2")" >>/var/lib/barn/warnings.jsonl
-`
+	writeLine := fmt.Sprintf("printf '%%s,\"warnings\":[%%s]}\\n' %s \"${warnings}\" > /var/lib/barn/ready.json.tmp\n", yamlQuote(strings.TrimSuffix(string(data), "}")))
+	return strings.Replace(readyScriptTemplate, "# __BARN_READY_WRITE__\n", writeLine, 1), nil
 }
 
 func renderMetaData(input Input) []byte {
@@ -1077,12 +466,12 @@ func renderUserData(input Input) ([]byte, error) {
 		out.WriteString(indent(content, 6))
 	}
 	writeFile("/usr/local/libexec/barn-init-disks", "root:root", "0755", renderDiskScript(input.Disks))
-	writeFile("/usr/local/libexec/barn-warning", "root:root", "0755", renderWarningScript())
+	writeFile("/usr/local/libexec/barn-warning", "root:root", "0755", warningScript)
 	if len(input.Shares) != 0 {
 		writeFile("/usr/local/libexec/barn-init-shares", "root:root", "0755", renderShareScript(input.SSHUser, input.Shares))
 	}
 	writeFile("/usr/local/libexec/barn-hosts", "root:root", "0755", RenderHostsScript(input.Hosts))
-	writeFile("/usr/local/libexec/barn-network-check", "root:root", "0755", renderNetworkCheckScript())
+	writeFile("/usr/local/libexec/barn-network-check", "root:root", "0755", networkCheckScript)
 	writeFile("/usr/local/libexec/barn-identity-contract", "root:root", "0755", renderIdentityContractScript(input.SSHUser))
 	if input.Private != nil {
 		writeFile("/usr/local/libexec/barn-private-contract", "root:root", "0755", renderPrivateContractScript(*input.Private))

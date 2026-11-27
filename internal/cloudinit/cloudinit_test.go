@@ -80,7 +80,7 @@ func TestGeneratedScriptsParseWithBash(t *testing.T) {
 	}
 	scripts := map[string]string{
 		"disk":                renderDiskScript(testInput().Disks),
-		"network":             renderNetworkCheckScript(),
+		"network":             networkCheckScript,
 		"private":             renderPrivateContractScript(PrivateNetwork{MAC: "02:aa:bb:cc:dd:ee", Address: "10.10.10.10", Prefix: 24, HostAddress: "10.10.10.1"}),
 		"finalizer":           renderFinalizeScript(true, true, true),
 		"finalizer-no-shares": renderFinalizeScript(false, true, false),
@@ -458,7 +458,7 @@ func TestFinalizeDegradesOptionalStagesAndKeepsCoreFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for name, script := range map[string]string{"warning": renderWarningScript(), "ready": ready} {
+			for name, script := range map[string]string{"warning": warningScript, "ready": ready} {
 				if err := os.WriteFile(filepath.Join(dir, "barn-"+name), []byte(replace.Replace(script)), 0700); err != nil {
 					t.Fatal(err)
 				}

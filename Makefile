@@ -82,7 +82,7 @@ module-check:
 	go mod tidy -diff
 
 shell-check:
-	@for script in packaging/*.sh packaging/image-pipeline/*.sh tests/*.sh; do bash -n "$$script"; done
+	@for script in packaging/*.sh packaging/image-pipeline/*.sh internal/cloudinit/scripts/*.sh tests/*.sh; do bash -n "$$script"; done
 
 # A maintenance file must have an explicit owner in a Make target, workflow, or
 # contributor documentation. Go tool tests use their package directory as the

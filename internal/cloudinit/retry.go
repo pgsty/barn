@@ -40,7 +40,7 @@ trap 'rm -rf -- "${temporary}"' EXIT
 		fmt.Fprintf(&out, "printf '%%s' %s | base64 -d >\"${temporary}/%s\"\nchmod 0755 \"${temporary}/%s\"\nmv -f -- \"${temporary}/%s\" /usr/local/libexec/%s\n",
 			base64.StdEncoding.EncodeToString([]byte(script)), name, name, name, name)
 	}
-	write("barn-warning", renderWarningScript())
+	write("barn-warning", warningScript)
 	write("barn-identity-contract", renderIdentityContractScript(input.SSHUser))
 	write("barn-init-disks", renderDiskScript(input.Disks))
 	write("barn-hosts", RenderHostsScript(input.Hosts))
